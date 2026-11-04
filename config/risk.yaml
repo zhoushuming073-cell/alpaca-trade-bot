@@ -1,0 +1,9 @@
+# Conservative EXAMPLES, not empirically optimized parameters.
+max_symbol_weight: 0.10
+max_total_weight: 0.50
+max_daily_loss: 0.02
+max_daily_orders: 10
+max_bar_age_seconds: 120
+max_quote_age_seconds: 30
+max_spread: 0.01
+max_price_deviation: 0.05

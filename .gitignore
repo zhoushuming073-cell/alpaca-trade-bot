@@ -1,0 +1,12 @@
+.venv/
+.env
+*.key
+*api-key*
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+data/
+*key*.txt
+*.log
+logs/
