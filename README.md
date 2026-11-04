@@ -98,6 +98,12 @@ LumiBot 4.6.46 Alpaca 数据适配默认可能有 16 分钟延迟，且多分钟
 测试默认禁止 socket 网络连接，使用虚假凭证，不接触真实资金。覆盖 BUY/SELL/HOLD、无效响应、股票池、仓位/现金/总敞口、亏损/次数、暂停、重复周期、超时查询、未决阻塞、重启恢复、休市/假日/夏令时/提前收市、完整 K 线、真实 LumiBot 适配契约、客户端订单编号与 Paper 端点防护。
 
 已完成只读 Paper 账户及 IEX 接入、DeepSeek 实际策略审核和暂停状态下 LumiBot 初始化。尚未验证真实纸账户下单/部分成交/撤单竞态、全天无人值守稳定性、完整股票池历史可用性及策略收益。未做策略回测；没有声称策略有效。`data/preflight.json` 保存最近一次只读检查结果。
+## Acknowledgements
+
+This project is built with [LumiBot](https://github.com/Lumiwealth/lumibot),
+an open-source Python framework for algorithmic trading.
+
+LumiBot is licensed under GPL-3.0.
 
 官方核查：
 
