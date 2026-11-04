@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: ai-paper-trader
+Version: 0.1.0
+Requires-Python: <3.14,>=3.13
+Requires-Dist: lumibot==4.6.46
+Requires-Dist: openai==2.54.0
+Requires-Dist: pydantic==2.14.2
+Requires-Dist: PyYAML==6.0.3
+Requires-Dist: python-dotenv==1.2.4
+Requires-Dist: portalocker==4.4.2

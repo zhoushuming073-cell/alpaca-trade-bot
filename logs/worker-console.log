@@ -1,0 +1,1154 @@
+2026-11-04 22:42:31,683 | INFO | LumiBot v4.6.46 starting
+2026-11-04 22:42:32,279 | INFO | [unknown] Waiting for the socket stream connection to be established,
+                method _stream_established must be called
+2026-11-04 22:42:34,284 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803354.2822275,"v":1}
+2026-11-04 22:42:35,324 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803355.3225808,"v":1}
+2026-11-04 22:42:38,485 | INFO | [PaperStrategy] Error getting broker balances: HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Read timed out. (read timeout=5)
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+TimeoutError: _ssl.c:1015: The handshake operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\retry.py", line 510, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 781, in urlopen
+    self._raise_timeout(
+    ~~~~~~~~~~~~~~~~~~~^
+        err=e, url=self.proxy.url, timeout_value=conn.timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 373, in _raise_timeout
+    raise ReadTimeoutError(
+        self, url, f"Read timed out. (read timeout={timeout_value})"
+    ) from err
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Read timed out. (read timeout=5)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\strategies\_strategy.py", line 1518, in update_broker_balances
+    broker_balances = self.broker._get_balances_at_broker(self._quote_asset, self)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 711, in _get_balances_at_broker
+    response = self.api.get_account()
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\trading\client.py", line 474, in get_account
+    response = self.get("/account")
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 25, in _request
+    return super()._request(method,path,data,**kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 195, in _one_request
+    response = self._session.request(method, url, **opts)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 13, in send
+    return super().send(request,**kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 742, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Read timed out. (read timeout=5)
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+TimeoutError: _ssl.c:1015: The handshake operation timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\retry.py", line 510, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\util.py", line 39, in reraise
+    raise value
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 781, in urlopen
+    self._raise_timeout(
+    ~~~~~~~~~~~~~~~~~~~^
+        err=e, url=self.proxy.url, timeout_value=conn.timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 373, in _raise_timeout
+    raise ReadTimeoutError(
+        self, url, f"Read timed out. (read timeout={timeout_value})"
+    ) from err
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Read timed out. (read timeout=5)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\main.py", line 46, in <module>
+    main()
+    ~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\main.py", line 42, in main
+    trader.add_strategy(PaperStrategy(broker=build_broker(keys),parameters={"store":store}))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\strategies\_strategy.py", line 892, in __init__
+    self.broker._set_initial_positions(self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\broker.py", line 2183, in _set_initial_positions
+    positions = self._pull_positions(strategy)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 780, in _pull_positions
+    response = self._pull_broker_positions(strategy)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 765, in _pull_broker_positions
+    response = self.api.get_all_positions()
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\trading\client.py", line 244, in get_all_positions
+    response = self.get("/positions")
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 25, in _request
+    return super()._request(method,path,data,**kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 195, in _one_request
+    response = self._session.request(method, url, **opts)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 13, in send
+    return super().send(request,**kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 742, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='paper-api.alpaca.markets', port=443): Read timed out. (read timeout=5)
+2026-11-04 22:44:12,451 | INFO | LumiBot v4.6.46 starting
+2026-11-04 22:44:13,162 | INFO | [unknown] Waiting for the socket stream connection to be established,
+                method _stream_established must be called
+2026-11-04 22:44:15,168 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803455.1654177,"v":1}
+2026-11-04 22:44:16,489 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803456.487097,"v":1}
+2026-11-04 22:44:19,519 | INFO | [PaperStrategy] Error getting broker balances: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\retry.py", line 510, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\util.py", line 38, in reraise
+    raise value.with_traceback(tb)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\strategies\_strategy.py", line 1518, in update_broker_balances
+    broker_balances = self.broker._get_balances_at_broker(self._quote_asset, self)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 711, in _get_balances_at_broker
+    response = self.api.get_account()
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\trading\client.py", line 474, in get_account
+    response = self.get("/account")
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 25, in _request
+    return super()._request(method,path,data,**kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 195, in _one_request
+    response = self._session.request(method, url, **opts)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 13, in send
+    return super().send(request,**kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 711, in send
+    raise ConnectionError(err, request=request)
+requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\retry.py", line 510, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\util.py", line 38, in reraise
+    raise value.with_traceback(tb)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\main.py", line 46, in <module>
+    main()
+    ~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\main.py", line 42, in main
+    trader.add_strategy(PaperStrategy(broker=build_broker(keys),parameters={"store":store}))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\strategies\_strategy.py", line 892, in __init__
+    self.broker._set_initial_positions(self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\broker.py", line 2183, in _set_initial_positions
+    positions = self._pull_positions(strategy)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 780, in _pull_positions
+    response = self._pull_broker_positions(strategy)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 765, in _pull_broker_positions
+    response = self.api.get_all_positions()
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\trading\client.py", line 244, in get_all_positions
+    response = self.get("/positions")
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 25, in _request
+    return super()._request(method,path,data,**kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 195, in _one_request
+    response = self._session.request(method, url, **opts)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 13, in send
+    return super().send(request,**kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 711, in send
+    raise ConnectionError(err, request=request)
+requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-11-04 22:46:00,097 | INFO | LumiBot v4.6.46 starting
+2026-11-04 22:46:00,741 | INFO | [unknown] Waiting for the socket stream connection to be established,
+                method _stream_established must be called
+2026-11-04 22:46:02,749 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803562.7471435,"v":1}
+2026-11-04 22:46:04,094 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803564.092,"v":1}
+2026-11-04 22:46:07,111 | INFO | [PaperStrategy] Error getting broker balances: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\retry.py", line 510, in increment
+    raise reraise(type(error), error, _stacktrace)
+          ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\util.py", line 38, in reraise
+    raise value.with_traceback(tb)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+    ~~~~~~~~~~~~^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 878, in connect
+    wrapped_socket, is_verified = _ssl_wrap_socket_and_match_hostname(
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<14 lines>...
+        assert_fingerprint=self.assert_fingerprint,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\connection.py", line 1080, in _ssl_wrap_socket_and_match_hostname
+    ssl_sock = ssl_wrap_socket(
+        sock=sock,
+    ...<8 lines>...
+        tls_in_tls=tls_in_tls,
+    )
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 437, in ssl_wrap_socket
+    ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\urllib3\util\ssl_.py", line 481, in _ssl_wrap_socket_impl
+    return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\pip\_vendor\truststore\_api.py", line 113, in wrap_socket
+    ssl_sock = self._ctx.wrap_socket(
+        sock,
+    ...<4 lines>...
+        session=session,
+    )
+  File "D:\python\Lib\ssl.py", line 455, in wrap_socket
+    return self.sslsocket_class._create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sock=sock,
+        ^^^^^^^^^^
+    ...<5 lines>...
+        session=session
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\python\Lib\ssl.py", line 1076, in _create
+    self.do_handshake()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\python\Lib\ssl.py", line 1372, in do_handshake
+    self._sslobj.do_handshake()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\strategies\_strategy.py", line 1518, in update_broker_balances
+    broker_balances = self.broker._get_balances_at_broker(self._quote_asset, self)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\lumibot\brokers\alpaca.py", line 711, in _get_balances_at_broker
+    response = self.api.get_account()
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\trading\client.py", line 474, in get_account
+    response = self.get("/account")
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 225, in get
+    return self._request("GET", path, data, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 25, in _request
+    return super()._request(method,path,data,**kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 131, in _request
+    return self._one_request(method, url, opts, retry)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\alpaca\common\rest.py", line 195, in _one_request
+    response = self._session.request(method, url, **opts)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+  File "D:\alpaca-ai\ai-paper-trader\src\trading_bot\broker.py", line 13, in send
+    return super().send(request,**kwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\alpaca-ai\ai-paper-trader\.venv\Lib\site-packages\requests\adapters.py", line 711, in send
+    raise ConnectionError(err, request=request)
+requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+Robot exited safely: SSLError
+2026-11-04 22:48:15,668 | INFO | LumiBot v4.6.46 starting
+2026-11-04 22:48:16,405 | INFO | [unknown] Waiting for the socket stream connection to be established,
+                method _stream_established must be called
+2026-11-04 22:48:18,415 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803698.4130852,"v":1}
+2026-11-04 22:48:19,613 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803699.6117365,"v":1}
+2026-11-04 22:48:19,887 | INFO | [PaperStrategy] Strategy PaperStrategy is initializing
+2026-11-04 22:48:49,078 | WARNING | lumibot_logger.py:warning:613 | [PaperStrategy] LUMIWEALTH_API_KEY not set. Not sending an update to the cloud because lumiwealth_api_key is not set. If you would like to be able to track your bot performance on www.botspot.trade, please set the lumiwealth_api_key parameter in the strategy initialization or the LUMIWEALTH_API_KEY environment variable.
+2026-11-04 22:48:51,559 | INFO | [PaperStrategy] Strategy will check in again at: 2026-11-04 10:48:52 PM CST
+2026-11-04 22:48:53,627 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:48:52 PM LMT
+2026-11-04 22:48:55,024 | INFO | [PaperStrategy] Getting historical prices for CRWV, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:48:57,573 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:48:57 PM LMT, next check in time is 2026-11-04 10:48:58 PM CST. Took 5.57s
+2026-11-04 22:48:59,063 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:48:58 PM LMT
+2026-11-04 22:49:00,512 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:00 PM LMT, next check in time is 2026-11-04 10:49:01 PM CST. Took 2.50s
+2026-11-04 22:49:04,049 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:03 PM LMT
+2026-11-04 22:49:05,473 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:05 PM LMT, next check in time is 2026-11-04 10:49:06 PM CST. Took 2.46s
+2026-11-04 22:49:09,138 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:08 PM LMT
+2026-11-04 22:49:10,539 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:10 PM LMT, next check in time is 2026-11-04 10:49:11 PM CST. Took 2.54s
+2026-11-04 22:49:14,010 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:13 PM LMT
+2026-11-04 22:49:15,446 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:15 PM LMT, next check in time is 2026-11-04 10:49:16 PM CST. Took 2.44s
+2026-11-04 22:49:19,082 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:18 PM LMT
+2026-11-04 22:49:20,681 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:20 PM LMT, next check in time is 2026-11-04 10:49:21 PM CST. Took 2.67s
+2026-11-04 22:49:24,247 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:23 PM LMT
+2026-11-04 22:49:25,860 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:25 PM LMT, next check in time is 2026-11-04 10:49:26 PM CST. Took 2.85s
+2026-11-04 22:49:30,139 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:29 PM LMT
+2026-11-04 22:49:31,474 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:31 PM LMT, next check in time is 2026-11-04 10:49:32 PM CST. Took 2.47s
+2026-11-04 22:49:35,023 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:34 PM LMT
+2026-11-04 22:49:36,419 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:36 PM LMT, next check in time is 2026-11-04 10:49:37 PM CST. Took 2.41s
+2026-11-04 22:49:40,058 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:39 PM LMT
+2026-11-04 22:49:41,415 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:41 PM LMT, next check in time is 2026-11-04 10:49:42 PM CST. Took 2.41s
+2026-11-04 22:49:45,074 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:44 PM LMT
+2026-11-04 22:49:46,509 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:46 PM LMT, next check in time is 2026-11-04 10:49:47 PM CST. Took 2.50s
+2026-11-04 22:49:50,042 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:49 PM LMT
+2026-11-04 22:49:51,420 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:51 PM LMT, next check in time is 2026-11-04 10:49:52 PM CST. Took 2.42s
+2026-11-04 22:49:55,078 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:54 PM LMT
+2026-11-04 22:49:56,448 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:49:56 PM LMT, next check in time is 2026-11-04 10:49:57 PM CST. Took 2.44s
+2026-11-04 22:50:00,052 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:49:59 PM LMT
+2026-11-04 22:50:03,061 | INFO | [PaperStrategy] Getting historical prices for NBIS, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:04,076 | INFO | [PaperStrategy] Getting historical prices for IREN, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:04,715 | INFO | [PaperStrategy] Getting historical prices for APLD, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:05,507 | INFO | [PaperStrategy] Getting historical prices for WULF, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:05,993 | INFO | [PaperStrategy] Getting historical prices for CIFR, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:07,265 | INFO | [PaperStrategy] Getting historical prices for SMCI, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:08,246 | INFO | [PaperStrategy] Getting historical prices for DELL, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:08,922 | INFO | [PaperStrategy] Getting historical prices for MU, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:09,686 | INFO | [PaperStrategy] Getting historical prices for SNDK, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:10,377 | INFO | [PaperStrategy] Getting historical prices for WDC, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:11,571 | INFO | [PaperStrategy] Getting historical prices for STX, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:13,801 | INFO | [PaperStrategy] Getting historical prices for SKHY, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:14,619 | INFO | [PaperStrategy] Getting historical prices for ALAB, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:15,215 | INFO | [PaperStrategy] Getting historical prices for AMD, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:16,093 | INFO | [PaperStrategy] Getting historical prices for POET, 42 bars of 5 minutes (fetching 210 minute bars)
+2026-11-04 22:50:16,712 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:16 PM LMT, next check in time is 2026-11-04 10:50:17 PM CST. Took 17.70s
+2026-11-04 22:50:19,127 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:18 PM LMT
+2026-11-04 22:50:20,427 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:20 PM LMT, next check in time is 2026-11-04 10:50:21 PM CST. Took 2.40s
+2026-11-04 22:50:24,076 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:23 PM LMT
+2026-11-04 22:50:25,465 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:25 PM LMT, next check in time is 2026-11-04 10:50:26 PM CST. Took 2.46s
+2026-11-04 22:50:29,039 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:28 PM LMT
+2026-11-04 22:50:30,448 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:30 PM LMT, next check in time is 2026-11-04 10:50:31 PM CST. Took 2.44s
+2026-11-04 22:50:34,095 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:33 PM LMT
+2026-11-04 22:50:35,603 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:35 PM LMT, next check in time is 2026-11-04 10:50:36 PM CST. Took 2.58s
+2026-11-04 22:50:39,051 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:38 PM LMT
+2026-11-04 22:50:40,376 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:40 PM LMT, next check in time is 2026-11-04 10:50:41 PM CST. Took 2.37s
+2026-11-04 22:50:44,269 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:43 PM LMT
+2026-11-04 22:50:45,670 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:45 PM LMT, next check in time is 2026-11-04 10:50:46 PM CST. Took 2.66s
+2026-11-04 22:50:49,051 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:48 PM LMT
+2026-11-04 22:50:50,392 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:50 PM LMT, next check in time is 2026-11-04 10:50:51 PM CST. Took 2.38s
+2026-11-04 22:50:54,032 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:53 PM LMT
+2026-11-04 22:50:55,774 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:50:55 PM LMT, next check in time is 2026-11-04 10:50:56 PM CST. Took 2.76s
+2026-11-04 22:51:00,097 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:50:59 PM LMT
+2026-11-04 22:51:01,566 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:01 PM LMT, next check in time is 2026-11-04 10:51:02 PM CST. Took 2.56s
+2026-11-04 22:51:05,242 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:04 PM LMT
+2026-11-04 22:51:06,619 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:06 PM LMT, next check in time is 2026-11-04 10:51:07 PM CST. Took 2.61s
+2026-11-04 22:51:10,010 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:09 PM LMT
+2026-11-04 22:51:11,528 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:11 PM LMT, next check in time is 2026-11-04 10:51:12 PM CST. Took 2.52s
+2026-11-04 22:51:15,137 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:14 PM LMT
+2026-11-04 22:51:16,561 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:16 PM LMT, next check in time is 2026-11-04 10:51:17 PM CST. Took 2.55s
+2026-11-04 22:51:21,052 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:20 PM LMT
+2026-11-04 22:51:22,376 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:22 PM LMT, next check in time is 2026-11-04 10:51:23 PM CST. Took 2.37s
+2026-11-04 22:51:26,084 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:25 PM LMT
+2026-11-04 22:51:27,421 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:27 PM LMT, next check in time is 2026-11-04 10:51:28 PM CST. Took 2.41s
+2026-11-04 22:51:31,055 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:30 PM LMT
+2026-11-04 22:51:32,555 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:32 PM LMT, next check in time is 2026-11-04 10:51:33 PM CST. Took 2.55s
+2026-11-04 22:51:36,040 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:35 PM LMT
+2026-11-04 22:51:37,403 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:37 PM LMT, next check in time is 2026-11-04 10:51:38 PM CST. Took 2.36s
+2026-11-04 22:51:41,280 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:40 PM LMT
+2026-11-04 22:51:42,610 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:42 PM LMT, next check in time is 2026-11-04 10:51:43 PM CST. Took 2.61s
+2026-11-04 22:51:46,062 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:45 PM LMT
+2026-11-04 22:51:47,451 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:47 PM LMT, next check in time is 2026-11-04 10:51:48 PM CST. Took 2.45s
+2026-11-04 22:51:51,164 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:50 PM LMT
+2026-11-04 22:51:52,548 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:52 PM LMT, next check in time is 2026-11-04 10:51:53 PM CST. Took 2.54s
+2026-11-04 22:51:56,024 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:51:55 PM LMT
+2026-11-04 22:51:57,431 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:51:57 PM LMT, next check in time is 2026-11-04 10:51:58 PM CST. Took 2.43s
+2026-11-04 22:52:01,093 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:00 PM LMT
+2026-11-04 22:52:02,418 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:02 PM LMT, next check in time is 2026-11-04 10:52:03 PM CST. Took 2.40s
+2026-11-04 22:52:06,068 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:05 PM LMT
+2026-11-04 22:52:07,514 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:07 PM LMT, next check in time is 2026-11-04 10:52:08 PM CST. Took 2.51s
+2026-11-04 22:52:11,486 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:10 PM LMT
+2026-11-04 22:52:12,858 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:12 PM LMT, next check in time is 2026-11-04 10:52:13 PM CST. Took 2.86s
+2026-11-04 22:52:17,016 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:16 PM LMT
+2026-11-04 22:52:18,658 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:18 PM LMT, next check in time is 2026-11-04 10:52:19 PM CST. Took 2.65s
+2026-11-04 22:52:23,053 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:22 PM LMT
+2026-11-04 22:52:24,428 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:24 PM LMT, next check in time is 2026-11-04 10:52:25 PM CST. Took 2.42s
+2026-11-04 22:52:28,099 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:27 PM LMT
+2026-11-04 22:52:29,412 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:29 PM LMT, next check in time is 2026-11-04 10:52:30 PM CST. Took 2.40s
+2026-11-04 22:52:33,255 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:32 PM LMT
+2026-11-04 22:52:34,640 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:34 PM LMT, next check in time is 2026-11-04 10:52:35 PM CST. Took 2.63s
+2026-11-04 22:52:38,041 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:37 PM LMT
+2026-11-04 22:52:39,496 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:39 PM LMT, next check in time is 2026-11-04 10:52:40 PM CST. Took 2.49s
+2026-11-04 22:52:43,094 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:42 PM LMT
+2026-11-04 22:52:44,447 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:44 PM LMT, next check in time is 2026-11-04 10:52:45 PM CST. Took 2.44s
+2026-11-04 22:52:48,124 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:47 PM LMT
+2026-11-04 22:52:49,472 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:49 PM LMT, next check in time is 2026-11-04 10:52:50 PM CST. Took 2.46s
+2026-11-04 22:52:53,795 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:52 PM LMT
+2026-11-04 22:52:55,251 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:55 PM LMT, next check in time is 2026-11-04 10:52:56 PM CST. Took 3.24s
+2026-11-04 22:52:58,038 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:52:57 PM LMT
+2026-11-04 22:52:59,456 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:52:59 PM LMT, next check in time is 2026-11-04 10:53:00 PM CST. Took 2.45s
+2026-11-04 22:53:03,085 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:02 PM LMT
+2026-11-04 22:53:04,396 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:04 PM LMT, next check in time is 2026-11-04 10:53:05 PM CST. Took 2.39s
+2026-11-04 22:53:08,497 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:07 PM LMT
+2026-11-04 22:53:10,680 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:10 PM LMT, next check in time is 2026-11-04 10:53:11 PM CST. Took 3.67s
+2026-11-04 22:53:13,058 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:12 PM LMT
+2026-11-04 22:53:14,494 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:14 PM LMT, next check in time is 2026-11-04 10:53:15 PM CST. Took 2.49s
+2026-11-04 22:53:18,034 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:17 PM LMT
+2026-11-04 22:53:18,429 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793803998.4270403,"v":1}
+2026-11-04 22:53:19,481 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:19 PM LMT, next check in time is 2026-11-04 10:53:20 PM CST. Took 2.47s
+2026-11-04 22:53:19,616 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":1,"trade_events_rows":0},"strategy_name":"PaperStrategy","ts":1793803999.614395,"v":1}
+2026-11-04 22:53:22,984 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:22 PM LMT
+2026-11-04 22:53:24,985 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:24 PM LMT, next check in time is 2026-11-04 10:53:25 PM CST. Took 2.97s
+2026-11-04 22:53:29,342 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:28 PM LMT
+2026-11-04 22:53:30,707 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:30 PM LMT, next check in time is 2026-11-04 10:53:31 PM CST. Took 2.70s
+2026-11-04 22:53:34,025 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:33 PM LMT
+2026-11-04 22:53:36,151 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:36 PM LMT, next check in time is 2026-11-04 10:53:37 PM CST. Took 3.15s
+2026-11-04 22:53:39,054 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:38 PM LMT
+2026-11-04 22:53:41,259 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:41 PM LMT, next check in time is 2026-11-04 10:53:42 PM CST. Took 3.25s
+2026-11-04 22:53:44,047 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:43 PM LMT
+2026-11-04 22:53:45,469 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:45 PM LMT, next check in time is 2026-11-04 10:53:46 PM CST. Took 2.46s
+2026-11-04 22:53:49,014 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:48 PM LMT
+2026-11-04 22:53:50,297 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:50 PM LMT, next check in time is 2026-11-04 10:53:51 PM CST. Took 2.28s
+2026-11-04 22:53:54,031 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:53 PM LMT
+2026-11-04 22:53:55,323 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:53:55 PM LMT, next check in time is 2026-11-04 10:53:56 PM CST. Took 2.32s
+2026-11-04 22:53:59,231 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:53:58 PM LMT
+2026-11-04 22:54:00,616 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:00 PM LMT, next check in time is 2026-11-04 10:54:01 PM CST. Took 2.62s
+2026-11-04 22:54:04,064 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:03 PM LMT
+2026-11-04 22:54:05,473 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:05 PM LMT, next check in time is 2026-11-04 10:54:06 PM CST. Took 2.47s
+2026-11-04 22:54:09,015 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:08 PM LMT
+2026-11-04 22:54:10,409 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:10 PM LMT, next check in time is 2026-11-04 10:54:11 PM CST. Took 2.40s
+2026-11-04 22:54:14,019 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:13 PM LMT
+2026-11-04 22:54:15,392 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:15 PM LMT, next check in time is 2026-11-04 10:54:16 PM CST. Took 2.39s
+2026-11-04 22:54:19,056 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:18 PM LMT
+2026-11-04 22:54:20,409 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:20 PM LMT, next check in time is 2026-11-04 10:54:21 PM CST. Took 2.40s
+2026-11-04 22:54:24,031 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:23 PM LMT
+2026-11-04 22:54:25,508 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:25 PM LMT, next check in time is 2026-11-04 10:54:26 PM CST. Took 2.50s
+2026-11-04 22:54:29,082 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:28 PM LMT
+2026-11-04 22:54:30,413 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:30 PM LMT, next check in time is 2026-11-04 10:54:31 PM CST. Took 2.40s
+2026-11-04 22:54:34,097 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:33 PM LMT
+2026-11-04 22:54:35,403 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:35 PM LMT, next check in time is 2026-11-04 10:54:36 PM CST. Took 2.38s
+2026-11-04 22:54:39,026 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:38 PM LMT
+2026-11-04 22:54:40,299 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:40 PM LMT, next check in time is 2026-11-04 10:54:41 PM CST. Took 2.29s
+2026-11-04 22:54:44,054 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:43 PM LMT
+2026-11-04 22:54:45,592 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:45 PM LMT, next check in time is 2026-11-04 10:54:46 PM CST. Took 2.58s
+2026-11-04 22:54:49,007 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:48 PM LMT
+2026-11-04 22:54:50,467 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:50 PM LMT, next check in time is 2026-11-04 10:54:51 PM CST. Took 2.47s
+2026-11-04 22:54:54,036 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:53 PM LMT
+2026-11-04 22:54:55,547 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:54:55 PM LMT, next check in time is 2026-11-04 10:54:56 PM CST. Took 2.54s
+2026-11-04 22:54:59,017 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:54:58 PM LMT
+2026-11-04 22:55:00,505 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:00 PM LMT, next check in time is 2026-11-04 10:55:01 PM CST. Took 2.50s
+2026-11-04 22:55:04,162 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:03 PM LMT
+2026-11-04 22:55:22,403 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:22 PM LMT, next check in time is 2026-11-04 10:55:23 PM CST. Took 19.40s
+2026-11-04 22:55:24,076 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:23 PM LMT
+2026-11-04 22:55:25,511 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:25 PM LMT, next check in time is 2026-11-04 10:55:26 PM CST. Took 2.50s
+2026-11-04 22:55:29,012 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:28 PM LMT
+2026-11-04 22:55:30,445 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:30 PM LMT, next check in time is 2026-11-04 10:55:31 PM CST. Took 2.44s
+2026-11-04 22:55:34,061 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:33 PM LMT
+2026-11-04 22:55:35,434 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:35 PM LMT, next check in time is 2026-11-04 10:55:36 PM CST. Took 2.43s
+2026-11-04 22:55:39,120 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:38 PM LMT
+2026-11-04 22:55:40,493 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:40 PM LMT, next check in time is 2026-11-04 10:55:41 PM CST. Took 2.48s
+2026-11-04 22:55:44,020 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:43 PM LMT
+2026-11-04 22:55:45,429 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:45 PM LMT, next check in time is 2026-11-04 10:55:46 PM CST. Took 2.42s
+2026-11-04 22:55:49,319 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:48 PM LMT
+2026-11-04 22:55:50,724 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:50 PM LMT, next check in time is 2026-11-04 10:55:51 PM CST. Took 2.70s
+2026-11-04 22:55:55,105 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:54 PM LMT
+2026-11-04 22:55:56,485 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:55:56 PM LMT, next check in time is 2026-11-04 10:55:57 PM CST. Took 2.47s
+2026-11-04 22:56:00,082 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:55:59 PM LMT
+2026-11-04 22:56:01,436 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:01 PM LMT, next check in time is 2026-11-04 10:56:02 PM CST. Took 2.42s
+2026-11-04 22:56:05,030 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:04 PM LMT
+2026-11-04 22:56:06,763 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:06 PM LMT, next check in time is 2026-11-04 10:56:07 PM CST. Took 2.76s
+2026-11-04 22:56:11,126 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:10 PM LMT
+2026-11-04 22:56:12,563 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:12 PM LMT, next check in time is 2026-11-04 10:56:13 PM CST. Took 2.55s
+2026-11-04 22:56:16,057 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:15 PM LMT
+2026-11-04 22:56:17,396 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:17 PM LMT, next check in time is 2026-11-04 10:56:18 PM CST. Took 2.35s
+2026-11-04 22:56:21,039 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:20 PM LMT
+2026-11-04 22:56:22,450 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:22 PM LMT, next check in time is 2026-11-04 10:56:23 PM CST. Took 2.45s
+2026-11-04 22:56:27,077 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:26 PM LMT
+2026-11-04 22:56:29,341 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:29 PM LMT, next check in time is 2026-11-04 10:56:30 PM CST. Took 3.32s
+2026-11-04 22:56:32,041 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:31 PM LMT
+2026-11-04 22:56:33,559 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:33 PM LMT, next check in time is 2026-11-04 10:56:34 PM CST. Took 2.54s
+2026-11-04 22:56:37,082 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:36 PM LMT
+2026-11-04 22:56:38,357 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:38 PM LMT, next check in time is 2026-11-04 10:56:39 PM CST. Took 2.32s
+2026-11-04 22:56:42,063 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:41 PM LMT
+2026-11-04 22:56:43,506 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:43 PM LMT, next check in time is 2026-11-04 10:56:44 PM CST. Took 2.50s
+2026-11-04 22:56:47,057 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:46 PM LMT
+2026-11-04 22:56:48,491 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:48 PM LMT, next check in time is 2026-11-04 10:56:49 PM CST. Took 2.48s
+2026-11-04 22:56:52,051 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:51 PM LMT
+2026-11-04 22:56:53,451 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:53 PM LMT, next check in time is 2026-11-04 10:56:54 PM CST. Took 2.45s
+2026-11-04 22:56:57,045 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:56:56 PM LMT
+2026-11-04 22:56:58,412 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:56:58 PM LMT, next check in time is 2026-11-04 10:56:59 PM CST. Took 2.40s
+2026-11-04 22:57:02,119 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:01 PM LMT
+2026-11-04 22:57:03,471 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:03 PM LMT, next check in time is 2026-11-04 10:57:04 PM CST. Took 2.44s
+2026-11-04 22:57:07,049 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:06 PM LMT
+2026-11-04 22:57:08,373 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:08 PM LMT, next check in time is 2026-11-04 10:57:09 PM CST. Took 2.37s
+2026-11-04 22:57:12,244 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:11 PM LMT
+2026-11-04 22:57:13,611 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:13 PM LMT, next check in time is 2026-11-04 10:57:14 PM CST. Took 2.60s
+2026-11-04 22:57:17,078 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:16 PM LMT
+2026-11-04 22:57:18,408 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:18 PM LMT, next check in time is 2026-11-04 10:57:19 PM CST. Took 2.41s
+2026-11-04 22:57:22,081 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:21 PM LMT
+2026-11-04 22:57:23,423 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:23 PM LMT, next check in time is 2026-11-04 10:57:24 PM CST. Took 2.39s
+2026-11-04 22:57:27,052 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:26 PM LMT
+2026-11-04 22:57:28,630 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:28 PM LMT, next check in time is 2026-11-04 10:57:29 PM CST. Took 2.62s
+2026-11-04 22:57:33,098 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:32 PM LMT
+2026-11-04 22:57:34,454 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:34 PM LMT, next check in time is 2026-11-04 10:57:35 PM CST. Took 2.43s
+2026-11-04 22:57:38,010 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:37 PM LMT
+2026-11-04 22:57:39,539 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:39 PM LMT, next check in time is 2026-11-04 10:57:40 PM CST. Took 2.53s
+2026-11-04 22:57:42,984 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:42 PM LMT
+2026-11-04 22:57:44,299 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:44 PM LMT, next check in time is 2026-11-04 10:57:45 PM CST. Took 2.28s
+2026-11-04 22:57:48,113 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:47 PM LMT
+2026-11-04 22:57:49,505 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:49 PM LMT, next check in time is 2026-11-04 10:57:50 PM CST. Took 2.49s
+2026-11-04 22:57:53,063 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:52 PM LMT
+2026-11-04 22:57:54,380 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:54 PM LMT, next check in time is 2026-11-04 10:57:55 PM CST. Took 2.37s
+2026-11-04 22:57:58,079 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:57:57 PM LMT
+2026-11-04 22:57:59,605 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:57:59 PM LMT, next check in time is 2026-11-04 10:58:00 PM CST. Took 2.60s
+2026-11-04 22:58:03,009 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:02 PM LMT
+2026-11-04 22:58:04,390 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:04 PM LMT, next check in time is 2026-11-04 10:58:05 PM CST. Took 2.38s
+2026-11-04 22:58:08,105 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:07 PM LMT
+2026-11-04 22:58:09,535 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:09 PM LMT, next check in time is 2026-11-04 10:58:10 PM CST. Took 2.53s
+2026-11-04 22:58:13,131 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:12 PM LMT
+2026-11-04 22:58:14,630 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:14 PM LMT, next check in time is 2026-11-04 10:58:15 PM CST. Took 2.57s
+2026-11-04 22:58:18,090 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:17 PM LMT
+2026-11-04 22:58:18,446 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793804298.4430566,"v":1}
+2026-11-04 22:58:19,502 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:19 PM LMT, next check in time is 2026-11-04 10:58:20 PM CST. Took 2.50s
+2026-11-04 22:58:19,644 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":1,"trade_events_rows":0},"strategy_name":"PaperStrategy","ts":1793804299.626226,"v":1}
+2026-11-04 22:58:23,027 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:22 PM LMT
+2026-11-04 22:58:24,388 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:24 PM LMT, next check in time is 2026-11-04 10:58:25 PM CST. Took 2.37s
+2026-11-04 22:58:28,088 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:27 PM LMT
+2026-11-04 22:58:29,582 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:29 PM LMT, next check in time is 2026-11-04 10:58:30 PM CST. Took 2.58s
+2026-11-04 22:58:33,423 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:32 PM LMT
+2026-11-04 22:58:35,224 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:35 PM LMT, next check in time is 2026-11-04 10:58:36 PM CST. Took 3.21s
+2026-11-04 22:58:38,400 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:37 PM LMT
+2026-11-04 22:58:40,104 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:40 PM LMT, next check in time is 2026-11-04 10:58:41 PM CST. Took 3.09s
+2026-11-04 22:58:43,525 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:42 PM LMT
+2026-11-04 22:58:45,297 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:45 PM LMT, next check in time is 2026-11-04 10:58:46 PM CST. Took 3.29s
+2026-11-04 22:58:47,987 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:47 PM LMT
+2026-11-04 22:58:49,377 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:49 PM LMT, next check in time is 2026-11-04 10:58:50 PM CST. Took 2.37s
+2026-11-04 22:58:53,198 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:52 PM LMT
+2026-11-04 22:58:54,542 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:54 PM LMT, next check in time is 2026-11-04 10:58:55 PM CST. Took 2.52s
+2026-11-04 22:58:58,014 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:58:57 PM LMT
+2026-11-04 22:58:59,458 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:58:59 PM LMT, next check in time is 2026-11-04 10:59:00 PM CST. Took 2.45s
+2026-11-04 22:59:03,066 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:02 PM LMT
+2026-11-04 22:59:04,386 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:04 PM LMT, next check in time is 2026-11-04 10:59:05 PM CST. Took 2.36s
+2026-11-04 22:59:08,068 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:07 PM LMT
+2026-11-04 22:59:09,445 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:09 PM LMT, next check in time is 2026-11-04 10:59:10 PM CST. Took 2.44s
+2026-11-04 22:59:13,013 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:12 PM LMT
+2026-11-04 22:59:14,499 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:14 PM LMT, next check in time is 2026-11-04 10:59:15 PM CST. Took 2.48s
+2026-11-04 22:59:18,180 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:17 PM LMT
+2026-11-04 22:59:19,683 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:19 PM LMT, next check in time is 2026-11-04 10:59:20 PM CST. Took 2.67s
+2026-11-04 22:59:23,096 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:22 PM LMT
+2026-11-04 22:59:24,518 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:24 PM LMT, next check in time is 2026-11-04 10:59:25 PM CST. Took 2.51s
+2026-11-04 22:59:28,042 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:27 PM LMT
+2026-11-04 22:59:29,388 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:29 PM LMT, next check in time is 2026-11-04 10:59:30 PM CST. Took 2.35s
+2026-11-04 22:59:33,076 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:32 PM LMT
+2026-11-04 22:59:34,768 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:34 PM LMT, next check in time is 2026-11-04 10:59:35 PM CST. Took 2.76s
+2026-11-04 22:59:39,005 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:38 PM LMT
+2026-11-04 22:59:40,748 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:40 PM LMT, next check in time is 2026-11-04 10:59:41 PM CST. Took 2.75s
+2026-11-04 22:59:44,073 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:43 PM LMT
+2026-11-04 22:59:45,984 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:45 PM LMT, next check in time is 2026-11-04 10:59:46 PM CST. Took 2.97s
+2026-11-04 22:59:50,071 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:49 PM LMT
+2026-11-04 22:59:51,706 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:51 PM LMT, next check in time is 2026-11-04 10:59:52 PM CST. Took 2.70s
+2026-11-04 22:59:55,047 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:54 PM LMT
+2026-11-04 22:59:56,714 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 10:59:56 PM LMT, next check in time is 2026-11-04 10:59:57 PM CST. Took 2.71s
+2026-11-04 23:00:00,094 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 10:59:59 PM LMT
+2026-11-04 23:00:01,471 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:01 PM LMT, next check in time is 2026-11-04 11:00:02 PM CST. Took 2.45s
+2026-11-04 23:00:06,635 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:04 PM LMT
+2026-11-04 23:00:08,726 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:08 PM LMT, next check in time is 2026-11-04 11:00:09 PM CST. Took 4.71s
+2026-11-04 23:00:11,830 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:10 PM LMT
+2026-11-04 23:00:13,281 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:13 PM LMT, next check in time is 2026-11-04 11:00:14 PM CST. Took 3.27s
+2026-11-04 23:00:16,695 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:15 PM LMT
+2026-11-04 23:00:18,145 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:18 PM LMT, next check in time is 2026-11-04 11:00:19 PM CST. Took 3.12s
+2026-11-04 23:00:21,272 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:20 PM LMT
+2026-11-04 23:00:22,761 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:22 PM LMT, next check in time is 2026-11-04 11:00:23 PM CST. Took 2.75s
+2026-11-04 23:00:27,216 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:26 PM LMT
+2026-11-04 23:00:28,560 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:28 PM LMT, next check in time is 2026-11-04 11:00:29 PM CST. Took 2.56s
+2026-11-04 23:00:32,598 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:31 PM LMT
+2026-11-04 23:00:33,944 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:33 PM LMT, next check in time is 2026-11-04 11:00:34 PM CST. Took 2.93s
+2026-11-04 23:00:38,061 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:37 PM LMT
+2026-11-04 23:00:39,572 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:39 PM LMT, next check in time is 2026-11-04 11:00:40 PM CST. Took 2.57s
+2026-11-04 23:00:43,145 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:42 PM LMT
+2026-11-04 23:00:44,466 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:44 PM LMT, next check in time is 2026-11-04 11:00:45 PM CST. Took 2.45s
+2026-11-04 23:00:48,034 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:47 PM LMT
+2026-11-04 23:00:49,451 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:49 PM LMT, next check in time is 2026-11-04 11:00:50 PM CST. Took 2.44s
+2026-11-04 23:00:53,025 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:52 PM LMT
+2026-11-04 23:00:54,360 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:54 PM LMT, next check in time is 2026-11-04 11:00:55 PM CST. Took 2.33s
+2026-11-04 23:00:58,178 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:00:57 PM LMT
+2026-11-04 23:00:59,477 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:00:59 PM LMT, next check in time is 2026-11-04 11:01:00 PM CST. Took 2.44s
+2026-11-04 23:01:03,143 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:02 PM LMT
+2026-11-04 23:01:04,539 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:04 PM LMT, next check in time is 2026-11-04 11:01:05 PM CST. Took 2.53s
+2026-11-04 23:01:08,275 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:07 PM LMT
+2026-11-04 23:01:09,665 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:09 PM LMT, next check in time is 2026-11-04 11:01:10 PM CST. Took 2.65s
+2026-11-04 23:01:13,126 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:12 PM LMT
+2026-11-04 23:01:14,806 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:14 PM LMT, next check in time is 2026-11-04 11:01:15 PM CST. Took 2.80s
+2026-11-04 23:01:19,049 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:18 PM LMT
+2026-11-04 23:01:20,364 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:20 PM LMT, next check in time is 2026-11-04 11:01:21 PM CST. Took 2.34s
+2026-11-04 23:01:24,076 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:23 PM LMT
+2026-11-04 23:01:25,492 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:25 PM LMT, next check in time is 2026-11-04 11:01:26 PM CST. Took 2.47s
+2026-11-04 23:01:29,139 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:28 PM LMT
+2026-11-04 23:01:30,539 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:30 PM LMT, next check in time is 2026-11-04 11:01:31 PM CST. Took 2.53s
+2026-11-04 23:01:34,074 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:33 PM LMT
+2026-11-04 23:01:35,393 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:35 PM LMT, next check in time is 2026-11-04 11:01:36 PM CST. Took 2.39s
+2026-11-04 23:01:39,519 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:38 PM LMT
+2026-11-04 23:01:40,854 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:40 PM LMT, next check in time is 2026-11-04 11:01:41 PM CST. Took 2.84s
+2026-11-04 23:01:45,066 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:44 PM LMT
+2026-11-04 23:01:46,375 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:46 PM LMT, next check in time is 2026-11-04 11:01:47 PM CST. Took 2.37s
+2026-11-04 23:01:50,027 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:49 PM LMT
+2026-11-04 23:01:51,285 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:51 PM LMT, next check in time is 2026-11-04 11:01:52 PM CST. Took 2.28s
+2026-11-04 23:01:55,057 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:54 PM LMT
+2026-11-04 23:01:56,359 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:01:56 PM LMT, next check in time is 2026-11-04 11:01:57 PM CST. Took 2.36s
+2026-11-04 23:02:00,041 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:01:59 PM LMT
+2026-11-04 23:02:01,505 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:01 PM LMT, next check in time is 2026-11-04 11:02:02 PM CST. Took 2.49s
+2026-11-04 23:02:05,048 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:04 PM LMT
+2026-11-04 23:02:06,490 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:06 PM LMT, next check in time is 2026-11-04 11:02:07 PM CST. Took 2.48s
+2026-11-04 23:02:10,051 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:09 PM LMT
+2026-11-04 23:02:11,366 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:11 PM LMT, next check in time is 2026-11-04 11:02:12 PM CST. Took 2.35s
+2026-11-04 23:02:15,027 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:14 PM LMT
+2026-11-04 23:02:16,401 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:16 PM LMT, next check in time is 2026-11-04 11:02:17 PM CST. Took 2.40s
+2026-11-04 23:02:20,087 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:19 PM LMT
+2026-11-04 23:02:21,498 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:21 PM LMT, next check in time is 2026-11-04 11:02:22 PM CST. Took 2.47s
+2026-11-04 23:02:25,107 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:24 PM LMT
+2026-11-04 23:02:26,447 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:26 PM LMT, next check in time is 2026-11-04 11:02:27 PM CST. Took 2.44s
+2026-11-04 23:02:30,092 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:29 PM LMT
+2026-11-04 23:02:31,413 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:31 PM LMT, next check in time is 2026-11-04 11:02:32 PM CST. Took 2.41s
+2026-11-04 23:02:35,074 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:34 PM LMT
+2026-11-04 23:02:36,523 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:36 PM LMT, next check in time is 2026-11-04 11:02:37 PM CST. Took 2.51s
+2026-11-04 23:02:40,016 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:39 PM LMT
+2026-11-04 23:02:41,326 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:41 PM LMT, next check in time is 2026-11-04 11:02:42 PM CST. Took 2.32s
+2026-11-04 23:02:45,276 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:44 PM LMT
+2026-11-04 23:02:46,637 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:46 PM LMT, next check in time is 2026-11-04 11:02:47 PM CST. Took 2.63s
+2026-11-04 23:02:51,056 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:50 PM LMT
+2026-11-04 23:02:52,379 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:52 PM LMT, next check in time is 2026-11-04 11:02:53 PM CST. Took 2.36s
+2026-11-04 23:02:56,041 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:02:55 PM LMT
+2026-11-04 23:02:57,401 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:02:57 PM LMT, next check in time is 2026-11-04 11:02:58 PM CST. Took 2.39s
+2026-11-04 23:03:01,088 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:00 PM LMT
+2026-11-04 23:03:02,402 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:02 PM LMT, next check in time is 2026-11-04 11:03:03 PM CST. Took 2.39s
+2026-11-04 23:03:06,134 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:05 PM LMT
+2026-11-04 23:03:07,544 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:07 PM LMT, next check in time is 2026-11-04 11:03:08 PM CST. Took 2.53s
+2026-11-04 23:03:10,986 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:10 PM LMT
+2026-11-04 23:03:12,302 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:12 PM LMT, next check in time is 2026-11-04 11:03:13 PM CST. Took 2.29s
+2026-11-04 23:03:16,046 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:15 PM LMT
+2026-11-04 23:03:17,361 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:17 PM LMT, next check in time is 2026-11-04 11:03:18 PM CST. Took 2.35s
+2026-11-04 23:03:18,453 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793804598.4514556,"v":1}
+2026-11-04 23:03:19,648 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":1,"trade_events_rows":0},"strategy_name":"PaperStrategy","ts":1793804599.6468315,"v":1}
+2026-11-04 23:03:21,402 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:20 PM LMT
+2026-11-04 23:03:22,761 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:22 PM LMT, next check in time is 2026-11-04 11:03:23 PM CST. Took 2.73s
+2026-11-04 23:03:27,041 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:26 PM LMT
+2026-11-04 23:03:28,362 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:28 PM LMT, next check in time is 2026-11-04 11:03:29 PM CST. Took 2.35s
+2026-11-04 23:03:32,082 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:31 PM LMT
+2026-11-04 23:03:34,029 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:34 PM LMT, next check in time is 2026-11-04 11:03:35 PM CST. Took 3.02s
+2026-11-04 23:03:37,008 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:36 PM LMT
+2026-11-04 23:03:38,410 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:38 PM LMT, next check in time is 2026-11-04 11:03:39 PM CST. Took 2.40s
+2026-11-04 23:03:42,173 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:41 PM LMT
+2026-11-04 23:03:43,592 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:43 PM LMT, next check in time is 2026-11-04 11:03:44 PM CST. Took 2.52s
+2026-11-04 23:03:47,047 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:46 PM LMT
+2026-11-04 23:03:48,380 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:48 PM LMT, next check in time is 2026-11-04 11:03:49 PM CST. Took 2.38s
+2026-11-04 23:03:52,280 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:51 PM LMT
+2026-11-04 23:03:53,612 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:53 PM LMT, next check in time is 2026-11-04 11:03:54 PM CST. Took 2.60s
+2026-11-04 23:03:57,083 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:03:56 PM LMT
+2026-11-04 23:03:58,466 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:03:58 PM LMT, next check in time is 2026-11-04 11:03:59 PM CST. Took 2.46s
+2026-11-04 23:04:02,044 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:01 PM LMT
+2026-11-04 23:04:03,465 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:03 PM LMT, next check in time is 2026-11-04 11:04:04 PM CST. Took 2.46s
+2026-11-04 23:04:07,042 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:06 PM LMT
+2026-11-04 23:04:09,380 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:09 PM LMT, next check in time is 2026-11-04 11:04:10 PM CST. Took 3.37s
+2026-11-04 23:04:12,099 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:11 PM LMT
+2026-11-04 23:04:13,447 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:13 PM LMT, next check in time is 2026-11-04 11:04:14 PM CST. Took 2.43s
+2026-11-04 23:04:17,073 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:16 PM LMT
+2026-11-04 23:04:18,405 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:18 PM LMT, next check in time is 2026-11-04 11:04:19 PM CST. Took 2.40s
+2026-11-04 23:04:22,025 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:21 PM LMT
+2026-11-04 23:04:23,505 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:23 PM LMT, next check in time is 2026-11-04 11:04:24 PM CST. Took 2.49s
+2026-11-04 23:04:27,072 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:26 PM LMT
+2026-11-04 23:04:28,522 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:28 PM LMT, next check in time is 2026-11-04 11:04:29 PM CST. Took 2.51s
+2026-11-04 23:04:33,095 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:32 PM LMT
+2026-11-04 23:04:34,466 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:34 PM LMT, next check in time is 2026-11-04 11:04:35 PM CST. Took 2.46s
+2026-11-04 23:04:38,071 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:37 PM LMT
+2026-11-04 23:04:39,317 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:39 PM LMT, next check in time is 2026-11-04 11:04:40 PM CST. Took 2.29s
+2026-11-04 23:04:43,100 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:42 PM LMT
+2026-11-04 23:04:44,587 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:44 PM LMT, next check in time is 2026-11-04 11:04:45 PM CST. Took 2.58s
+2026-11-04 23:04:48,032 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:47 PM LMT
+2026-11-04 23:04:49,320 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:49 PM LMT, next check in time is 2026-11-04 11:04:50 PM CST. Took 2.31s
+2026-11-04 23:04:53,066 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:52 PM LMT
+2026-11-04 23:04:54,435 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:54 PM LMT, next check in time is 2026-11-04 11:04:55 PM CST. Took 2.43s
+2026-11-04 23:04:58,120 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:04:57 PM LMT
+2026-11-04 23:04:59,477 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:04:59 PM LMT, next check in time is 2026-11-04 11:05:00 PM CST. Took 2.46s
+2026-11-04 23:05:03,077 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:02 PM LMT
+2026-11-04 23:05:04,431 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:04 PM LMT, next check in time is 2026-11-04 11:05:05 PM CST. Took 2.42s
+2026-11-04 23:05:08,222 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:07 PM LMT
+2026-11-04 23:05:09,608 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:09 PM LMT, next check in time is 2026-11-04 11:05:10 PM CST. Took 2.58s
+2026-11-04 23:05:13,067 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:12 PM LMT
+2026-11-04 23:05:14,375 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:14 PM LMT, next check in time is 2026-11-04 11:05:15 PM CST. Took 2.37s
+2026-11-04 23:05:18,094 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:17 PM LMT
+2026-11-04 23:05:19,590 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:19 PM LMT, next check in time is 2026-11-04 11:05:20 PM CST. Took 2.59s
+2026-11-04 23:05:23,061 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:22 PM LMT
+2026-11-04 23:05:24,441 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:24 PM LMT, next check in time is 2026-11-04 11:05:25 PM CST. Took 2.41s
+2026-11-04 23:05:28,064 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:27 PM LMT
+2026-11-04 23:05:29,697 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:29 PM LMT, next check in time is 2026-11-04 11:05:30 PM CST. Took 2.69s
+2026-11-04 23:05:34,164 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:33 PM LMT
+2026-11-04 23:05:35,603 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:35 PM LMT, next check in time is 2026-11-04 11:05:36 PM CST. Took 2.55s
+2026-11-04 23:05:39,440 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:38 PM LMT
+2026-11-04 23:05:40,933 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:40 PM LMT, next check in time is 2026-11-04 11:05:41 PM CST. Took 2.92s
+2026-11-04 23:05:45,097 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:44 PM LMT
+2026-11-04 23:05:46,590 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:46 PM LMT, next check in time is 2026-11-04 11:05:47 PM CST. Took 2.59s
+2026-11-04 23:05:50,081 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:49 PM LMT
+2026-11-04 23:05:51,755 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:51 PM LMT, next check in time is 2026-11-04 11:05:52 PM CST. Took 2.75s
+2026-11-04 23:05:55,099 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:54 PM LMT
+2026-11-04 23:05:56,502 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:05:56 PM LMT, next check in time is 2026-11-04 11:05:57 PM CST. Took 2.48s
+2026-11-04 23:06:00,070 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:05:59 PM LMT
+2026-11-04 23:06:01,524 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:06:01 PM LMT, next check in time is 2026-11-04 11:06:02 PM CST. Took 2.52s
+2026-11-04 23:06:05,119 | INFO | [PaperStrategy] Bot is running. Executing the on_trading_iteration lifecycle method at 2026-11-04 11:06:04 PM LMT
+2026-11-04 23:06:06,541 | INFO | [PaperStrategy] Trading iteration ended at 2026-11-04 11:06:06 PM LMT, next check in time is 2026-11-04 11:06:07 PM CST. Took 2.52s
+2026-11-04 23:11:57,916 | INFO | LumiBot v4.6.46 starting
+2026-11-04 23:11:58,938 | INFO | [unknown] Waiting for the socket stream connection to be established,
+                method _stream_established must be called
+2026-11-04 23:12:00,945 | INFO | [unknown] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":0,"trade_events_rows":0},"strategy_name":null,"ts":1793805120.9435863,"v":1}
+2026-11-04 23:12:01,684 | INFO | [PaperStrategy] Strategy PaperStrategy is initializing
+2026-11-04 23:12:02,503 | INFO | [PaperStrategy] LUMIBOT_TELEMETRY {"broker":"alpaca","broker_snapshot":{"orders_canceled":0,"orders_error":0,"orders_filled":0,"orders_new":0,"orders_partial":0,"orders_placeholder":0,"orders_unprocessed":0,"positions_tracked":2,"trade_events_rows":0},"strategy_name":"PaperStrategy","ts":1793805122.5012045,"v":1}

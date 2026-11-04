@@ -1,0 +1,6 @@
+lumibot==4.6.46
+openai==2.54.0
+pydantic==2.14.2
+PyYAML==6.0.3
+python-dotenv==1.2.4
+portalocker==4.4.2

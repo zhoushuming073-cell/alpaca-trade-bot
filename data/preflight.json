@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-11-04T14:33:01.149911+00:00",
+  "endpoint": "https://paper-api.alpaca.markets",
+  "strategy_ready": true,
+  "symbols": 48,
+  "account": {
+    "equity": 100000.0,
+    "last_equity": 100000.0,
+    "cash": 100000.0,
+    "buying_power": 400000.0,
+    "blocked": false,
+    "positions": {},
+    "quantities": {},
+    "open_orders": [],
+    "asof": "2026-11-04T14:33:02.690601+00:00"
+  },
+  "market_open": true,
+  "asset_issues": [],
+  "market_data": {
+    "symbol": "CRWV",
+    "feed": "iex",
+    "intraday_rows": 42,
+    "last_intraday_start": "2026-11-04 09:30:00-05:00",
+    "daily_rows": 128,
+    "last_daily": "2026-11-03 00:00:00-05:00"
+  },
+  "ready": true
+}
