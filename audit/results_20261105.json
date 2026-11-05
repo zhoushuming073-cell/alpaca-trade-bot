@@ -1,0 +1,99 @@
+{
+  "audited_main": "3db4cd9ce3b7d66494873fd06f789a31c0e0f3a7",
+  "audited_local": "c2dc47d4f91b3fdd34eab5c0002defca13a749de",
+  "external_orders_submitted": 0,
+  "trading_source_changed": false,
+  "suites": {
+    "baseline": {
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "147",
+      "time": "21.391",
+      "failures_detail": []
+    },
+    "contract_probes": {
+      "errors": "0",
+      "failures": "11",
+      "skipped": "0",
+      "tests": "11",
+      "time": "7.488",
+      "failures_detail": [
+        {
+          "test": "test_final_wire_must_respect_cutoff_and_pause[cutoff]",
+          "message": "AssertionError: POST reached mock HTTP transport despite cutoff"
+        },
+        {
+          "test": "test_final_wire_must_respect_cutoff_and_pause[pause]",
+          "message": "AssertionError: POST reached mock HTTP transport despite pause"
+        },
+        {
+          "test": "test_real_reconcile_network_failure_must_not_mark_watchdog_success",
+          "message": "AssertionError: {'component': 'watchdog', 'alive': False, 'last_heartbeat': '2026-11-05T14:35:10+00:00', 'last_success': '2026-11-05T14:35:10+00:00', ...}"
+        },
+        {
+          "test": "test_buy_must_require_explicit_stop_policy",
+          "message": "Failed: DID NOT RAISE ValueError"
+        },
+        {
+          "test": "test_required_recheck_not_completed_must_block_original_buy[cooldown]",
+          "message": "AssertionError: {'submissions': 1, 'AI_calls': ['UNIVERSE_SCAN', 'PREMARKET_PLAN']}"
+        },
+        {
+          "test": "test_required_recheck_not_completed_must_block_original_buy[ai_failure]",
+          "message": "AssertionError: {'submissions': 1, 'AI_calls': ['UNIVERSE_SCAN', 'PREMARKET_PLAN', 'INTRADAY_RECHECK']}"
+        },
+        {
+          "test": "test_revalidate_plan_after_slow_prepare[trigger_no_longer_true]",
+          "message": "AssertionError: dispatched after trigger_no_longer_true"
+        },
+        {
+          "test": "test_revalidate_plan_after_slow_prepare[plan_expired]",
+          "message": "AssertionError: dispatched after plan_expired"
+        },
+        {
+          "test": "test_missing_bootstrap_memory_must_block_new_buy",
+          "message": "AssertionError: New BUY authorized without required bootstrap memory"
+        },
+        {
+          "test": "test_in_progress_intraday_bar_must_be_marked_incomplete",
+          "message": "AssertionError: [{'timestamp': '2026-11-05T14:35:00+00:00', 'open': 100.0, 'high': 101.0, 'low': 99.0, ...}]"
+        },
+        {
+          "test": "test_all_holdings_must_have_deep_review_priority",
+          "message": "AssertionError: {'missing_holdings': ['ASTS', 'IONQ', 'PLTR', 'QBTS', 'QUBT', 'RGTI', ...]}"
+        }
+      ]
+    }
+  },
+  "offline_e2e": {
+    "network": "disabled",
+    "real_or_paper_orders_submitted": 0,
+    "fixed_pool_size": 48,
+    "session_results": [
+      "premarket_planned",
+      "active_triggered",
+      "closed",
+      "premarket_planned"
+    ],
+    "simulated_posts": 1,
+    "later_day_fill": "reconciled_next_premarket",
+    "auto_cancel_calls": 0,
+    "stop_policy": "NONE",
+    "stop_status": "NONE_BY_AI",
+    "final_position_qty": 3,
+    "unresolved": [],
+    "input_blobs": 0,
+    "ai_calls": [
+      "UNIVERSE_SCAN",
+      "PREMARKET_PLAN",
+      "UNIVERSE_SCAN",
+      "PREMARKET_PLAN"
+    ]
+  },
+  "git_hygiene": {
+    "untracked_count": 41,
+    "data_and_log_files_unchanged": 11,
+    "history_rewritten": false
+  }
+}
