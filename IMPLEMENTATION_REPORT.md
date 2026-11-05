@@ -20,6 +20,7 @@
 - `dashboard.py` 增加后台只读 `LiveAccountFeed`，每 5 秒读取 Alpaca Paper；页面请求读缓存，不在 Flask 请求线程里等待网络。
 - 账户净值、现金、购买力、非杠杆可用现金、持仓数量/市值/成本/浮盈亏、开放订单和状态均来自 Alpaca；失败保留最后成功快照并标记 `account_stale/account_error/account_age_seconds`，没有数据时显示不可用，不填样例或 0。
 - 实测 4200：`account_source=ALPACA PAPER 实时`，`stale=false`，`age≈0.2s`；现金、可用、持仓数量、成本价与直连 Alpaca 快照一致，净值/购买力/现价差异为两次请求间隔的行情变动。
+- 2026-11-05 09:30 ET 已执行用户授权的 1 股 AAPL Paper 测试（DAY LIMIT 356.21，NONE）：Alpaca 返回 `pending_new`/`new`，本地 `ACCEPTED`，dashboard 已显示真实 open order；提交后立即恢复暂停，未启动 worker，未自动撤单/平仓。成交/到期/次日对账仍未验证。
 - Alpaca 返回 0 个 open order、1 个 closed order（IREN 100 filled）；dashboard 已展示该真实历史订单的 `filled`/`FILLED`、数量、成交价和日期，没有提交新订单。
 - 网络抖动由后台重试与最后成功快照处理；新增 `tests/test_dashboard_live.py`。
 

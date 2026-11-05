@@ -67,7 +67,7 @@
 
 ## 4. Paper 实际订单生命周期
 
-**未验证。** 本版本没有向 Alpaca Paper 提交任何订单，也没有测试真实 DAY 下午成交、部分成交、撤单竞态、OTO/止损组合、断网恢复或长期运行。任何“已通过全部测试”的说法都不包含这一级。
+**部分验证。** 2026-11-05 09:30 ET 已执行用户授权的 1 股 AAPL Paper 测试：DAY LIMIT 356.21、NONE；Alpaca 返回 `pending_new`/`new`，本地 `ACCEPTED`，dashboard 已显示真实 open order。提交后系统恢复 `paused=true`，未启动 worker，未自动撤单/平仓。**尚未验证成交/部分成交/10:00 后是否仍有效/DAY 到期/次日对账。**
 
 ## 5. 长期运行
 
@@ -78,4 +78,4 @@
 - worker：未运行；数据库持久化 `paused=true`；
 - 看板：已用新代码重启，4200 上 `account_source=ALPACA PAPER 实时`，不是旧进程；worker 仍未启动；
 - 研究：DeepSeek Search/Fetch 已真实验证，研究批次仍在后台构建，完成数量以数据库最终统计为准；
-- 默认不自动恢复交易；本轮没有发出订单。
+- 默认不自动恢复交易；本轮已提交 1 股 AAPL 授权测试订单，当前无 worker，订单状态以 Alpaca 为准。
