@@ -59,7 +59,7 @@ const STATES = {
   ACCEPTED: "券商已接受", PARTIALLY_FILLED: "部分成交", FILLED: "完全成交",
   CANCELED: "已取消", EXPIRED: "已过期", REJECTED: "已拒绝",
   RECONCILIATION_REQUIRED: "待人工对账", NOT_SENT: "确认未发送",
-  BROKER_OPEN: "券商开放中",
+  BROKER_OPEN: "券商开放中", BROKER_CLOSED: "券商历史订单",
 };
 const STOP = {
   NONE_BY_AI: "AI 选择不设", REQUESTED: "已请求", VERIFIED: "已确认",

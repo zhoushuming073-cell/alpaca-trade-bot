@@ -21,6 +21,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
+from .order_state import BROKER_STATUS_TO_STATE
 from .settings import ROOT, Execution, config_snapshot, credentials, load_config
 from .storage import Store
 
@@ -121,6 +122,8 @@ def validate_account_snapshot(account: dict) -> dict:
             raise ValueError(f"invalid position value {symbol}")
     if not isinstance(account["open_orders"], list):
         raise ValueError("open_orders is not a list")
+    if "recent_orders" in account and not isinstance(account["recent_orders"], list):
+        raise ValueError("recent_orders is not a list")
     if account.get("asof"):
         try:
             datetime.fromisoformat(str(account["asof"]).replace("Z", "+00:00"))
@@ -184,7 +187,7 @@ class LiveAccountFeed:
             try:
                 if gateway is None:
                     gateway = self._factory() if self._factory else self._build()
-                account = gateway.snapshot()
+                account = gateway.snapshot(include_history=True)
                 validate_account_snapshot(account)
                 now = datetime.now(timezone.utc)
                 with self._lock:
@@ -379,6 +382,28 @@ def snapshot(store, account_feed=None):
         orders_rows.append(item)
         if cid:
             seen.add(cid)
+    for order in (account or {}).get("recent_orders", []) or []:
+        cid = str(order.get("client_order_id") or "")
+        if cid and cid in seen:
+            continue
+        local = local_by_cid.get(cid) if cid else {}
+        state = (local or {}).get("state")
+        if not state:
+            state = BROKER_STATUS_TO_STATE.get(
+                str(order.get("status") or "").lower(), "BROKER_CLOSED"
+            )
+            state = getattr(state, "value", state)
+        item = {**order}
+        item["cid"] = cid or None
+        item["day"] = (local or {}).get("day") or (str(order.get("created_at") or "")[:10] or None)
+        item["local_state"] = (local or {}).get("state")
+        item["state"] = state
+        item["stop_status"] = (local or {}).get("stop_status") or order.get("stop_status")
+        item["reason"] = (local or {}).get("reason")
+        item["source"] = "ALPACA_RECENT"
+        orders_rows.append(item)
+        if cid:
+            seen.add(cid)
     # Keep local pre-dispatch/unknown/terminal orders visible even when they
     # are not (or not yet) returned by Alpaca's open-order query.
     for local in local_rows:
@@ -471,7 +496,7 @@ def snapshot(store, account_feed=None):
         "decision": next(iter(store.recent_events(("premarket_plan", "intraday_recheck", "decision"), 1)), None),
         "events": list(reversed(store.recent_events(EVENT_KINDS, 50))),
         "orders": orders_rows,
-        "orders_source": "ALPACA_OPEN+LOCAL",
+        "orders_source": "ALPACA_OPEN+ALPACA_RECENT+LOCAL",
         "unresolved": store.unresolved_orders(),
         "plans": [
             {

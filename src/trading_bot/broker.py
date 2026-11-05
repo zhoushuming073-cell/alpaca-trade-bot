@@ -198,7 +198,7 @@ class PaperGateway:
         self._quote_lock = threading.Lock()
 
     # ---------------------------------------------------------------- snapshot
-    def snapshot(self):
+    def snapshot(self, include_history: bool = False):
         from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import QueryOrderStatus
 
@@ -206,6 +206,11 @@ class PaperGateway:
             account = self.api.get_account()
             positions = self.api.get_all_positions()
             orders = self.api.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500))
+            recent_orders = []
+            if include_history:
+                recent_orders = self.api.get_orders(
+                    filter=GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=50)
+                )
         if len(orders) >= 500:
             raise ValueError("Open order result may be truncated; execution blocked")
         account_number = str(getattr(account, "account_number", "") or "")
@@ -268,6 +273,10 @@ class PaperGateway:
             "quantities": quantities,
             "available_quantities": available,
             "open_orders": open_orders,
+            "recent_orders": [
+                order.model_dump(mode="json") if hasattr(order, "model_dump") else dict(order)
+                for order in (recent_orders or [])
+            ],
             "asof": asof,
             "ts": asof,
         }

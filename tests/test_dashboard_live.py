@@ -47,6 +47,11 @@ def account_snapshot():
             "side": "buy", "qty": "1", "filled_qty": "0", "limit_price": "500",
             "status": "new", "type": "limit", "time_in_force": "day",
         }],
+        "recent_orders": [{
+            "id": "broker-old", "client_order_id": "old-real-order", "symbol": "IREN",
+            "side": "buy", "qty": "100", "filled_qty": "100", "status": "filled",
+            "type": "market", "time_in_force": "day",
+        }],
         "asof": now,
         "ts": now,
     }
@@ -126,6 +131,18 @@ def test_live_broker_orders_merge_local_state(tmp_path, monkeypatch):
     assert rows[0]["state"] == OrderState.ACCEPTED.value
 
 
+def test_recent_closed_order_is_visible_with_broker_status(tmp_path, monkeypatch):
+    feed = FakeFeed(account_snapshot())
+    c = client(tmp_path, monkeypatch, feed)
+    data = c.get("/api/status", base_url=ORIGIN).get_json()
+    rows = [row for row in data["orders"] if row.get("cid") == "old-real-order"]
+    assert len(rows) == 1
+    assert rows[0]["source"] == "ALPACA_RECENT"
+    assert rows[0]["status"] == "filled"
+    assert rows[0]["state"] == "FILLED"
+    assert rows[0]["qty"] == "100"
+
+
 def test_stale_feed_keeps_last_real_values_and_marks_error(tmp_path, monkeypatch):
     feed = FakeFeed(account_snapshot(), stale=True, error="TimeoutError: read timeout")
     c = client(tmp_path, monkeypatch, feed)
@@ -153,7 +170,7 @@ def test_live_feed_retries_after_transient_failure():
         def __init__(self):
             self.calls = 0
 
-        def snapshot(self):
+        def snapshot(self, include_history=False):
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("jitter")

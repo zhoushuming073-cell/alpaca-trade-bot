@@ -9,7 +9,7 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`160 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`161 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
 
@@ -20,6 +20,7 @@
 - `dashboard.py` 增加后台只读 `LiveAccountFeed`，每 5 秒读取 Alpaca Paper；页面请求读缓存，不在 Flask 请求线程里等待网络。
 - 账户净值、现金、购买力、非杠杆可用现金、持仓数量/市值/成本/浮盈亏、开放订单和状态均来自 Alpaca；失败保留最后成功快照并标记 `account_stale/account_error/account_age_seconds`，没有数据时显示不可用，不填样例或 0。
 - 实测 4200：`account_source=ALPACA PAPER 实时`，`stale=false`，`age≈0.2s`；现金、可用、持仓数量、成本价与直连 Alpaca 快照一致，净值/购买力/现价差异为两次请求间隔的行情变动。
+- Alpaca 返回 0 个 open order、1 个 closed order（IREN 100 filled）；dashboard 已展示该真实历史订单的 `filled`/`FILLED`、数量、成交价和日期，没有提交新订单。
 - 网络抖动由后台重试与最后成功快照处理；新增 `tests/test_dashboard_live.py`。
 
 ### Phase 2：Search/Fetch 与研究记忆
@@ -109,7 +110,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`160 passed`，关键用例：
+`161 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -164,7 +165,7 @@
 
 ## 8. 测试数量与命令
 
-- `160 passed`：`.venv/Scripts/python -m pytest -q`
+- `161 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`
