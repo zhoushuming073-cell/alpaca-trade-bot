@@ -139,3 +139,19 @@ def test_bootstrap_skips_existing_unless_forced(store, bundle, clock):
     assert svc.bootstrap(["CRWV"], batch_size=1)[0]["status"] == "OK"
     assert svc.bootstrap(["CRWV"], batch_size=1)[0]["status"] == "EXISTS"
     assert svc.bootstrap(["CRWV"], batch_size=1, force=True)[0]["status"] == "OK"
+
+
+def test_bootstrap_refreshes_expired_profile_incrementally(store, bundle, clock):
+    now = clock()
+    store.save_research_profile({
+        "symbol": "CRWV", "version": 1, "status": "OK",
+        "verified_at_utc": now.isoformat(),
+        "expires_at_utc": (now - timedelta(days=1)).isoformat(),
+        "source_hash": "old",
+    }, evidence=[], revision=None)
+    svc = service(store, bundle, clock)
+    result = svc.bootstrap(["CRWV"], batch_size=1)
+    assert result[0]["status"] == "OK"
+    profile = store.research_profile("CRWV")
+    assert profile["version"] == 2
+    assert profile["profile"]["status"] == "SOURCE_UNAVAILABLE"
