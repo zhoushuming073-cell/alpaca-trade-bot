@@ -163,7 +163,26 @@ class Engine:
         if not self.require_watchdog:
             return True
         health = self.store.health("watchdog", self.execution.watchdog_stale_seconds)
+        if health["consecutive_failures"] >= 3:
+            reason = "WATCHDOG_UNHEALTHY: repeated reconciliation failures"
+            if self.store.safety_reason() != reason:
+                self.store.block(reason)
+            return False
         if health["alive"] and not health["stale"]:
+            last_success = _parse_iso(health["last_success"]) if health["last_success"] else None
+            if last_success is None:
+                if (now - self.started_at).total_seconds() > 90:
+                    reason = "WATCHDOG_UNHEALTHY: no successful reconciliation"
+                    if self.store.safety_reason() != reason:
+                        self.store.block(reason)
+                return False
+            if (now - last_success).total_seconds() > max(
+                120, 3 * self.execution.watchdog_stale_seconds
+            ):
+                reason = "WATCHDOG_UNHEALTHY: stale last successful reconciliation"
+                if self.store.safety_reason() != reason:
+                    self.store.block(reason)
+                return False
             return True
         if (now - self.started_at).total_seconds() > 90:
             reason = "WATCHDOG_UNHEALTHY: no recent reconciliation heartbeat"
@@ -597,6 +616,7 @@ class Engine:
             # SQLite would keep the old trading_day and the new plan would be
             # invisible to active_plans(new_day).
             scoped_plan_id = f"{session.trading_day}:{candidate.plan_id}"
+            candidate_dict["plan_id"] = scoped_plan_id
             plan_payload = {
                 "plan_id": scoped_plan_id,
                 "mode": "PREMARKET_PLAN",
@@ -659,6 +679,12 @@ class Engine:
         triggered = 0
         for plan in plans:
             plan_id = plan["plan_id"]
+            if plan.get("config_hash") != self.config.hash:
+                self.store.set_plan_status(plan_id, "INVALIDATED", "config changed")
+                self.store.event("plan_invalidated", {
+                    "plan_id": plan_id, "reason": "config_hash_mismatch",
+                })
+                continue
             payload = plan.get("payload") or {}
             candidate = payload.get("candidate") or {}
             if not candidate:
@@ -757,7 +783,9 @@ class Engine:
                         self.store.rearm_trigger(plan_id, trigger_id)
                     else:
                         self.store.set_plan_status(plan_id, "NO_ORDER", "order not sent")
-                elif result.get("unknown"):
+                elif result.get("unknown") or result.get("state") in {
+                    "SUBMISSION_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED",
+                }:
                     self.store.set_plan_status(plan_id, "TRIGGERED", "submission outcome unknown")
                 else:
                     self.store.set_plan_status(plan_id, "EXECUTED", "order submitted")
@@ -883,7 +911,9 @@ class Engine:
                 return
             if result_submit.get("state") == "NOT_SENT":
                 self.store.set_plan_status(new_plan_id, "NO_ORDER", "recheck order not sent")
-            elif result_submit.get("unknown"):
+            elif result_submit.get("unknown") or result_submit.get("state") in {
+                "SUBMISSION_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED",
+            }:
                 self.store.set_plan_status(new_plan_id, "TRIGGERED", "recheck unknown")
             else:
                 self.store.set_plan_status(new_plan_id, "EXECUTED", "recheck order submitted")

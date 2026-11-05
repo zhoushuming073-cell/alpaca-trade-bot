@@ -69,7 +69,9 @@ def _is_stop(order: dict) -> bool:
 
 def reserved_buy_cash(account: dict, local_orders: list[dict] | None = None) -> float:
     total = 0.0
-    for order in account.get("open_orders", []) or []:
+    open_orders = account.get("open_orders", []) or []
+    broker_cids = {str(order.get("client_order_id") or "") for order in open_orders}
+    for order in open_orders:
         side = str(order.get("side") or "").lower()
         if side != "buy":
             continue
@@ -85,6 +87,10 @@ def reserved_buy_cash(account: dict, local_orders: list[dict] | None = None) -> 
             continue
         if state in TERMINAL_STATES:
             continue
+        # Once an order is visible at the broker, the broker snapshot is the
+        # authoritative reservation; do not count the same cid twice.
+        if str(row.get("cid") or "") in broker_cids:
+            continue
         intent = _payload_intent(row)
         if str(intent.get("side") or intent.get("action") or "").lower() != "buy":
             continue
@@ -96,7 +102,9 @@ def reserved_sell_qty(
     symbol: str, account: dict, local_orders: list[dict] | None = None
 ) -> float:
     total = 0.0
-    for order in account.get("open_orders", []) or []:
+    open_orders = account.get("open_orders", []) or []
+    broker_cids = {str(order.get("client_order_id") or "") for order in open_orders}
+    for order in open_orders:
         if str(order.get("symbol") or "") != symbol:
             continue
         if str(order.get("side") or "").lower() == "sell":
@@ -114,6 +122,8 @@ def reserved_sell_qty(
         except ValueError:
             continue
         if state in TERMINAL_STATES:
+            continue
+        if str(row.get("cid") or "") in broker_cids:
             continue
         intent = _payload_intent(row)
         if str(intent.get("symbol") or "") != symbol:

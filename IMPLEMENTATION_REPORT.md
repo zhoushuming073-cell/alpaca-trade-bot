@@ -9,7 +9,7 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`140 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`147 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
 
@@ -67,7 +67,11 @@
 - 提交前重新读取报价并校验报价年龄；旧触发报价在慢检查期间过期时拒绝，不放宽新鲜度。
 - 人工暂停在引擎层提前阻断；新增买卖方向/已有止损冲突检查；OTO 止损 leg 计入可卖股占用。
 - AI 必须回显 `account_snapshot_id`；不一致拒绝计划/扫描；无有效日线的持仓只记录 `held_data_unavailable`，不生成可交易候选。
-- `BROKER_STOP` 父单成交但无 stop leg 时标记 FAILED 并冻结；默认禁用，绝不降级。
+- `BROKER_STOP` 父单成交但无 stop leg 时标记 FAILED 并冻结；默认禁用，绝不降级。止损 leg（含 OTO 子单）计入可卖股占用，本地/券商同一 cid 的预留不会重复计算。
+- 提交前再次比较 active/disk 配置哈希，并重读暂停/安全锁；慢预检期间发生配置漂移、暂停或安全冻结时转为 `NOT_SENT`。
+- 看门狗必须同时满足 alive、心跳新鲜、最近一次 reconcile 成功、连续失败 <3；仅线程存活或仅心跳不算健康。
+- 计划写入 config_hash；安全重启后旧配置计划自动 INVALIDATED，不能继续触发下单。
+- 共享的 LumiBot 日线接口和数据报价客户端加锁串行，避免盘前/盘中有限并发假设 SDK 线程安全。
 
 ### P0-D 配置不一致
 
@@ -79,7 +83,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`140 passed`，关键用例：
+`147 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -134,7 +138,7 @@
 
 ## 8. 测试数量与命令
 
-- `140 passed`：`.venv/Scripts/python -m pytest -q`
+- `147 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`

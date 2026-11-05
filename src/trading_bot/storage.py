@@ -546,6 +546,7 @@ class Store:
         lease_seconds: int = 90,
     ) -> dict:
         now = self.clock()
+        stop_policy = str(stop_policy or intent.get("stop_policy") or "NONE").upper()
         lease = _iso(now + timedelta(seconds=lease_seconds)) if owner else None
         with self._tx():
             cur = self.db.execute(
@@ -798,21 +799,23 @@ class Store:
                 assignments.append("lease_until=NULL")
             # Stop leg facts: Alpaca OTO/bracket orders expose legs.
             legs = order.get("legs") or []
-            if legs:
-                stop_legs = [
-                    leg for leg in legs
-                    if str(leg.get("type") or "").lower() in {"stop", "stop_limit"}
-                    or str(leg.get("order_type") or "").lower() in {"stop", "stop_limit"}
-                ]
-                if stop_legs:
-                    leg = stop_legs[0]
-                    assignments.append("stop_order_id=?")
-                    values.append(str(leg.get("id") or ""))
-                    assignments.append("stop_status=?")
-                    values.append("VERIFIED" if str(leg.get("status") or "").lower()
-                                  in {"new", "accepted", "held"} else "UNKNOWN")
-            elif row["stop_policy"] == "BROKER_STOP" and target_state is OrderState.FILLED:
-                # A requested broker stop has no verified leg on a filled parent.
+            stop_legs = [
+                leg for leg in legs
+                if str(leg.get("type") or "").lower() in {"stop", "stop_limit"}
+                or str(leg.get("order_type") or "").lower() in {"stop", "stop_limit"}
+            ]
+            if stop_legs:
+                leg = stop_legs[0]
+                assignments.append("stop_order_id=?")
+                values.append(str(leg.get("id") or ""))
+                assignments.append("stop_status=?")
+                values.append("VERIFIED" if str(leg.get("status") or "").lower()
+                              in {"new", "accepted", "held"} else "UNKNOWN")
+            elif row["stop_policy"] == "BROKER_STOP" and target_state in {
+                OrderState.PARTIALLY_FILLED, OrderState.FILLED,
+            }:
+                # A requested broker stop has no verified leg on a filled or
+                # partially-filled parent, even if some other leg exists.
                 assignments.append("stop_status=?")
                 values.append("FAILED")
                 conflict = True

@@ -246,6 +246,48 @@ def test_not_sent_can_be_rearmed_and_retried(store, bundle, clock, session):
     assert broker.submissions == 1
 
 
+def test_pause_during_slow_preflight_prevents_post(store, bundle, clock, session):
+    class Pauses(FakeBroker):
+        def prepare(self, intent_value, cid, session=None, account=None):
+            store.pause(True)
+            return self.snapshot()
+
+    broker = Pauses()
+    result = submit(store, broker, bundle, clock, session)
+    assert result["state"] == OrderState.NOT_SENT.value
+    assert broker.submissions == 0
+    assert not store.dispatched(result["cid"])
+
+
+def test_config_change_during_slow_preflight_prevents_post(store, bundle, clock, session):
+    class ChangesConfig(FakeBroker):
+        def prepare(self, intent_value, cid, session=None, account=None):
+            store.set_active_config({
+                "symbols": list(bundle.symbols),
+                "hashes": {"combined": "old-config"},
+                "version": "old",
+                "execution": bundle.execution.model_dump(mode="json"),
+            })
+            return self.snapshot()
+    broker = ChangesConfig()
+    result = submit(store, broker, bundle, clock, session)
+    assert result["state"] == OrderState.NOT_SENT.value
+    assert broker.submissions == 0
+
+
+def test_safety_freeze_during_slow_preflight_prevents_post(store, bundle, clock, session):
+    class Freezes(FakeBroker):
+        def prepare(self, intent_value, cid, session=None, account=None):
+            store.block("ORDER_UNKNOWN: simulated concurrent freeze")
+            return self.snapshot()
+
+    broker = Freezes()
+    result = submit(store, broker, bundle, clock, session)
+    assert result["state"] == OrderState.NOT_SENT.value
+    assert broker.submissions == 0
+    assert "ORDER_UNKNOWN" in store.safety_reason()
+
+
 def test_slow_preflight_crossing_cutoff_is_not_sent(store, bundle, clock, session):
     class Slow(FakeBroker):
         def prepare(self, intent_value, cid, session=None, account=None):
@@ -270,6 +312,25 @@ def test_broker_stop_intent_is_rejected_as_a_whole(store, bundle, clock, session
     assert result.get("rejected") == "BROKER_STOP_UNSUPPORTED"
     assert broker.submissions == 0
     assert store.order_row(result["cid"])["stop_status"] == "REQUESTED"
+
+
+def test_broker_stop_without_leg_freezes_even_on_partial_fill(store):
+    request = intent(stop_policy="BROKER_STOP", stop_loss={"stop_price": 95})
+    store.reserve_order("aip-stop-missing", "2026-11-05", request, owner="owner")
+    assert store.claim_order("aip-stop-missing", "owner")
+    assert store.transition("aip-stop-missing", OrderState.READY_TO_DISPATCH,
+                            expected=OrderState.VALIDATING, owner="owner")
+    assert store.record_dispatch_intent("aip-stop-missing", "owner")
+    store.apply_broker_order("aip-stop-missing", {
+        "id": "b1", "client_order_id": "aip-stop-missing", "symbol": "CRWV",
+        "side": "buy", "qty": "3", "filled_qty": "1", "status": "partially_filled",
+        "type": "limit", "order_class": "oto",
+        "legs": [{"type": "take_profit", "side": "sell", "qty": "3", "status": "new"}],
+    })
+    row = store.order_row("aip-stop-missing")
+    assert row["state"] == OrderState.PARTIALLY_FILLED.value
+    assert row["stop_status"] == "FAILED"
+    assert "stop leg" in store.safety_reason() or store.safety_reason()
 
 
 def test_partial_fill_then_cancel_keeps_fill(store):

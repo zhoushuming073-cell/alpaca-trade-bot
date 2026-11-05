@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import threading
 
 from lumibot.strategies import Strategy
 
@@ -24,6 +25,7 @@ class PaperStrategy(Strategy):
         store.set_active_config(config_snapshot(self.bundle))
         store.set_config_pending(False)
         self.daily_cache = {}
+        self.daily_lock = threading.Lock()
         symbols = self.bundle.symbols
         self.gateway = PaperGateway(self, store, symbols, self.bundle.execution)
         keys = credentials()
@@ -127,9 +129,12 @@ class PaperStrategy(Strategy):
 
         day = datetime.now(ZoneInfo("America/New_York")).date()
         key = (day, symbol)
-        if key not in self.daily_cache:
-            self.daily_cache = {k: v for k, v in self.daily_cache.items() if k[0] == day}
-            raw = self.get_historical_prices(symbol, 160, timestep="day").df
-            # Only validated completed sessions are cached for the day.
-            self.daily_cache[key] = daily_history(raw, datetime.now(timezone.utc))
-        return self.daily_cache[key]
+        # LumiBot's historical-data facade is shared by the bounded premarket
+        # worker pool; serialize its calls instead of assuming thread safety.
+        with self.daily_lock:
+            if key not in self.daily_cache:
+                self.daily_cache = {k: v for k, v in self.daily_cache.items() if k[0] == day}
+                raw = self.get_historical_prices(symbol, 160, timestep="day").df
+                # Only validated completed sessions are cached for the day.
+                self.daily_cache[key] = daily_history(raw, datetime.now(timezone.utc))
+            return self.daily_cache[key]

@@ -5,7 +5,13 @@ import pytest
 
 from trading_bot.dry_run import FakeBroker
 from trading_bot.market_data import session_info
-from trading_bot.risk_manager import RiskRejected, sellable_qty, validate_new_intent
+from trading_bot.risk_manager import (
+    RiskRejected,
+    reserved_buy_cash,
+    reserved_sell_qty,
+    sellable_qty,
+    validate_new_intent,
+)
 from trading_bot.safety import BrokerStopUnsupported, OrderValidationError, validate_order
 
 
@@ -44,6 +50,34 @@ def validate(intent_value, bundle, session, *, account_value=None, buy_attempts=
         freeze_reason=freeze_reason,
         stop_allowed=stop_allowed,
     )
+
+
+def test_local_and_broker_same_cid_is_not_double_counted(bundle, session):
+    buy_local = {
+        "cid": "aip-same", "state": "ACCEPTED",
+        "intent": intent(qty=1, limit_price=100.0),
+    }
+    buy_account = account(open_orders=[{
+        "client_order_id": "aip-same", "symbol": "CRWV", "side": "buy",
+        "qty": "1", "filled_qty": "0", "limit_price": "100", "status": "new",
+        "type": "limit",
+    }])
+    assert reserved_buy_cash(buy_account, [buy_local]) == 100.0
+
+    sell_local = {
+        "cid": "aip-sell", "state": "ACCEPTED",
+        "intent": intent(side="sell", qty=2, limit_price=101.0),
+    }
+    sell_account = account(
+        positions={"CRWV": 1000}, quantities={"CRWV": 10},
+        available_quantities={"CRWV": 10},
+        open_orders=[{
+            "client_order_id": "aip-sell", "symbol": "CRWV", "side": "sell",
+            "qty": "2", "filled_qty": "0", "limit_price": "101", "status": "new",
+            "type": "limit",
+        }],
+    )
+    assert reserved_sell_qty("CRWV", sell_account, [sell_local]) == 2.0
 
 
 def test_ai_large_qty_is_not_silently_reduced(bundle, session):

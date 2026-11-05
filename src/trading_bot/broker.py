@@ -195,6 +195,7 @@ class PaperGateway:
             self.api.audit = store.event
             self.api.idle = lambda: store.paused() or bool(store.safety_reason())
         self._last_account_number = ""
+        self._quote_lock = threading.Lock()
 
     # ---------------------------------------------------------------- snapshot
     def snapshot(self):
@@ -278,6 +279,18 @@ class PaperGateway:
             raise
 
     # ----------------------------------------------------------------- prepare
+    def _config_drift(self) -> bool:
+        """Detect disk/active drift even if the engine has not ticked yet."""
+        if not self.store:
+            return False
+        try:
+            disk = load_config()
+        except Exception:
+            return True
+        active = self.store.active_config() or {}
+        active_hash = (active.get("hashes") or {}).get("combined")
+        return bool(active_hash and active_hash != disk.hash)
+
     def prepare(self, intent, cid, *, session=None, account=None):
         """Slow pre-dispatch checks.  Raises :class:`PreDispatchRejected`."""
         from .market_data import session_info
@@ -300,7 +313,7 @@ class PaperGateway:
             raise PreDispatchRejected("Missing durable order request")
         if self.store.paused() or self.store.safety_reason():
             raise PreDispatchRejected("Execution paused or safety-locked")
-        if self.store.config_pending():
+        if self.store.config_pending() or self._config_drift():
             raise PreDispatchRejected("Configuration pending restart")
         if session is None:
             session = session_info(datetime.now(timezone.utc), self.execution)
@@ -409,21 +422,26 @@ class PaperGateway:
         from alpaca.data.requests import StockLatestTradeRequest, StockLatestQuoteRequest
         from alpaca.data.enums import DataFeed
 
-        client = self.strategy.broker.data_source._get_stock_client()
-        quote = client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX))[symbol]
+        # The Alpaca data SDK client is shared by the bounded premarket quote
+        # pool; serialize access rather than assuming its HTTP session is safe.
+        with self._quote_lock:
+            client = self.strategy.broker.data_source._get_stock_client()
+            quote = client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX))[symbol]
+            trade = None
+            try:
+                trade = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX))[symbol]
+            except Exception:
+                trade = None
         now = datetime.now(timezone.utc)
         age = (now - quote.timestamp).total_seconds()
         bid, ask = float(quote.bid_price), float(quote.ask_price)
         last = None
         last_timestamp = None
         last_age = None
-        try:
-            trade = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX))[symbol]
+        if trade is not None:
             last = float(trade.price)
             last_timestamp = trade.timestamp.isoformat()
             last_age = (now - trade.timestamp).total_seconds()
-        except Exception:
-            last = None
         max_age = risk.max_quote_age_seconds if risk is not None else 30
         if not all(math.isfinite(x) for x in (bid, ask)) or not 0 < bid <= ask or not 0 <= age <= max_age:
             raise ValueError("Stale or abnormal IEX quote")

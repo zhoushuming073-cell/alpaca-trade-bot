@@ -41,6 +41,11 @@ class OrderService:
             "status": row["status"],
             "duplicate": True,
             "reason": row["reason"],
+            "unknown": row["state"] in {
+                OrderState.DISPATCH_INTENT_RECORDED.value,
+                OrderState.SUBMISSION_OUTCOME_UNKNOWN.value,
+                OrderState.RECONCILIATION_REQUIRED.value,
+            },
         }
 
     def submit(
@@ -71,7 +76,7 @@ class OrderService:
             owner=owner,
         )
         if not self.store.claim_order(cid, owner):
-            return self._existing_result(cid) or {"cid": cid, "state": "UNKNOWN", "duplicate": True}
+            return self._existing_result(cid) or {"cid": cid, "state": "UNKNOWN", "duplicate": True, "unknown": True}
         # Only pre-dispatch failures are handled here.
         try:
             fresh = self.broker.prepare(intent, cid, session=session, account=account)
@@ -113,6 +118,13 @@ class OrderService:
             final_session = session_info(self.clock(), self.execution)
             if not final_session.can_submit:
                 raise PreDispatchRejected("Outside submission cutoff at dispatch boundary")
+            # A pause, safety freeze or config change can arrive while slow
+            # preflight work is running.  Re-check it before the durable POST
+            # boundary, not only at the start of prepare().
+            if self.store.paused() or self.store.freeze_reason() or self.store.config_pending():
+                raise PreDispatchRejected("Paused/frozen/config-pending at dispatch boundary")
+            if self._config_drift():
+                raise PreDispatchRejected("Configuration drift at dispatch boundary")
             if self.store.record_dispatch_intent(cid, owner):
                 pass
             else:
@@ -157,6 +169,19 @@ class OrderService:
             self.store.mark_not_sent(cid, owner, "PRE_DISPATCH_ERROR: " + type(exc).__name__ + ": " + str(exc))
             self.store.error("order_submit", exc, cid=cid, cycle=plan_id, outcome="not_sent")
             return {"cid": cid, "state": OrderState.NOT_SENT.value, "rejected": "PRE_DISPATCH_ERROR"}
+
+    def _config_drift(self) -> bool:
+        from .settings import load_config
+
+        active = self.store.active_config() or {}
+        active_hash = (active.get("hashes") or {}).get("combined")
+        if not active_hash:
+            return False
+        try:
+            disk = load_config()
+        except Exception:  # noqa: BLE001
+            return True
+        return active_hash != disk.hash
 
     def _post_dispatch_failure(self, cid: str, owner: str, intent: dict, exc: Exception) -> dict:
         """The POST may have reached Alpaca.  Reconcile; never mark NOT_SENT."""

@@ -140,6 +140,18 @@ def test_watchdog_unhealthy_blocks_after_grace(store, clock, bundle):
     assert broker.submissions == 0
 
 
+def test_watchdog_alive_but_failing_blocks_new_risk(store, clock, bundle):
+    clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
+    engine, broker, _ = make_engine(store, clock, bundle)
+    engine.require_watchdog = True
+    store.set_alive("watchdog", True)
+    for _ in range(3):
+        store.heartbeat("watchdog", ok=False)
+    assert engine.tick() in {"watchdog_unhealthy", "frozen", "paused"}
+    assert broker.submissions == 0
+    assert "WATCHDOG_UNHEALTHY" in store.safety_reason()
+
+
 def test_healthy_watchdog_allows_order(store, clock, bundle):
     clock.set(datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc))
     engine, broker, _ = make_engine(store, clock, bundle)
@@ -277,6 +289,20 @@ def test_plan_supersede_keeps_only_latest_active(store, bundle):
     active = store.active_plans(day)
     assert [plan["plan_id"] for plan in active] == ["p2"]
     assert store.plan("p1")["status"] == "SUPERSEDED"
+
+
+def test_plan_from_old_config_is_invalidated(store, clock, bundle):
+    clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
+    engine, broker, _ = make_engine(store, clock, bundle)
+    store.save_plan({
+        "plan_id": "old-config-plan", "mode": "PREMARKET_PLAN",
+        "plan_valid_until_utc": "2026-11-05T14:55:00+00:00",
+        "candidate": {"symbol": "CRWV", "triggers": [], "order_intent": None},
+        "candidates": [],
+    }, config_hash="old-config", trading_day="2026-11-05")
+    assert engine.tick() in {"active_no_plan", "active_scan"}
+    assert store.plan("old-config-plan")["status"] == "INVALIDATED"
+    assert broker.submissions == 0
 
 
 def test_lumibot_premarket_hook_runs_bounded_plan(monkeypatch):
