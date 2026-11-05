@@ -9,7 +9,7 @@
 ## 0. 2026-11-05 三阶段迭代
 
 - **Phase 1**：dashboard 增加后台只读 Alpaca Paper `LiveAccountFeed`，账户净值/现金/购买力/持仓/成本/浮盈亏/开放订单/订单状态直接来自 Alpaca；固定失败重试、字段校验、最后成功快照和 `stale/error/age` 标记；无实时数据时绝不填模拟值。
-- **Phase 2**：接入 DeepSeek 官方 Search/Fetch，研究档案写入来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`；支持增量重研、批次和 `--force`，后台可跑全池 48 只；本次实际完成 **46/48**，`SKHY`、`SPCX` 因历史不足被跳过。
+- **Phase 2**：接入 DeepSeek 官方 Search/Fetch，研究档案写入来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`；支持增量重研、批次和 `--force`，后台已跑完全池 **48/48**；`SKHY`、`SPCX` 的日线历史不足，档案明确记录 `market_data_status=UNAVAILABLE`，基本面来源仍可用。
 - **Phase 3**：盘前 payload 同时提供账户、研究档案、已验证新闻/证据和行情；AI 负责选股/计划，Python 仅做数据、触发比较、风控、订单执行和审计。
 
 ## 1. 最新运行规则

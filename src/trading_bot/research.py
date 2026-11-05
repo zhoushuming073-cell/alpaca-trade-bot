@@ -146,9 +146,19 @@ class ResearchService:
         return results
 
     def refresh(self, symbol: str):
-        if not self.daily_data:
-            raise RuntimeError("daily history unavailable")
-        daily = daily_history(self.daily_data(symbol), self.clock())
+        daily = None
+        market_data_status = "OK"
+        if self.daily_data:
+            try:
+                daily = daily_history(self.daily_data(symbol), self.clock())
+            except Exception as exc:  # noqa: BLE001
+                market_data_status = "UNAVAILABLE: " + type(exc).__name__
+                self.store.event("research_market_data", {
+                    "symbol": symbol, "status": "UNAVAILABLE",
+                    "reason": str(exc)[:300],
+                })
+        else:
+            market_data_status = "UNAVAILABLE: no daily data adapter"
         intraday = None
         try:
             frame = self.data(symbol)
@@ -171,7 +181,10 @@ class ResearchService:
         payload = {
             "as_of_utc": self.clock().isoformat(),
             "symbol": symbol,
-            "history": compact_history(daily, intraday),
+            "history": compact_history(daily, intraday) if daily is not None else {
+                "status": "UNAVAILABLE", "reason": market_data_status,
+            },
+            "market_data_status": market_data_status,
             "evidence": source_evidence,
             "source_status": source_status,
             "external_capabilities": self.capabilities(),
@@ -201,6 +214,7 @@ class ResearchService:
                 seen_urls.add(url)
         profile_dict["evidence"] = merged[:50]
         profile_dict["source_status"] = source_status
+        profile_dict["market_data_status"] = market_data_status
         if any(item.get("verified") for item in source_evidence):
             profile_dict["verified_at_utc"] = self.clock().isoformat()
         if not any(item.get("verified") for item in source_evidence):

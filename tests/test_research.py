@@ -121,6 +121,19 @@ def test_retrieved_source_evidence_is_verified_and_persisted(store, bundle, cloc
     assert store.research_profile("CRWV")["profile"]["source_status"] == "AVAILABLE"
 
 
+def test_missing_daily_history_still_allows_fundamental_research(store, bundle, clock):
+    ai = ResearchAI(status="OK")
+    svc = ResearchService(
+        store, ai, lambda symbol: _minutes(clock()),
+        lambda symbol: (_ for _ in ()).throw(ValueError("not enough history")),
+        bundle.execution, sources=UnavailableSources(), clock=clock,
+    )
+    profile, _ = svc.refresh("SKHY")
+    assert profile["market_data_status"].startswith("UNAVAILABLE")
+    assert store.research_profile("SKHY") is not None
+    assert ai.calls[0][1]["history"]["status"] == "UNAVAILABLE"
+
+
 def test_bootstrap_skips_existing_unless_forced(store, bundle, clock):
     svc = service(store, bundle, clock)
     assert svc.bootstrap(["CRWV"], batch_size=1)[0]["status"] == "OK"

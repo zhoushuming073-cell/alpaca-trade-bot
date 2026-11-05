@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`159 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`160 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -55,7 +55,7 @@
   - `POST https://api.deepseek.com/v1/tools/fetch`
 - 已用真实 CRWV 查询验证 Search 返回标题/URL/日期/authority，Fetch 返回 Markdown 正文。
 - 研究档案已写入 SQLite：来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`、摘要、档案版本和过期时间。
-- 全池批次已完成：**46/48** 个档案，327 条证据；`SKHY`、`SPCX` 因六个月日线历史不足被明确跳过（没有伪造档案）。
+- 全池批次已完成：**48/48** 个档案，339 条证据；`SKHY`、`SPCX` 的日线历史不足，档案明确记录 `market_data_status=UNAVAILABLE`，但基本面来源与证据仍可用，没有伪造行情或档案。
 
 ### 3.4 Phase 3：真实盘前计划
 
