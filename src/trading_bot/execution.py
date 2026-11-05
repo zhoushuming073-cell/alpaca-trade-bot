@@ -63,7 +63,7 @@ class OrderService:
         existing = self._existing_result(cid)
         if existing:
             return existing
-        owner = uuid.uuid4().hex
+        owner = f"{self.store.instance_id}:{uuid.uuid4().hex}"
         self.store.reserve_order(
             cid, day, intent,
             plan_id=plan_id, trigger_id=trigger_id,
@@ -75,13 +75,16 @@ class OrderService:
         # Only pre-dispatch failures are handled here.
         try:
             fresh = self.broker.prepare(intent, cid, session=session, account=account)
+            # A trigger quote can age while slow preflight checks run.  The
+            # submission must re-read the quote immediately before validation.
+            fresh_quote = self.broker.quote(intent["symbol"], risk)
             local_orders = [row for row in self.store.unresolved_orders() if row["cid"] != cid]
             # The service revalidates against the fresh account, so a price or
             # position change between the plan and the POST cannot slip through.
             validate_new_intent(
                 intent,
                 account=fresh,
-                quote=quote,
+                quote=fresh_quote,
                 risk=risk,
                 execution=self.execution,
                 symbols=symbols,
@@ -90,6 +93,7 @@ class OrderService:
                 local_orders=local_orders,
                 freeze_reason=freeze_reason,
                 stop_allowed=self.execution.allow_broker_stop and self.execution.broker_stop_verified,
+                paused=self.store.paused(),
             )
             if self.store.paused() or self.store.safety_reason():
                 raise PreDispatchRejected("Execution paused or safety-locked before dispatch")
@@ -260,6 +264,15 @@ class OrderService:
             if cid.startswith("aip-") and not store.order_row(cid):
                 store.import_broker_order(cid, order)
                 results["conflicts"] += 1
+        residuals = {
+            symbol: qty - int(qty)
+            for symbol, qty in account.get("quantities", {}).items()
+            if qty != int(qty)
+        }
+        if residuals:
+            store.event("fractional_residual", {
+                "quantities": residuals, "outcome": "manual_handling_only",
+            })
         return results
 
 

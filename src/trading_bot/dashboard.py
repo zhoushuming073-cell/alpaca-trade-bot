@@ -163,7 +163,10 @@ def snapshot(store):
             "state": row["state"], "stop_status": row["stop_status"],
             "reason": row["reason"], **payload,
         })
-    health = {"worker": store.health("worker"), "watchdog": store.health("watchdog")}
+    health = {
+        "worker": store.health("worker", execution.watchdog_stale_seconds),
+        "watchdog": store.health("watchdog", execution.watchdog_stale_seconds),
+    }
     frozen = bool(store.freeze_reason())
     phase = "FROZEN" if frozen else session.phase.value
     active_hash = (active.get("hashes") or {}).get("combined")
@@ -305,11 +308,15 @@ def create_app(db_path=None):
                     if store.has_unknown_orders():
                         return jsonify(error="存在未知/冲突订单，保留进程以继续对账。"), 409
                     terminate_workers()
+                    if worker_processes():
+                        return jsonify(error="进程未能在安全时限内停止。"), 409
                 elif action == "restart":
                     store.pause(True)
                     if store.has_unknown_orders():
                         return jsonify(error="存在未知/冲突订单，拒绝安全重启。"), 409
                     terminate_workers()
+                    if worker_processes():
+                        return jsonify(error="旧进程未停止，拒绝启动新配置。"), 409
                     start_worker()
                     # A restart keeps the bot paused; resume is separate.
                 else:

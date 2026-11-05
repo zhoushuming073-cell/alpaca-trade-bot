@@ -42,6 +42,10 @@ class CutoffWatchdog:
             service = OrderService(store, self.broker, self.execution, clock=self.clock)
             while not self.stop_event.wait(self.interval_seconds):
                 try:
+                    # A heartbeat before a potentially slow network reconcile
+                    # keeps a healthy-but-slow broker query from freezing the
+                    # worker's new-risk gate.
+                    store.touch(self.COMPONENT, {"phase": "start"})
                     result = service.reconcile(cancel_lingering=False)
                     self.consecutive_failures = 0
                     store.heartbeat(self.COMPONENT, ok=True, detail=result)

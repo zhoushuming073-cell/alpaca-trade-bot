@@ -101,8 +101,11 @@ function render(s) {
   if (s.freeze_reason) alerts.push("冻结新风险：" + s.freeze_reason);
   if (s.safety_reason) alerts.push("安全锁：" + s.safety_reason);
   if (s.config_pending_restart) alerts.push("配置文件已变化，必须安全重启后才会生效。");
-  if (s.health?.watchdog && (!s.health.watchdog.alive || s.health.watchdog.stale)) {
+  if (s.running && s.health?.watchdog && (!s.health.watchdog.alive || s.health.watchdog.stale)) {
     alerts.push("订单看门狗没有有效心跳；不能依赖自动撤单/对账。");
+  }
+  if (s.running && s.health?.worker && (!s.health.worker.alive || s.health.worker.stale)) {
+    alerts.push("策略 worker 心跳超时；进程可能在运行但策略未推进。");
   }
   if (s.account_age_seconds > 120) alerts.push("账户快照超过 2 分钟，金额可能不是实时余额。");
   if (s.broker_stop !== "VERIFIED") alerts.push("BROKER_STOP 未验证；AI 选择该策略的订单会被整体拒绝，不会降级为无止损。");

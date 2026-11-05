@@ -227,6 +227,13 @@ class PaperGateway:
                 "current_price": float(position.current_price or 0),
             }
         open_orders = [order.model_dump(mode="json") for order in orders]
+        from .risk_manager import reserved_buy_cash
+
+        account_view = {
+            "open_orders": open_orders,
+            "cash": float(account.cash),
+        }
+        reserved_buy = reserved_buy_cash(account_view)
         return {
             "account_id_hash": self._last_account_number,
             "equity": float(account.equity),
@@ -235,6 +242,8 @@ class PaperGateway:
             "buying_power": float(account.buying_power),
             # Never treat margin buying power as spendable cash.
             "non_margin_cash": max(0.0, float(account.cash)),
+            "reserved_buy_cash": reserved_buy,
+            "available_non_margin_cash": max(0.0, float(account.cash) - reserved_buy),
             "blocked": bool(account.trading_blocked or account.account_blocked),
             "positions": {symbol: item["market_value"] for symbol, item in positions_by_symbol.items()},
             "position_details": positions_by_symbol,
@@ -261,7 +270,8 @@ class PaperGateway:
         from alpaca.common.exceptions import APIError
 
         try:
-            return self.api.get_order_by_client_id(cid).model_dump(mode="json")
+            result = self.api.get_order_by_client_id(cid)
+            return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
         except APIError as exc:
             if exc.status_code == 404:
                 return None
@@ -389,7 +399,8 @@ class PaperGateway:
 
         self.api.permits.current = guard
         try:
-            return self.api.submit_order(order_data=request).model_dump(mode="json")
+            result = self.api.submit_order(order_data=request)
+            return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
         finally:
             self.api.permits.current = None
 
@@ -420,6 +431,11 @@ class PaperGateway:
             raise ValueError("Stale or abnormal IEX quote: spread")
         if last is not None and (not math.isfinite(last) or last <= 0):
             raise ValueError("Invalid last trade price")
+        if last is not None and last_age is not None and last_age > max_age:
+            # Do not let a stale last trade satisfy an execution trigger.
+            last = None
+            last_timestamp = None
+            last_age = None
         return {
             "bid": bid,
             "ask": ask,

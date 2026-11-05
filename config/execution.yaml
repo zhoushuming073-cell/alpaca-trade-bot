@@ -27,7 +27,7 @@ submission_grace_seconds: 30
 recheck_cooldown_seconds: 120
 max_rechecks_per_day: 20
 watchdog_interval_seconds: 10
-watchdog_stale_seconds: 45
+watchdog_stale_seconds: 90
 data_workers: 8
 premarket_retry_seconds: 300
 

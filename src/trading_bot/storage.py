@@ -240,6 +240,24 @@ class Store:
                         "updated_at=COALESCE(updated_at,?) WHERE cid=?",
                         (_iso(), _iso(), row["cid"]),
                     )
+            # A crash during an earlier migration could leave state NULL even
+            # though the column exists.  Map only those rows; never reinterpret
+            # a row that already has a local state.
+            for row in self.db.execute(
+                "SELECT cid,status FROM orders WHERE state IS NULL OR state=''"
+            ).fetchall():
+                status = str(row["status"] or "").lower()
+                mapped = {
+                    "filled": OrderState.FILLED.value,
+                    "canceled": OrderState.CANCELED.value,
+                    "expired": OrderState.EXPIRED.value,
+                    "rejected": OrderState.REJECTED.value,
+                }.get(status, OrderState.RECONCILIATION_REQUIRED.value)
+                self.db.execute(
+                    "UPDATE orders SET state=?, created_at=COALESCE(created_at,?), "
+                    "updated_at=COALESCE(updated_at,?) WHERE cid=?",
+                    (mapped, _iso(), _iso(), row["cid"]),
+                )
             self.db.execute(
                 "INSERT OR REPLACE INTO schema_meta(key,value) VALUES('schema_version',?)",
                 (str(SCHEMA_VERSION),),
@@ -443,6 +461,17 @@ class Store:
         self.set_control("config_pending_restart", "true" if pending else "false")
 
     # ------------------------------------------------------------------ health
+    def touch(self, component: str, detail: dict | None = None) -> None:
+        """Refresh liveness without claiming a successful business iteration."""
+        now = _iso(self.clock())
+        with self._tx():
+            self.db.execute(
+                "INSERT INTO runtime_health(component,alive,last_heartbeat,detail) VALUES(?,?,?,?) "
+                "ON CONFLICT(component) DO UPDATE SET alive=1,last_heartbeat=excluded.last_heartbeat,"
+                "detail=excluded.detail",
+                (component, 1, now, json.dumps(detail or {}, default=str)),
+            )
+
     def heartbeat(
         self, component: str, *, ok: bool = True, error: str | None = None, detail: dict | None = None
     ) -> None:
@@ -480,7 +509,7 @@ class Store:
                 (component, 1 if alive else 0, now),
             )
 
-    def health(self, component: str) -> dict:
+    def health(self, component: str, stale_seconds: int = 45) -> dict:
         with self.lock:
             row = self.db.execute(
                 "SELECT * FROM runtime_health WHERE component=?", (component,)
@@ -491,7 +520,7 @@ class Store:
                     "detail": {}, "stale": True}
         detail = _loads(row["detail"]) or {}
         last = _parse_iso(row["last_heartbeat"])
-        stale = last is None or (self.clock() - last) > timedelta(seconds=45)
+        stale = last is None or (self.clock() - last) > timedelta(seconds=max(1, int(stale_seconds)))
         return {
             "component": row["component"],
             "alive": bool(row["alive"]),
@@ -898,7 +927,12 @@ class Store:
             ).fetchall()
             for row in rows:
                 lease = _parse_iso(row["lease_until"])
-                stale = lease is None or lease <= now or row["owner"] != self.instance_id
+                owner_instance = str(row["owner"] or "").split(":", 1)[0]
+                stale = (
+                    lease is None
+                    or lease <= now
+                    or owner_instance != self.instance_id
+                )
                 if not stale:
                     continue
                 cur = self.db.execute(

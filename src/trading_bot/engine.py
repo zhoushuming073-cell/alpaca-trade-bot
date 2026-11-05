@@ -162,7 +162,7 @@ class Engine:
     def _watchdog_ok(self, now) -> bool:
         if not self.require_watchdog:
             return True
-        health = self.store.health("watchdog")
+        health = self.store.health("watchdog", self.execution.watchdog_stale_seconds)
         if health["alive"] and not health["stale"]:
             return True
         if (now - self.started_at).total_seconds() > 90:
@@ -277,16 +277,25 @@ class Engine:
                 self.store.finish_stage(key, "FAILED", {"reason": "no usable history"})
                 self.store.event("premarket_aborted", {"reason": "no usable history"})
                 return "premarket_failed"
-            scan = self._universe_scan(session, account_ctx, history, held)
+            scan = self._universe_scan(session, account_ctx, history, held, unavailable)
             if scan is None:
                 self.store.finish_stage(key, "FAILED", {"reason": "universe scan failed"})
                 return "premarket_failed"
-            focus = self._focus_symbols(scan, held, account)
+            focus = self._focus_symbols(scan, held, account, history)
+            unavailable_held = [symbol for symbol in held if symbol not in history]
+            if unavailable_held:
+                self.store.event("held_data_unavailable", {
+                    "trading_day": session.trading_day,
+                    "symbols": unavailable_held,
+                    "outcome": "no new trade for these symbols; no fabricated data",
+                })
             if not focus:
                 self.store.finish_stage(key, "DONE", {"reason": "no candidates or holdings"})
                 self.store.event("premarket_no_trade", {"trading_day": session.trading_day})
                 return "premarket_no_trade"
-            plan, meta = self._premarket_plan(session, account_ctx, history, scan, focus, held)
+            plan, meta = self._premarket_plan(
+                session, account_ctx, history, scan, focus, held, unavailable_held
+            )
             if plan is None:
                 self.store.finish_stage(key, "FAILED", {"reason": "premarket plan failed"})
                 return "premarket_failed"
@@ -294,7 +303,7 @@ class Engine:
                 self.store.finish_stage(key, "FAILED", {"reason": "plan completed after premarket"})
                 self.store.event("premarket_aborted", {"reason": "plan completed after 09:30 ET"})
                 return "premarket_failed"
-            saved, blocked = self._save_plans(session, plan, focus)
+            saved, blocked = self._save_plans(session, plan, focus, held)
             self.store.finish_stage(key, "DONE", {
                 "plan_candidates": len(plan.candidates), "saved": saved, "blocked": blocked,
                 "scan_candidates": len(scan.candidates),
@@ -429,7 +438,7 @@ class Engine:
             },
         }
 
-    def _universe_scan(self, session, account_ctx, history, held):
+    def _universe_scan(self, session, account_ctx, history, held, unavailable):
         payload = self._base_payload(session, account_ctx)
         universe = []
         for symbol, daily in history.items():
@@ -440,6 +449,7 @@ class Engine:
             compact["monthly"] = compact["monthly"][-6:]
             universe.append({"symbol": symbol, "history": compact, "data_status": "OK"})
         payload["universe"] = universe
+        payload["unavailable_symbols"] = unavailable
         payload["held_symbols"] = sorted(held)
         payload["scan_scope"] = "fixed watchlist only"
         try:
@@ -450,6 +460,14 @@ class Engine:
             )
         except Exception as exc:  # noqa: BLE001
             self.store.error("universe_scan", exc, outcome="scan_failed")
+            return None
+        if scan.account_snapshot_id != account_ctx["account_snapshot_id"]:
+            self.store.error("universe_scan", ValueError("account_snapshot_id mismatch"),
+                             outcome="scan_rejected")
+            return None
+        if abs((_parse_iso(scan.as_of_utc) - self.clock()).total_seconds()) > 900:
+            self.store.error("universe_scan", ValueError("scan as_of_utc is stale"),
+                             outcome="scan_rejected")
             return None
         self.store.save_daily_scan(
             session.trading_day, "OK",
@@ -464,21 +482,21 @@ class Engine:
         })
         return scan
 
-    def _focus_symbols(self, scan, held, account):
+    def _focus_symbols(self, scan, held, account, history):
         symbols = []
         for candidate in scan.candidates:
-            if candidate.symbol not in symbols:
+            if candidate.symbol in history and candidate.symbol not in symbols:
                 symbols.append(candidate.symbol)
         for symbol in held:
-            if symbol not in symbols:
+            if symbol in history and symbol not in symbols:
                 symbols.append(symbol)
         for order in account.get("open_orders", []):
             symbol = str(order.get("symbol") or "")
-            if symbol in self.symbols and symbol not in symbols:
+            if symbol in self.symbols and symbol in history and symbol not in symbols:
                 symbols.append(symbol)
         return symbols[:24]
 
-    def _premarket_plan(self, session, account_ctx, history, scan, focus, held):
+    def _premarket_plan(self, session, account_ctx, history, scan, focus, held, unavailable_held):
         payload = self._base_payload(session, account_ctx)
         focus_rows = []
         quotes = self._quote_map(focus)
@@ -502,6 +520,7 @@ class Engine:
         payload["focus"] = focus_rows
         payload["scan_candidates"] = [candidate.model_dump(mode="json") for candidate in scan.candidates]
         payload["held_symbols"] = sorted(held)
+        payload["held_data_unavailable"] = sorted(unavailable_held)
         payload["stop_policy_choices"] = ["NONE", "BROKER_STOP"]
         try:
             plan, meta = self.ai.complete(
@@ -515,6 +534,10 @@ class Engine:
         if abs((_parse_iso(plan.as_of_utc) - self.clock()).total_seconds()) > 900:
             self.store.error("premarket_plan", ValueError("plan as_of_utc is stale"), outcome="plan_rejected")
             return None, meta
+        if plan.account_snapshot_id != account_ctx["account_snapshot_id"]:
+            self.store.error("premarket_plan", ValueError("account_snapshot_id mismatch"),
+                             outcome="plan_rejected")
+            return None, meta
         meta = {**meta, "market_decision": plan.market_decision.value,
                 "candidates": len(plan.candidates)}
         self.store.event("premarket_plan", {
@@ -525,11 +548,22 @@ class Engine:
         })
         return plan, meta
 
-    def _save_plans(self, session, plan: PremarketPlan, focus):
+    def _save_plans(self, session, plan: PremarketPlan, focus, held):
         if plan.market_decision is MarketDecision.NO_TRADE:
             return 0, 0
         saved = blocked = 0
         focus_set = set(focus)
+        planned_symbols = {candidate.symbol for candidate in plan.candidates}
+        missing_positions = [
+            symbol for symbol in held
+            if symbol in focus_set and symbol not in planned_symbols
+        ]
+        if missing_positions:
+            self.store.event("position_review_missing", {
+                "trading_day": session.trading_day,
+                "symbols": missing_positions,
+                "outcome": "treated as HOLD; no automatic exit",
+            })
         self.store.supersede_plans(session.trading_day, reason="new premarket plan")
         for candidate in plan.candidates:
             if candidate.veto:
@@ -558,8 +592,13 @@ class Engine:
             if not candidate.triggers and candidate.order_intent is None:
                 continue
             candidate_dict = candidate.model_dump(mode="json")
+            # Plan ids are namespaced by trading day.  The AI may reuse a
+            # friendly id such as "plan-1" on another day; without the prefix
+            # SQLite would keep the old trading_day and the new plan would be
+            # invisible to active_plans(new_day).
+            scoped_plan_id = f"{session.trading_day}:{candidate.plan_id}"
             plan_payload = {
-                "plan_id": candidate.plan_id,
+                "plan_id": scoped_plan_id,
                 "mode": "PREMARKET_PLAN",
                 "trading_day": session.trading_day,
                 "plan_valid_until_utc": candidate.plan_valid_until_utc.isoformat(),
@@ -591,6 +630,8 @@ class Engine:
             return "after_cutoff"
         if self.store.config_pending():
             return "config_pending"
+        if self.store.paused():
+            return "paused"
         if not self._watchdog_ok(now):
             return "watchdog_unhealthy"
         freeze = self.store.freeze_reason()
@@ -658,6 +699,17 @@ class Engine:
                     self.store.mark_trigger_fired(plan_id, trigger_id, _hash(fields))
                     self._recheck(plan, trigger, session, account, account_ctx, quote, fields)
                     break
+                if purpose == "EXECUTE_ORDER":
+                    # Fail closed when a simultaneous invalidation/recheck is
+                    # also true: never submit while the plan is being questioned.
+                    blocking = [
+                        other for other in (candidate.get("triggers") or [])
+                        if other.get("purpose") in {"INVALIDATE_PLAN", "REQUEST_AI_RECHECK"}
+                        and not self.store.trigger_fired(plan_id, other.get("trigger_id"))
+                        and self._conditions_true(other.get("all_of") or [], fields)
+                    ]
+                    if blocking:
+                        continue
                 if purpose != "EXECUTE_ORDER":
                     continue
                 intent = as_intent_from_candidate(candidate)
@@ -680,6 +732,7 @@ class Engine:
                         buy_attempts=buy_attempts, local_orders=self.store.unresolved_orders(),
                         freeze_reason=self.store.freeze_reason(),
                         stop_allowed=self.execution.allow_broker_stop and self.execution.broker_stop_verified,
+                        paused=self.store.paused(),
                     )
                 except BrokerStopUnsupported as exc:
                     self.store.set_plan_status(plan_id, "BROKER_STOP_UNSUPPORTED", str(exc))
@@ -776,6 +829,8 @@ class Engine:
                 self.store.event("recheck_data", {
                     "symbol": symbol, "reason": type(exc).__name__ + ": " + str(exc)[:300],
                 })
+                # A recheck cannot authorize a trade on stale/missing data.
+                return
         try:
             result, meta = self.ai.complete(
                 "INTRADAY_RECHECK", payload,

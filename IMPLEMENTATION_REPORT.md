@@ -7,9 +7,9 @@
 
 - 仓库：`D:\alpaca-ai\ai-paper-trader`
 - 分支：`fix/paper-order-safety`
-- 修复提交：`<见最终提交哈希>`
+- 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`137 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`140 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
 
@@ -59,6 +59,16 @@
 - `finally` 标记 alive=false；看板显示 watchdog 健康/无心跳；主引擎在 watchdog 失效时拒绝新风险。
 - 看门狗不再自动撤 DAY/止损（符合最新规则）。
 
+### 后续安全修正（同一实现）
+
+- LumiBot 的 `on_trading_iteration` 默认只在开盘后运行，因此新增 `minutes_before_opening=30` 与 `PaperStrategy.before_market_opens()`，在 09:00 ET 真正执行盘前计划；晚于 09:30 启动不会用过期数据补计划。
+- 订单 owner 带进程实例前缀；陈旧本地预留只在确认同一进程 lease 失效后标 `NOT_SENT`，避免把同进程在途预留误清。
+- 计划 id 按交易日命名空间，避免 AI 跨日复用 `plan-1` 时 SQLite 保留旧 `trading_day` 而使新计划不可见。
+- 提交前重新读取报价并校验报价年龄；旧触发报价在慢检查期间过期时拒绝，不放宽新鲜度。
+- 人工暂停在引擎层提前阻断；新增买卖方向/已有止损冲突检查；OTO 止损 leg 计入可卖股占用。
+- AI 必须回显 `account_snapshot_id`；不一致拒绝计划/扫描；无有效日线的持仓只记录 `held_data_unavailable`，不生成可交易候选。
+- `BROKER_STOP` 父单成交但无 stop leg 时标记 FAILED 并冻结；默认禁用，绝不降级。
+
 ### P0-D 配置不一致
 
 - worker 启动写 `active_config` 哈希；磁盘哈希变化只设置 `config_pending_restart`，冻结新风险，不部分生效。
@@ -69,7 +79,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`137 passed`，关键用例：
+`140 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -124,7 +134,7 @@
 
 ## 8. 测试数量与命令
 
-- `137 passed`：`.venv/Scripts/python -m pytest -q`
+- `140 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`

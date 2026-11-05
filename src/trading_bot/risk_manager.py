@@ -99,9 +99,15 @@ def reserved_sell_qty(
     for order in account.get("open_orders", []) or []:
         if str(order.get("symbol") or "") != symbol:
             continue
-        if str(order.get("side") or "").lower() != "sell":
-            continue
-        total += max(0.0, _remaining(order))
+        if str(order.get("side") or "").lower() == "sell":
+            total += max(0.0, _remaining(order))
+        # An OTO parent BUY can carry a sell stop leg; those shares are
+        # protected and cannot be sold again by a later ordinary sell.
+        for leg in order.get("legs") or []:
+            leg_side = str(leg.get("side") or "").lower()
+            leg_type = str(leg.get("type") or leg.get("order_type") or "").lower()
+            if leg_side == "sell" or (leg_type in {"stop", "stop_limit"} and str(order.get("side") or "").lower() == "buy"):
+                total += max(0.0, _remaining(leg))
     for row in local_orders or []:
         try:
             state = OrderState(row.get("state"))
@@ -154,6 +160,7 @@ def validate_new_intent(
     local_orders: list[dict] | None = None,
     freeze_reason: str = "",
     stop_allowed: bool = False,
+    paused: bool = False,
 ) -> int:
     """Validate one AI order intent.  Returns the unchanged quantity.
 
@@ -169,6 +176,8 @@ def validate_new_intent(
     if freeze_reason:
         # An unknown/conflicting order fact can make even a sell unsafe.
         raise RiskRejected("FROZEN", freeze_reason)
+    if paused:
+        raise RiskRejected("PAUSED")
     if not session.active:
         raise RiskRejected("OUTSIDE_ACTIVE_WINDOW", str(getattr(session, "phase", "")))
     if not session.can_submit:
@@ -210,11 +219,27 @@ def validate_new_intent(
     if int(intent.get("qty", qty)) != qty:
         raise RiskRejected("QTY_MISMATCH")
 
+    # Obvious order conflicts are resolved before any new risk is added.
+    for order in account.get("open_orders", []) or []:
+        if str(order.get("symbol") or "") != symbol:
+            continue
+        open_side = str(order.get("side") or "").lower()
+        if side == "buy" and (open_side == "sell" or _is_stop(order)):
+            raise RiskRejected("CONFLICTING_ORDER", "existing sell/stop on symbol")
+        if side == "sell" and open_side == "buy":
+            raise RiskRejected("CONFLICTING_ORDER", "existing buy on symbol")
+
     price = Decimal(str(intent["limit_price"]))
     bid = Decimal(str(quote.get("bid") or 0))
     ask = Decimal(str(quote.get("ask") or 0))
     if not all(x.is_finite() for x in (bid, ask)) or not (0 < bid <= ask):
         raise RiskRejected("INVALID_QUOTE", "bid/ask missing or crossed")
+    age = quote.get("quote_age_seconds")
+    if age is None or not math.isfinite(float(age)) or not 0 <= float(age) <= risk.max_quote_age_seconds:
+        raise RiskRejected("STALE_QUOTE", "quote age missing or above maximum")
+    last_age = quote.get("last_age_seconds")
+    if last_age is not None and (not math.isfinite(float(last_age)) or float(last_age) > risk.max_quote_age_seconds):
+        raise RiskRejected("STALE_QUOTE", "last trade age above maximum")
     if float((ask - bid) / bid) > risk.max_spread:
         raise RiskRejected("QUOTE_SPREAD", "spread above configured maximum")
     reference = quote.get("last") or quote.get("close")

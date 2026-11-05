@@ -277,3 +277,27 @@ def test_plan_supersede_keeps_only_latest_active(store, bundle):
     active = store.active_plans(day)
     assert [plan["plan_id"] for plan in active] == ["p2"]
     assert store.plan("p1")["status"] == "SUPERSEDED"
+
+
+def test_lumibot_premarket_hook_runs_bounded_plan(monkeypatch):
+    from trading_bot.strategy import PaperStrategy
+
+    class StubEngine:
+        execution = None
+        store = SimpleNamespace(event=lambda *args, **kwargs: None)
+        clock = lambda self: datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc)
+
+        def __init__(self):
+            self.results = ["premarket_failed", "premarket_planned"]
+            self.calls = 0
+
+        def tick(self):
+            value = self.results[min(self.calls, len(self.results) - 1)]
+            self.calls += 1
+            return value
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    strategy = PaperStrategy.__new__(PaperStrategy)
+    strategy.engine = StubEngine()
+    strategy.before_market_opens()
+    assert strategy.engine.calls == 2

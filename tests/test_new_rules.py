@@ -19,7 +19,8 @@ def intent(**overrides):
     return value
 
 
-QUOTE = {"bid": 99.99, "ask": 100.01, "last": 100.0}
+QUOTE = {"bid": 99.99, "ask": 100.01, "last": 100.0,
+         "quote_age_seconds": 0.0, "last_age_seconds": 0.0}
 
 
 def account(**overrides):
@@ -114,10 +115,59 @@ def test_frozen_and_outside_window_reject(bundle, session):
     with pytest.raises(RiskRejected) as failure:
         validate(intent(), bundle, session, freeze_reason="ORDER_UNKNOWN")
     assert failure.value.code == "FROZEN"
+    with pytest.raises(RiskRejected) as failure:
+        validate_new_intent(
+            intent(), account=account(), quote=QUOTE, risk=bundle.risk,
+            execution=bundle.execution, symbols=bundle.symbols, session=session,
+            buy_attempts=0, paused=True,
+        )
+    assert failure.value.code == "PAUSED"
     after = session_info(datetime(2026, 11, 5, 15, 5, tzinfo=timezone.utc), bundle.execution)
     with pytest.raises(RiskRejected) as failure:
         validate(intent(), bundle, after)
     assert failure.value.code in {"OUTSIDE_ACTIVE_WINDOW", "AFTER_SUBMIT_CUTOFF"}
+
+
+def test_conflicting_open_order_blocks_opposite_side(bundle, session):
+    with pytest.raises(RiskRejected) as failure:
+        validate(
+            intent(), bundle, session,
+            account_value=account(open_orders=[{
+                "symbol": "CRWV", "side": "sell", "qty": "1", "filled_qty": "0",
+                "status": "new", "type": "limit",
+            }]),
+        )
+    assert failure.value.code == "CONFLICTING_ORDER"
+    with pytest.raises(RiskRejected) as failure:
+        validate(
+            intent(side="sell", qty=1), bundle, session,
+            account_value=account(
+                positions={"CRWV": 1000}, quantities={"CRWV": 10},
+                available_quantities={"CRWV": 10},
+                open_orders=[{
+                    "symbol": "CRWV", "side": "buy", "qty": "1", "filled_qty": "0",
+                    "status": "new", "type": "limit",
+                }],
+            ),
+        )
+    assert failure.value.code == "CONFLICTING_ORDER"
+
+
+def test_stop_leg_reserves_protected_shares(bundle, session):
+    acct = account(
+        positions={"CRWV": 1000}, quantities={"CRWV": 10},
+        available_quantities={"CRWV": 10},
+        open_orders=[{
+            "symbol": "CRWV", "side": "buy", "qty": "4", "filled_qty": "4",
+            "status": "partially_filled", "type": "limit", "order_class": "oto",
+            "legs": [{"type": "stop", "side": "sell", "qty": "4", "filled_qty": "0",
+                      "status": "new"}],
+        }],
+    )
+    with pytest.raises(RiskRejected) as failure:
+        validate(intent(side="sell", qty=7), bundle, session, account_value=acct)
+    assert failure.value.code == "CONFLICTING_ORDER" or failure.value.code == "INSUFFICIENT_SHARES"
+    assert sellable_qty(acct, "CRWV") == 6
 
 
 def test_broker_stop_is_rejected_not_downgraded(bundle, session):
@@ -165,7 +215,8 @@ def test_order_contract_is_day_limit_whole_shares():
 def test_quote_quality_blocks_bad_spread(bundle, session):
     with pytest.raises(RiskRejected):
         validate_new_intent(
-            intent(), account=account(), quote={"bid": 1.0, "ask": 1.1, "last": 1.0},
+            intent(), account=account(), quote={"bid": 1.0, "ask": 1.1, "last": 1.0,
+                                                 "quote_age_seconds": 0.0},
             risk=bundle.risk, execution=bundle.execution, symbols=bundle.symbols,
             session=session, buy_attempts=0,
         )
