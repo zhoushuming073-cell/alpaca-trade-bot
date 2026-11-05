@@ -9,17 +9,42 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`147 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`159 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
+
+## 1.5 2026-11-05 三阶段迭代（进行中）
+
+### Phase 1：真实 Paper 账户数据
+
+- `dashboard.py` 增加后台只读 `LiveAccountFeed`，每 5 秒读取 Alpaca Paper；页面请求读缓存，不在 Flask 请求线程里等待网络。
+- 账户净值、现金、购买力、非杠杆可用现金、持仓数量/市值/成本/浮盈亏、开放订单和状态均来自 Alpaca；失败保留最后成功快照并标记 `account_stale/account_error/account_age_seconds`，没有数据时显示不可用，不填样例或 0。
+- 实测 4200：`account_source=ALPACA PAPER 实时`，`stale=false`，`age≈0.2s`；现金、可用、持仓数量、成本价与直连 Alpaca 快照一致，净值/购买力/现价差异为两次请求间隔的行情变动。
+- 网络抖动由后台重试与最后成功快照处理；新增 `tests/test_dashboard_live.py`。
+
+### Phase 2：Search/Fetch 与研究记忆
+
+- 新增 `src/trading_bot/sources.py`：官方 `POST /v1/tools/search` 和 `POST /v1/tools/fetch`，Bearer 鉴权、超时、408/429/5xx 重试、错误显式降级；密钥不进入审计。
+- 研究证据持久化：来源 URL、标题、发布时间、抓取时间、available time、内容哈希、摘要、verified；模型证据强制 `verified=false`，只有真实检索/Fetch 的 source adapter 可标记 verified。
+- 支持 `research-bootstrap --symbols/--all --batch --force`；已有未过期档案跳过，过期/force 才重研；档案版本递增、revision 保留。
+- 真实调用已验证 Search 与 Fetch；全池 48 只研究由后台批次运行，完成数量与失败标的以数据库最终统计为准（SKHY/SPCX 可能因日线历史不足失败）。
+
+### Phase 3：盘前 AI 计划
+
+- `Engine._base_payload` 已加入 `research`、已验证 `news`、账户、策略、会话和执行契约；`_premarket_plan` 继续提供候选行情/报价/触发；Python 只做数据、条件比较、风控、订单执行和审计。
+- 2026-11-05 09:00 ET 用真实账户/部分研究档案/行情运行一次 `premarket_once.py`：生成 7 个 `HOLD/WAIT` 计划，没有下单，没有启动 worker。
+- `UNIVERSE_SCAN` 第一次因模型把 `evidence_ids` 返回为整数触发 schema error，自动修复后成功；随后对 `Candidate/ScanCandidate.evidence_ids` 增加数字到字符串的输入规范化，并在 prompt 中要求字符串。
+- 独立 `POSITION_REVIEW`、`ADJUST_STOP/REMOVE_STOP`、真实 Paper 成交和长期运行仍未完成。
+
+
 
 ## 2. 实际修改文件
 
 新增：
 - `src/trading_bot/order_state.py`：显式订单状态机、合法迁移、券商状态映射。
 - `src/trading_bot/research.py`：固定池研究档案/证据/修订、来源不可用降级。
-- `prompts/premarket_plan.txt`、`universe_scan.txt`、`intraday_recheck.txt`、`position_review.txt`、`research_refresh.txt`。
-- `tests/test_order_lifecycle.py`、`test_new_rules.py`、`test_schema_v2.py`、`test_session_engine.py`、`test_watchdog_health.py`、`test_research.py`、`test_performance.py`。
+- `src/trading_bot/sources.py`：DeepSeek 官方 Search/Fetch、重试、证据规范化。
+- `tests/test_dashboard_live.py`、`test_sources.py`、`test_order_lifecycle.py`、`test_new_rules.py`、`test_schema_v2.py`、`test_session_engine.py`、`test_watchdog_health.py`、`test_research.py`、`test_performance.py`。
 - `IMPLEMENTATION_REPORT.md`。
 
 重构：
@@ -83,7 +108,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`147 passed`，关键用例：
+`159 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -132,13 +157,13 @@
 | Alpaca Paper 下单/成交/撤单 | 未验证 | 禁止提交订单；仅离线 Fake/模拟 |
 | Alpaca OTO/券商止损 | 未验证/UNVERIFIED | 默认禁用；仅离线 request 构造测试 |
 | DeepSeek 常规 JSON 调用 | 未在本次运行中实际调用 | 代码/离线 Fake 测试；PROMPT/JSON 修复有测试 |
-| DeepSeek Search/Fetch、Vision | 未验证/未启用 | 默认 UnavailableSources |
+| DeepSeek Search/Fetch、Vision | Search/Fetch 已真实验证；Vision 未启用 | 官方 `/v1/tools/search` 与 `/v1/tools/fetch` 实际调用成功 |
 | SEC/新闻/IR | 未接入 | 明确 UNKNOWN/SOURCE_UNAVAILABLE |
 | 长期运行 | 未验证 | 无 24/5 观测 |
 
 ## 8. 测试数量与命令
 
-- `147 passed`：`.venv/Scripts/python -m pytest -q`
+- `159 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`
@@ -157,7 +182,7 @@
 ## 10. Web 与 Worker 实际状态
 
 - Worker：未运行；数据库 `paused=true`；没有自动 resume。
-- 本机 4200 可能仍是修改前的旧 dashboard 进程；新页面已通过 Flask test client 和 `node --check`，但要在浏览器看到新 UI，需先停止旧 dashboard 再重新启动（不影响 worker，因为 worker 未运行）。
+- 本机 4200 已用新代码重启；`account_source=ALPACA PAPER 实时`，worker 未运行。
 - 新页面展示会话阶段、配置哈希/待重启、worker/watchdog 健康、非杠杆现金、持仓止损状态、DAY 订单本地状态、计划/触发、AI token/延迟、研究档案和重要事件。
 - 没有 IOC 统一开关；`NONE_BY_AI` 不再显示为错误，`BROKER_STOP` 未验证会显示 UNVERIFIED。
 

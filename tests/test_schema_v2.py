@@ -68,6 +68,15 @@ def plan(**overrides):
     return value
 
 
+def test_numeric_evidence_ids_are_normalized_to_strings():
+    candidate = ScanCandidate(
+        symbol="CRWV", setup_type=SetupType.PULLBACK_RECLAIM,
+        opportunity_grade=OpportunityGrade.A, trade_decision=TradeDecision.WAIT,
+        thesis="fixture", evidence_ids=[1, 2, "3"], priority=1,
+    )
+    assert candidate.evidence_ids == ["1", "2", "3"]
+
+
 def test_valid_plan_and_qty_is_preserved(bundle):
     parsed = parse_plan(json.dumps(plan()), symbols=bundle.symbols, now=NOW)
     assert parsed.candidates[0].order_intent.qty == 3

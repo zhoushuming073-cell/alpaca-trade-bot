@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
 import subprocess
 import threading
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import psutil
 from flask import Flask, jsonify, request, send_from_directory
 
+from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
 from .settings import ROOT, Execution, config_snapshot, credentials, load_config
 from .storage import Store
@@ -29,6 +33,7 @@ EVENT_KINDS = (
     "order_imported", "order_recovery", "config_pending", "watchdog_loop",
     "premarket_data", "quote_errors", "research_profile", "recheck_suppressed",
     "intent_rejected", "plan_invalidated", "startup_reconciliation",
+    "source_call", "source_fetch_error", "research_news",
 )
 
 
@@ -49,12 +54,10 @@ def worker_processes():
     return result
 
 
-def worker_environment():
+def alpaca_environment():
+    """Load only Alpaca Paper credentials for the read-only account feed."""
     credentials()  # local .env wins over legacy files
     env = os.environ.copy()
-    legacy = ROOT.parent / "api-key.txt"
-    if not env.get("DEEPSEEK_API_KEY") and legacy.exists():
-        env["DEEPSEEK_API_KEY"] = legacy.read_text(encoding="utf-8-sig").strip()
     legacy = ROOT.parent / "alpaca key.txt"
     if legacy.exists():
         raw = legacy.read_text(encoding="utf-8-sig")
@@ -62,12 +65,157 @@ def worker_environment():
             match = re.search(r"(?im)^" + label + r"[\s:：=]+(\S+)", raw)
             if not env.get(key) and match:
                 env[key] = match[1]
-    if not all(env.get(k) for k in ["DEEPSEEK_API_KEY", "ALPACA_API_KEY", "ALPACA_API_SECRET"]):
-        raise ValueError("Missing API credentials")
+    if not all(env.get(k) for k in ["ALPACA_API_KEY", "ALPACA_API_SECRET"]):
+        raise ValueError("Missing Alpaca Paper credentials")
     env["ALPACA_IS_PAPER"] = "true"
+    return env
+
+
+def worker_environment():
+    env = alpaca_environment()
+    legacy = ROOT.parent / "api-key.txt"
+    if not env.get("DEEPSEEK_API_KEY") and legacy.exists():
+        env["DEEPSEEK_API_KEY"] = legacy.read_text(encoding="utf-8-sig").strip()
+    if not env.get("DEEPSEEK_API_KEY"):
+        raise ValueError("Missing DeepSeek credentials")
     env["PYTHONUTF8"] = "1"
     env["LUMIBOT_HIDE_BOTSPOT_TIP"] = "1"
     return env
+
+
+def _finite(value) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def validate_account_snapshot(account: dict) -> dict:
+    """Validate a raw Alpaca account/position/order snapshot.
+
+    Invalid or partial snapshots are never converted into zeros or sample
+    values; callers keep the last known real snapshot instead.
+    """
+    if not isinstance(account, dict):
+        raise ValueError("account snapshot is not an object")
+    required = (
+        "equity", "last_equity", "cash", "buying_power", "non_margin_cash",
+        "available_non_margin_cash", "positions", "position_details",
+        "quantities", "available_quantities", "open_orders",
+    )
+    for key in required:
+        if key not in account:
+            raise ValueError(f"account snapshot missing {key}")
+    for key in ("equity", "last_equity", "cash", "buying_power",
+                "non_margin_cash", "available_non_margin_cash"):
+        if not _finite(account.get(key)):
+            raise ValueError(f"account snapshot has invalid {key}")
+    if not isinstance(account["positions"], dict) or not isinstance(account["position_details"], dict):
+        raise ValueError("account positions are invalid")
+    if set(account["positions"]) != set(account["position_details"]):
+        raise ValueError("account position maps disagree")
+    for symbol, detail in account["position_details"].items():
+        if not isinstance(detail, dict) or not _finite(detail.get("qty")):
+            raise ValueError(f"invalid position detail {symbol}")
+        if not _finite(detail.get("market_value")) or not _finite(detail.get("unrealized_pl")):
+            raise ValueError(f"invalid position value {symbol}")
+    if not isinstance(account["open_orders"], list):
+        raise ValueError("open_orders is not a list")
+    if account.get("asof"):
+        try:
+            datetime.fromisoformat(str(account["asof"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("invalid account asof timestamp") from exc
+    return account
+
+
+class LiveAccountFeed:
+    """Background read-only Alpaca Paper account/position/order feed.
+
+    The Flask page never blocks on a broker request.  The feed keeps the last
+    valid snapshot, retries transient network errors, and marks stale/error
+    state explicitly instead of substituting simulated values.
+    """
+
+    def __init__(
+        self, *, symbols=None, execution=None, interval: float = 5.0,
+        stale_after: float = 15.0, factory=None,
+    ):
+        self.symbols = list(symbols) if symbols is not None else None
+        self.execution = execution
+        self.interval = max(1.0, float(interval))
+        self.stale_after = max(self.interval * 2, float(stale_after))
+        self._factory = factory
+        self._lock = threading.Lock()
+        self._snapshot = None
+        self._fetched_at = None
+        self._last_attempt = None
+        self._error = None
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _build(self):
+        keys = alpaca_environment()
+        broker = build_broker(
+            {"ALPACA_API_KEY": keys["ALPACA_API_KEY"],
+             "ALPACA_API_SECRET": keys["ALPACA_API_SECRET"]},
+            start_orders_thread=False,
+        )
+        return PaperGateway(
+            SimpleNamespace(broker=broker), None, self.symbols, self.execution
+        )
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run, name="alpaca-paper-account-feed", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        gateway = None
+        while not self._stop.is_set():
+            started = time.monotonic()
+            try:
+                if gateway is None:
+                    gateway = self._factory() if self._factory else self._build()
+                account = gateway.snapshot()
+                validate_account_snapshot(account)
+                now = datetime.now(timezone.utc)
+                with self._lock:
+                    self._snapshot = account
+                    self._fetched_at = now
+                    self._last_attempt = now
+                    self._error = None
+            except Exception as exc:  # noqa: BLE001 - keep last real snapshot
+                gateway = None
+                with self._lock:
+                    self._error = f"{type(exc).__name__}: {str(exc)[:300]}"
+                    self._last_attempt = datetime.now(timezone.utc)
+            elapsed = time.monotonic() - started
+            self._stop.wait(max(self.interval, self.interval - elapsed))
+
+    def get(self):
+        with self._lock:
+            account = deepcopy(self._snapshot)
+            fetched_at = self._fetched_at
+            error = self._error
+            last_attempt = self._last_attempt
+        now = datetime.now(timezone.utc)
+        age = (now - fetched_at).total_seconds() if fetched_at else None
+        return {
+            "account": account,
+            "fetched_at": fetched_at.isoformat() if fetched_at else None,
+            "age_seconds": age,
+            "stale": bool(age is None or age > self.stale_after),
+            "error": error,
+            "last_attempt": last_attempt.isoformat() if last_attempt else None,
+        }
 
 
 def start_worker():
@@ -106,7 +254,7 @@ def _execution_for(active: dict | None):
         return Execution()
 
 
-def snapshot(store):
+def snapshot(store, account_feed=None):
     active = store.active_config() or {}
     try:
         disk = load_config()
@@ -121,16 +269,38 @@ def snapshot(store):
     now = datetime.now(timezone.utc)
     session = session_info(now, execution)
     accounts = store.recent_accounts(400)
-    account = accounts[-1] if accounts else None
-    source = "运行快照"
-    if account is None and (ROOT / "data/preflight.json").exists():
-        try:
-            preflight = json.loads((ROOT / "data/preflight.json").read_text(encoding="utf-8"))
-            if preflight.get("account"):
-                account = {"ts": preflight["timestamp"], **preflight["account"]}
-                source = "最近只读接入检查"
-        except Exception:  # noqa: BLE001
-            pass
+    live = account_feed.get() if account_feed is not None else None
+    account = None
+    source = "ALPACA PAPER 不可用"
+    fetched_at = None
+    account_stale = True
+    account_error = None
+    if live and live.get("account"):
+        account = deepcopy(live["account"])
+        account["ts"] = account.get("asof") or live.get("fetched_at")
+        fetched_at = live.get("fetched_at")
+        account_stale = bool(live.get("stale") or live.get("error"))
+        account_error = live.get("error")
+        source = "ALPACA PAPER 实时" if not account_stale else "ALPACA PAPER 最近成功快照"
+    else:
+        if live:
+            account_error = live.get("error")
+        if accounts:
+            account = accounts[-1]
+            fetched_at = account.get("ts")
+            account["ts"] = account.get("ts") or account.get("asof")
+            source = "最近一次运行快照"
+            account_stale = True
+        elif (ROOT / "data/preflight.json").exists():
+            try:
+                preflight = json.loads((ROOT / "data/preflight.json").read_text(encoding="utf-8"))
+                if preflight.get("account"):
+                    account = {"ts": preflight["timestamp"], **preflight["account"]}
+                    fetched_at = preflight["timestamp"]
+                    source = "最近只读接入检查"
+                    account_stale = True
+            except Exception as exc:  # noqa: BLE001
+                account_error = f"preflight_parse: {type(exc).__name__}"
     history = [{"ts": item.get("ts"), "equity": item.get("equity")} for item in accounts]
     peak = 0.0
     drawdown = 0.0
@@ -140,14 +310,42 @@ def snapshot(store):
         if peak:
             drawdown = max(drawdown, 1 - equity / peak)
     age = None
-    if account and account.get("ts"):
+    if fetched_at:
+        try:
+            age = (now - datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))).total_seconds()
+        except ValueError:
+            age = None
+    if account and not account_stale and account.get("ts"):
         try:
             age = (now - datetime.fromisoformat(str(account["ts"]).replace("Z", "+00:00"))).total_seconds()
         except ValueError:
-            age = None
+            pass
+    if account and age is not None and age > 120:
+        account_stale = True
+        if source == "ALPACA PAPER 实时":
+            source = "ALPACA PAPER 最近成功快照"
+    if account is None:
+        source = "ALPACA PAPER 不可用"
+        account_error = account_error or "no live Alpaca snapshot and no historical snapshot"
+    if account:
+        from .risk_manager import stop_orders
+
+        broker_stops = stop_orders(account)
+        stop_symbols = {str(order.get("symbol")) for order in broker_stops}
+        for symbol, detail in (account.get("position_details") or {}).items():
+            if symbol in stop_symbols:
+                detail["stop_status"] = "VERIFIED"
+                continue
+            intent = store.latest_buy_intent(symbol)
+            if not intent:
+                detail["stop_status"] = "UNKNOWN"
+            elif str(intent.get("stop_policy") or "NONE").upper() == "NONE":
+                detail["stop_status"] = "NONE_BY_AI"
+            else:
+                detail["stop_status"] = "FAILED"
     day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     plans = store.active_plans(day)
-    orders_rows = []
+    local_rows = []
     with store.lock:
         rows = store.db.execute(
             "SELECT cid,day,status,state,stop_status,payload,reason FROM orders "
@@ -158,11 +356,35 @@ def snapshot(store):
             payload = json.loads(row["payload"] or "{}")
         except ValueError:
             payload = {}
-        orders_rows.append({
+        local_rows.append({
             "cid": row["cid"], "day": row["day"], "status": row["status"],
             "state": row["state"], "stop_status": row["stop_status"],
             "reason": row["reason"], **payload,
         })
+    local_by_cid = {row["cid"]: row for row in local_rows if row.get("cid")}
+    orders_rows = []
+    seen = set()
+    for order in (account or {}).get("open_orders", []) or []:
+        cid = str(order.get("client_order_id") or "")
+        local = local_by_cid.get(cid) if cid else {}
+        item = {**order}
+        item["cid"] = cid or None
+        item["day"] = (local or {}).get("day")
+        item["status"] = order.get("status")
+        item["local_state"] = (local or {}).get("state")
+        item["state"] = (local or {}).get("state") or "BROKER_OPEN"
+        item["stop_status"] = (local or {}).get("stop_status") or order.get("stop_status")
+        item["reason"] = (local or {}).get("reason")
+        item["source"] = "ALPACA_OPEN"
+        orders_rows.append(item)
+        if cid:
+            seen.add(cid)
+    # Keep local pre-dispatch/unknown/terminal orders visible even when they
+    # are not (or not yet) returned by Alpaca's open-order query.
+    for local in local_rows:
+        if local.get("cid") and local["cid"] in seen:
+            continue
+        orders_rows.append({**local, "source": "LOCAL"})
     health = {
         "worker": store.health("worker", execution.watchdog_stale_seconds),
         "watchdog": store.health("watchdog", execution.watchdog_stale_seconds),
@@ -177,10 +399,32 @@ def snapshot(store):
     for symbol in symbols or []:
         row = store.research_profile(symbol)
         if row:
+            profile = row.get("profile") or {}
+            evidence = store.research_evidence(symbol, limit=5)
             profiles.append({
                 "symbol": symbol, "status": row["status"], "version": row["version"],
                 "verified_at": row["verified_at"], "expires_at": row["expires_at"],
+                "source_status": profile.get("source_status"),
+                "evidence_count": len(evidence),
+                "latest_evidence": [
+                    {k: item.get(k) for k in (
+                        "kind", "source_url", "title", "published_at", "retrieved_at", "verified"
+                    )} for item in evidence
+                ],
             })
+    verified_profiles = sum(
+        1 for item in profiles
+        if item.get("source_status") == "AVAILABLE" and item.get("status") in {"OK", "STALE"}
+    )
+    research_capabilities = {
+        "status": (
+            "AVAILABLE" if verified_profiles else
+            "DEGRADED" if profiles else "UNAVAILABLE"
+        ),
+        "profiles": len(profiles),
+        "verified_profiles": verified_profiles,
+        "source_note": "profile.source_status is written by the retrieval layer",
+    }
     return {
         "service": "ai-paper-trader",
         "now": now.isoformat(),
@@ -204,6 +448,10 @@ def snapshot(store):
         "account": account,
         "account_source": source,
         "account_age_seconds": age,
+        "account_stale": account_stale,
+        "account_error": account_error,
+        "account_fetched_at": fetched_at,
+        "account_asof": (account or {}).get("asof") or (account or {}).get("ts"),
         "daily_pnl": (
             float(account["equity"]) - float(account["last_equity"])
             if account and account.get("last_equity") is not None else None
@@ -223,6 +471,7 @@ def snapshot(store):
         "decision": next(iter(store.recent_events(("premarket_plan", "intraday_recheck", "decision"), 1)), None),
         "events": list(reversed(store.recent_events(EVENT_KINDS, 50))),
         "orders": orders_rows,
+        "orders_source": "ALPACA_OPEN+LOCAL",
         "unresolved": store.unresolved_orders(),
         "plans": [
             {
@@ -234,10 +483,7 @@ def snapshot(store):
         ],
         "ai_calls": store.recent_ai_calls(10),
         "research": profiles,
-        "research_capabilities": (
-            {"status": "UNAVAILABLE", "reason": "not configured"} if not profiles else
-            {"status": "AVAILABLE", "profiles": len(profiles)}
-        ),
+        "research_capabilities": research_capabilities,
         "symbols": symbols,
         "strategy_version": version,
         "risk": {},
@@ -245,7 +491,7 @@ def snapshot(store):
     }
 
 
-def create_app(db_path=None):
+def create_app(db_path=None, account_feed=None):
     app = Flask(__name__)
     db_path = db_path or ROOT / "data/paper.sqlite"
     token = secrets.token_urlsafe(32)
@@ -283,7 +529,7 @@ def create_app(db_path=None):
     def status():
         store = Store(db_path, role="dashboard")
         try:
-            data = snapshot(store)
+            data = snapshot(store, account_feed)
             data["control_token"] = token
             return jsonify(**data)
         finally:
@@ -343,7 +589,21 @@ def main():
     with portalocker.Lock(str(ROOT / "data/dashboard.lock"), timeout=0):
         if args.start_worker:
             start_worker()
-        make_server("127.0.0.1", PORT, create_app(), threaded=True).serve_forever()
+        try:
+            bundle = load_config()
+            account_feed = LiveAccountFeed(
+                symbols=bundle.symbols, execution=bundle.execution, interval=5.0
+            )
+            account_feed.start()
+        except Exception as exc:  # noqa: BLE001 - dashboard still starts read-only
+            account_feed = None
+            logging_error = f"{type(exc).__name__}: {exc}"
+            (ROOT / "logs").mkdir(exist_ok=True)
+            with (ROOT / "logs/dashboard-error.log").open("a", encoding="utf-8") as handle:
+                handle.write("account feed unavailable: " + logging_error + "\n")
+        make_server(
+            "127.0.0.1", PORT, create_app(account_feed=account_feed), threaded=True
+        ).serve_forever()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,11 @@ param(
     [string]$Mode = 'paper',
     [string]$Cid = '',
     [string]$Reason = '',
-    [switch]$Confirm
+    [switch]$Confirm,
+    [string[]]$Symbols = @(),
+    [int]$Batch = 0,
+    [switch]$All,
+    [switch]$Force
 )
 $ErrorActionPreference = 'Stop'
 $pythonPath = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
@@ -27,5 +31,11 @@ $arguments = @('-m','trading_bot.main',$Command,'--mode',$Mode)
 if ($Cid) { $arguments += @('--cid', $Cid) }
 if ($Reason) { $arguments += @('--reason', $Reason) }
 if ($Confirm) { $arguments += '--confirm' }
+if ($Command -eq 'research-bootstrap') {
+    if ($All) { $arguments += '--all' }
+    if ($Symbols.Count -gt 0) { $arguments += '--symbols'; $arguments += $Symbols }
+    if ($Batch -gt 0) { $arguments += @('--batch', $Batch) }
+    if ($Force) { $arguments += '--force' }
+}
 & $pythonPath @arguments
 exit $LASTEXITCODE

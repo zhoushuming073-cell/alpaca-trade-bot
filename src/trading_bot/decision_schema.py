@@ -172,6 +172,13 @@ class Candidate(Strict):
     order_intent: OrderIntent | None = None
     invalidation: list[Condition] = Field(default_factory=list, max_length=8)
 
+    @field_validator("evidence_ids", mode="before")
+    @classmethod
+    def _evidence_ids_are_strings(cls, value):
+        if value is None:
+            return []
+        return [str(item) for item in value if item is not None]
+
     @field_validator("plan_valid_until_utc")
     @classmethod
     def _utc_valid(cls, value: datetime) -> datetime:
@@ -224,6 +231,13 @@ class ScanCandidate(Strict):
     thesis: str = Field(min_length=1, max_length=2000)
     evidence_ids: list[str] = Field(default_factory=list, max_length=30)
     priority: int = Field(ge=1, le=12)
+
+    @field_validator("evidence_ids", mode="before")
+    @classmethod
+    def _evidence_ids_are_strings(cls, value):
+        if value is None:
+            return []
+        return [str(item) for item in value if item is not None]
 
 
 class UniverseScan(Strict):

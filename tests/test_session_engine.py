@@ -22,6 +22,7 @@ from trading_bot.decision_schema import (
 )
 from trading_bot.dry_run import FakeBroker, ScriptedAI, _days, _minutes
 from trading_bot.engine import Engine
+from trading_bot.market_data import session_info
 from trading_bot.settings import load_config
 
 
@@ -273,6 +274,30 @@ def test_transient_quote_failure_recovers_without_order(store, clock, bundle):
     second = engine.tick()
     assert second in {"active_triggered", "active_scan", "active_wait"}
     assert broker.submissions <= 1
+
+
+def test_premarket_payload_includes_research_and_news(store, clock, bundle):
+    class FakeResearch:
+        def summaries(self, symbols):
+            return {"CRWV": {"symbol": "CRWV", "status": "OK", "facts": ["real evidence"]}}
+
+        def capabilities(self):
+            return {"deepseek_search": "CONFIGURED", "deepseek_fetch": "CONFIGURED"}
+
+        def latest_news(self, symbols, limit=6):
+            return {"CRWV": [{"title": "real news", "source_url": "https://example.com",
+                              "published_at_utc": "2026-11-05T13:00:00+00:00",
+                              "verified": True, "summary": "fixture"}]}
+
+    clock.set(datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc))
+    engine, broker, _ = make_engine(store, clock, bundle)
+    engine.research = FakeResearch()
+    session = session_info(clock(), bundle.execution)
+    account_ctx, _ = engine._account_context(broker.snapshot())
+    payload = engine._base_payload(session, account_ctx)
+    assert payload["research"]["CRWV"]["facts"] == ["real evidence"]
+    assert payload["news"]["CRWV"][0]["verified"] is True
+    assert "news" not in payload["unavailable_context"]
 
 
 def test_plan_supersede_keeps_only_latest_active(store, bundle):

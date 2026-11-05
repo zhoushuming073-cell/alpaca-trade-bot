@@ -68,6 +68,7 @@ def main():
     parser.add_argument("--symbols", nargs="*", default=[])
     parser.add_argument("--batch", type=int, default=3)
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     mode = "dry-run" if args.command == "dry-run" else args.mode
     if args.command == "resolve-order":
@@ -121,7 +122,8 @@ def main():
 
         from .broker import build_broker
         from .deepseek_client import DeepSeek
-        from .research import ResearchService, UnavailableSources
+        from .research import ResearchService
+        from .sources import DeepSeekResearchSources, DeepSeekTools
 
         bundle = load_config()
         keys = credentials()
@@ -154,11 +156,12 @@ def main():
                 temperature=bundle.execution.ai_temperature,
                 repair_attempts=bundle.execution.ai_repair_attempts,
             )
+            tools = DeepSeekTools(keys["DEEPSEEK_API_KEY"], audit=store.event)
             service = ResearchService(
                 store, ai, data, daily, bundle.execution,
-                sources=UnavailableSources(),
+                sources=DeepSeekResearchSources(tools),
             )
-            result = service.bootstrap(selected, batch_size=max(1, args.batch))
+            result = service.bootstrap(selected, batch_size=max(1, args.batch), force=args.force)
         finally:
             store.close()
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

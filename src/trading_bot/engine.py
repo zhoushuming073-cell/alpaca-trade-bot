@@ -406,8 +406,18 @@ class Engine:
             self.store.error("research", exc, outcome="research_unavailable")
             return {}, {"status": "UNAVAILABLE", "reason": type(exc).__name__}
 
+    def _trim_news(self):
+        if not getattr(self, "research", None):
+            return {}
+        try:
+            return self.research.latest_news(self.symbols, limit=6)
+        except Exception as exc:  # noqa: BLE001
+            self.store.error("research_news", exc, outcome="news_unavailable")
+            return {}
+
     def _base_payload(self, session, account_ctx):
         research, capabilities = self._trim_research()
+        news = self._trim_news()
         return {
             "as_of_utc": _iso(self.clock()),
             "model_id": getattr(self.ai, "model", "unknown"),
@@ -427,6 +437,7 @@ class Engine:
             },
             "account": account_ctx,
             "research": research,
+            "news": news,
             "research_capabilities": capabilities,
             "execution_contract": {
                 "mode": "Paper only",
@@ -448,9 +459,11 @@ class Engine:
                     "max_daily_orders": self.risk.max_daily_orders,
                 },
             },
-            "unavailable_context": [
-                "news", "sector_performance", "premarket_change", "all_market_breadth",
-            ],
+            "unavailable_context": (
+                ["sector_performance", "premarket_change", "all_market_breadth"]
+                if news else
+                ["news", "sector_performance", "premarket_change", "all_market_breadth"]
+            ),
             "data_provenance": {
                 "feed": "IEX",
                 "volume_scope": "IEX only, not consolidated market volume",

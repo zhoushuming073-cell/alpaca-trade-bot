@@ -1322,6 +1322,15 @@ class Store:
         result["profile"] = _loads(row["profile"])
         return result
 
+    def research_evidence(self, symbol: str, limit: int = 50) -> list[dict]:
+        limit = max(1, min(int(limit), 200))
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT * FROM research_evidence WHERE symbol=? ORDER BY id DESC LIMIT ?",
+                (symbol, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def research_summaries(self, symbols: Iterable[str]) -> dict[str, dict]:
         result = {}
         for symbol in symbols:

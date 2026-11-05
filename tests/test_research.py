@@ -88,7 +88,37 @@ def test_refresh_revision_and_capabilities(store, bundle, clock):
     svc.refresh("CRWV")
     revisions = list(store.db.execute("SELECT * FROM research_revisions WHERE symbol='CRWV'"))
     assert len(revisions) >= 2
-    assert store.research_profile("CRWV")["version"] == first["version"]
+    assert store.research_profile("CRWV")["version"] > first["version"]
+
+
+def test_retrieved_source_evidence_is_verified_and_persisted(store, bundle, clock):
+    class Sources:
+        def capabilities(self):
+            return {"deepseek_search": "VERIFIED", "deepseek_fetch": "VERIFIED"}
+
+        def search(self, symbol):
+            now = clock().isoformat()
+            return [{
+                "kind": "news", "source_url": "https://example.invalid/real",
+                "title": "real source", "published_at_utc": now,
+                "retrieved_at_utc": now, "available_at_utc": now,
+                "verified": True, "content_hash": "abc",
+                "summary": "retrieved content",
+            }]
+
+    ai = ResearchAI(status="OK")
+    svc = ResearchService(
+        store, ai, lambda symbol: _minutes(clock()),
+        lambda symbol: _days(clock()), bundle.execution,
+        sources=Sources(), clock=clock,
+    )
+    profile, _ = svc.refresh("CRWV")
+    assert profile["source_status"] == "AVAILABLE"
+    assert profile["verified_at_utc"]
+    assert profile["evidence"][0]["verified"] is True
+    rows = store.research_evidence("CRWV", limit=5)
+    assert rows and rows[0]["verified"] == 1
+    assert store.research_profile("CRWV")["profile"]["source_status"] == "AVAILABLE"
 
 
 def test_bootstrap_skips_existing_unless_forced(store, bundle, clock):

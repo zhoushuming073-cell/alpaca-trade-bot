@@ -42,6 +42,9 @@ const LABELS = {
   config_pending: "配置待重启",
   watchdog_loop: "看门狗异常",
   research_profile: "研究档案",
+  source_call: "研究来源调用",
+  source_fetch_error: "来源抓取失败",
+  research_news: "研究新闻",
   premarket_data: "盘前数据",
   quote_errors: "报价异常",
   recheck_suppressed: "复核抑制",
@@ -56,6 +59,7 @@ const STATES = {
   ACCEPTED: "券商已接受", PARTIALLY_FILLED: "部分成交", FILLED: "完全成交",
   CANCELED: "已取消", EXPIRED: "已过期", REJECTED: "已拒绝",
   RECONCILIATION_REQUIRED: "待人工对账", NOT_SENT: "确认未发送",
+  BROKER_OPEN: "券商开放中",
 };
 const STOP = {
   NONE_BY_AI: "AI 选择不设", REQUESTED: "已请求", VERIFIED: "已确认",
@@ -75,7 +79,8 @@ function render(s) {
   $("refresh").textContent = "更新于 " + date(s.now) + " · 每 5 秒刷新";
   $("equity").textContent = money(s.account?.equity);
   $("cash").textContent = "现金 " + money(s.account?.cash);
-  $("available").textContent = "非杠杆现金 " + money(
+  $("buying-power").textContent = "购买力 " + money(s.account?.buying_power);
+  $("available").textContent = "非杠杆可用 " + money(
     s.account?.available_non_margin_cash ?? s.account?.non_margin_cash ?? s.account?.cash
   );
   $("pnl").textContent = money(s.daily_pnl);
@@ -84,6 +89,7 @@ function render(s) {
   $("account-time").textContent = date(s.account?.ts);
   $("source").textContent = s.account_source + " · " + (
     s.account_age_seconds == null ? "尚无数据" :
+    s.account_age_seconds < 60 ? Math.floor(s.account_age_seconds) + " 秒前的快照" :
     Math.floor(s.account_age_seconds / 60) + " 分钟前的快照"
   );
   $("config").textContent = "配置 " + (s.active_config_hash || "—") +
@@ -108,6 +114,11 @@ function render(s) {
     alerts.push("策略 worker 心跳超时；进程可能在运行但策略未推进。");
   }
   if (s.account_age_seconds > 120) alerts.push("账户快照超过 2 分钟，金额可能不是实时余额。");
+  if (s.account_stale && s.account_source !== "ALPACA PAPER 不可用") {
+    alerts.push("当前账户数据来自最近一次成功快照，不是实时 Alpaca 响应。");
+  }
+  if (s.account_error) alerts.push("Alpaca 账户同步异常：" + s.account_error);
+  if (!s.account) alerts.push("没有可用的 Alpaca Paper 账户数据；页面不会用模拟数据填充。");
   if (s.broker_stop !== "VERIFIED") alerts.push("BROKER_STOP 未验证；AI 选择该策略的订单会被整体拒绝，不会降级为无止损。");
   $("notice").textContent = alerts.join(" ");
   $("notice").style.display = alerts.length ? "block" : "none";
@@ -129,10 +140,10 @@ function render(s) {
   const orderRows = (s.orders || []).map((o) => [
     o.day, o.symbol, o.side || o.action, o.qty ?? o.quantity,
     o.filled_qty ?? "—", o.limit_price ?? "—", o.time_in_force || "—",
-    STATES[o.state] || o.state || o.status, STOP[o.stop_status] || o.stop_status || "—",
+    o.status || "—", STATES[o.state] || o.state || o.status, STOP[o.stop_status] || o.stop_status || "—",
   ]);
   $("order-table").innerHTML = table(
-    ["日期", "标的", "方向", "委托", "已成交", "限价", "TIF", "本地状态", "止损"],
+    ["日期", "标的", "方向", "委托", "已成交", "限价", "TIF", "券商状态", "本地状态", "止损"],
     orderRows, "尚无订单记录"
   );
   $("pending").textContent = (s.unresolved || []).length + " 笔未决订单";
@@ -162,10 +173,11 @@ function render(s) {
   );
 
   const researchRows = (s.research || []).map((r) => [
-    r.symbol, r.status, "v" + r.version, date(r.verified_at), date(r.expires_at),
+    r.symbol, r.status, r.source_status || "—", r.evidence_count ?? 0,
+    "v" + r.version, date(r.verified_at), date(r.expires_at),
   ]);
   $("research-table").innerHTML = table(
-    ["标的", "档案状态", "版本", "最近核验", "过期时间"],
+    ["标的", "档案状态", "来源状态", "证据数", "版本", "最近核验", "过期时间"],
     researchRows, "尚无研究档案（研究记忆未初始化）"
   );
 

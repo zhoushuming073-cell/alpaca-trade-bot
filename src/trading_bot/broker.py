@@ -217,15 +217,20 @@ class PaperGateway:
         for position in positions:
             symbol = position.symbol
             qty = float(position.qty)
+            qty_available = float(position.qty_available if position.qty_available is not None else qty)
             quantities[symbol] = qty
-            available[symbol] = float(position.qty_available if position.qty_available is not None else qty)
+            available[symbol] = qty_available
             positions_by_symbol[symbol] = {
                 "symbol": symbol,
                 "qty": qty,
+                "qty_available": qty_available,
                 "market_value": float(position.market_value),
                 "avg_entry_price": float(position.avg_entry_price or 0),
                 "unrealized_pl": float(position.unrealized_pl or 0),
+                "unrealized_plpc": float(getattr(position, "unrealized_plpc", 0) or 0),
                 "current_price": float(position.current_price or 0),
+                "change_today": float(getattr(position, "change_today", 0) or 0),
+                "side": str(getattr(getattr(position, "side", None), "value", getattr(position, "side", "")) or "").lower(),
             }
         open_orders = [order.model_dump(mode="json") for order in orders]
         from .risk_manager import reserved_buy_cash
@@ -235,23 +240,36 @@ class PaperGateway:
             "cash": float(account.cash),
         }
         reserved_buy = reserved_buy_cash(account_view)
+        equity = float(account.equity)
+        asof = datetime.now(timezone.utc).isoformat()
         return {
             "account_id_hash": self._last_account_number,
-            "equity": float(account.equity),
+            "equity": equity,
             "last_equity": float(account.last_equity),
+            "portfolio_value": float(getattr(account, "portfolio_value", equity) or equity),
             "cash": float(account.cash),
             "buying_power": float(account.buying_power),
             # Never treat margin buying power as spendable cash.
             "non_margin_cash": max(0.0, float(account.cash)),
             "reserved_buy_cash": reserved_buy,
             "available_non_margin_cash": max(0.0, float(account.cash) - reserved_buy),
+            "long_market_value": float(getattr(account, "long_market_value", 0) or 0),
+            "short_market_value": float(getattr(account, "short_market_value", 0) or 0),
+            "initial_margin": float(getattr(account, "initial_margin", 0) or 0),
+            "maintenance_margin": float(getattr(account, "maintenance_margin", 0) or 0),
+            "daytrade_count": int(getattr(account, "daytrade_count", 0) or 0),
+            "currency": str(getattr(account, "currency", "USD") or "USD"),
+            "account_status": str(getattr(getattr(account, "status", None), "value", getattr(account, "status", "")) or ""),
             "blocked": bool(account.trading_blocked or account.account_blocked),
+            "trading_blocked": bool(account.trading_blocked),
+            "account_blocked": bool(account.account_blocked),
             "positions": {symbol: item["market_value"] for symbol, item in positions_by_symbol.items()},
             "position_details": positions_by_symbol,
             "quantities": quantities,
             "available_quantities": available,
             "open_orders": open_orders,
-            "asof": datetime.now(timezone.utc).isoformat(),
+            "asof": asof,
+            "ts": asof,
         }
 
     def is_open(self):

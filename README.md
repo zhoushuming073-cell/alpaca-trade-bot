@@ -6,6 +6,12 @@
 
 > 本版本**没有提交任何真实或 Paper 订单**，没有自动恢复 worker，也没有把任何密钥写入仓库或上传。
 
+## 0. 2026-11-05 三阶段迭代
+
+- **Phase 1**：dashboard 增加后台只读 Alpaca Paper `LiveAccountFeed`，账户净值/现金/购买力/持仓/成本/浮盈亏/开放订单/订单状态直接来自 Alpaca；固定失败重试、字段校验、最后成功快照和 `stale/error/age` 标记；无实时数据时绝不填模拟值。
+- **Phase 2**：接入 DeepSeek 官方 Search/Fetch，研究档案写入来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`；支持增量重研、批次和 `--force`，后台可跑全池 48 只。
+- **Phase 3**：盘前 payload 同时提供账户、研究档案、已验证新闻/证据和行情；AI 负责选股/计划，Python 仅做数据、触发比较、风控、订单执行和审计。
+
 ## 1. 最新运行规则
 
 - **Paper only**：固定 `https://paper-api.alpaca.markets`，不存在实盘开关或实盘回退。
@@ -25,7 +31,7 @@
   - 10:00 后本地不主动操作：**不自动全撤 DAY 订单、不平仓、不撤券商止损**；已接受的券商订单继续按券商规则有效；
   - 次一交易日盘前先按 Alpaca 权威事实对账，再由 AI 复审持仓/订单。
 - **无固定 5 分钟全量重分析**；只有 AI 预先定义的 `REQUEST_AI_RECHECK` 触发、重大变化或记忆过期才再次调用 AI。`EXECUTE_ORDER` 是下单授权，`REQUEST_AI_RECHECK` 不是。
-- **研究记忆**：SQLite 中的固定池档案、证据、修订、每日扫描；外部新闻/SEC/搜索未验证时明确标 `UNKNOWN/SOURCE_UNAVAILABLE`，不伪造。默认不启用外部检索。
+- **研究记忆**：SQLite 中的固定池档案、证据、修订、每日扫描；DeepSeek 官方 Search/Fetch 已接入并真实调用验证，来源、发布时间、抓取时间、内容哈希和 `verified` 标记持久化；来源不可用时明确标 `UNKNOWN/SOURCE_UNAVAILABLE`，不伪造。
 
 ## 2. 订单状态机（核心安全边界）
 
@@ -78,7 +84,7 @@ Prompt 文件：
 
 - 盘前全池轻扫使用**原始结构但有界**的日线/周线/月线压缩窗口；重点候选再使用近 60 根日线 + 26 周 + 12 月 + 78 根 5 分钟原始 K 线。保留价格结构，不只给几个指标。
 - `DeepSeek` 记录：模式、模型、prompt hash、input hash、output hash、prompt/completion tokens、延迟、finish_reason、结果；AI 输入以压缩 blob 保存（`event_blobs`），可复现且不膨胀主表。
-- 外部新闻/SEC/搜索**默认不可用且未验证**；不调用付费服务，不把“文档里存在 API”当作密钥有权限。`ResearchService` 的 `UnavailableSources` 会明确返回 `SOURCE_UNAVAILABLE`，模型不能自证事实。
+- 外部新闻/SEC/搜索：DeepSeek 官方 Search/Fetch 已真实调用验证（`POST /v1/tools/search`、`POST /v1/tools/fetch`）；SEC/新闻专用适配器仍以搜索结果为准，不伪造来源。来源不可用时明确标 `SOURCE_UNAVAILABLE`。
 
 ## 5. 配置与安全重启
 
@@ -135,8 +141,8 @@ python -m venv .venv
 
 - `BROKER_STOP` 的 Alpaca OTO 请求构造与默认拒绝路径已实现并有离线测试；**该 Paper 账户是否支持所需 OTO/DAY/部分成交组合未验证**，默认禁用，不能据此认为可用。
 - 独立的 `POSITION_REVIEW` AI 调用、`ADJUST_STOP`/`REMOVE_STOP` 的券商改单/撤单流程未接入；当前持仓复审依赖盘前计划上下文，不会自动删除已有止损。
-- DeepSeek Search/Fetch、Vision、SEC/Alpaca News 实际接入未验证；默认 `UnavailableSources`，不会伪造新闻/来源/财报。
-- 盘前研究不会自动对全池做首次深研；`research-bootstrap` 需显式运行并按 `batch_size` 分批。
+- DeepSeek Search/Fetch 已真实接入并验证；SEC/新闻专用抓取仍以搜索结果为准，未实现额外供应商适配。
+- 全池首次深研由 `research-bootstrap --all` 显式分批执行；后台批量运行会记录每个结果的来源与失败原因，不会伪造。
 - 看板/worker 的“安全重启”是进程级；Windows 被强杀时仍以 broker 事实为最终依据，次日必须先对账。
 - 止损不能保证跳空/极端流动性下的成交价，不能描述为亏损上限。
 - 2% 当日亏损和 10 次下单尝试是沿用的非仓位型保护，尚未独立评估最优性；减少风险的合法卖出不受它们阻断。

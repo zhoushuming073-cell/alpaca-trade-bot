@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`147 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`159 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -40,6 +40,30 @@
 - 48/48 返回 5 分钟 K 线；
 - 非交易时段读取最新报价会因陈旧而被拒绝（`Stale or abnormal IEX quote`），这是预期的 fail-closed 行为，不应放宽新鲜度来制造成交。
 
+### 3.2 Phase 1：Web 与 Paper 真实账户
+
+- dashboard 已切换为后台只读 `LiveAccountFeed`，不再用模拟数据填充账户字段。
+- 本地实测 `account_source=ALPACA PAPER 实时`，`account_stale=false`，`account_age≈0`；
+- 页面字段来自 Alpaca：净值、现金、购买力、非杠杆可用现金、持仓数量、成本价、市值、浮盈亏、开放订单和订单状态。
+- 账户现金、数量、成本价可与同时段直连 Alpaca 快照核验；价格类字段（净值/市值/浮盈亏/购买力）会随两次请求间隔的行情变动，页面显示抓取时间与年龄。
+- 失败时保留最后一次真实快照并显示 `stale/error`；无快照时显示不可用，不填零或样例值。
+
+### 3.3 Phase 2：DeepSeek Search/Fetch
+
+- 官方接口已实际调用：
+  - `POST https://api.deepseek.com/v1/tools/search`
+  - `POST https://api.deepseek.com/v1/tools/fetch`
+- 已用真实 CRWV 查询验证 Search 返回标题/URL/日期/authority，Fetch 返回 Markdown 正文。
+- 研究档案已写入 SQLite：来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`、摘要、档案版本和过期时间。
+- 研究批次仍在后台运行；完成数量以最终数据库/报告为准，不能把已开始的 48 只说成全部完成。
+
+### 3.4 Phase 3：真实盘前计划
+
+- 2026-11-05 09:00 ET 使用真实账户、部分研究档案、行情和 AI 生成盘前计划；
+- AI 返回 7 个 `HOLD/WAIT` 计划，未生成可执行下单意图；
+- `UNIVERSE_SCAN` 首次因模型把 numeric evidence_ids 返回为整数触发 schema error，修复重试后成功；随后增加了 evidence_ids 数字到字符串的输入规范化与 prompt 约束。
+- 本轮盘前脚本没有下单，也没有启动 worker。
+
 ## 4. Paper 实际订单生命周期
 
 **未验证。** 本版本没有向 Alpaca Paper 提交任何订单，也没有测试真实 DAY 下午成交、部分成交、撤单竞态、OTO/止损组合、断网恢复或长期运行。任何“已通过全部测试”的说法都不包含这一级。
@@ -51,5 +75,6 @@
 ## 6. 当前运行状态
 
 - worker：未运行；数据库持久化 `paused=true`；
-- 看板：本机 4200 的旧进程可能仍加载修改前代码；升级后需安全重启 dashboard 才会显示新页面；
-- 默认不自动恢复交易；没有发出订单。
+- 看板：已用新代码重启，4200 上 `account_source=ALPACA PAPER 实时`，不是旧进程；worker 仍未启动；
+- 研究：DeepSeek Search/Fetch 已真实验证，研究批次仍在后台构建，完成数量以数据库最终统计为准；
+- 默认不自动恢复交易；本轮没有发出订单。
