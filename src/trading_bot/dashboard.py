@@ -78,13 +78,15 @@ def snapshot(store):
     window_label="交易窗口内" if minutes is not None and 0<=minutes<30 else "交易窗口外"
     now=datetime.now(timezone.utc)
     age=(now-datetime.fromisoformat(account["ts"])).total_seconds() if account else None
+    from .settings import ioc_permission_confirmed
     return {"service":"ai-paper-trader","now":now.isoformat(),"running":bool(worker_processes()),"paused":store.paused(),
+        "safety_reason":store.safety_reason(),"ioc_permission_confirmed":ioc_permission_confirmed(),
         "account":account,"account_source":source,"account_age_seconds":age,"window":window_label,
         "daily_pnl":account["equity"]-account["last_equity"] if account else None,
         "return":account["equity"]/history[0]["equity"]-1 if account and history[0]["equity"] else None,
         "drawdown":drawdown if history else None,"equity_history":history[::max(1,len(history)//300)][-300:],
         "decision":last("decision"),"heartbeat":last("heartbeat"),"error":last("error"),"unresolved":store.pending(),
-        "orders":[{"cid":cid,"day":day,"status":status,**json.loads(payload)} for cid,day,status,payload in store.db.execute("SELECT * FROM orders ORDER BY rowid DESC LIMIT 100")],
+        "orders":[{**((store.request(cid) or {}).get("request",{})),**json.loads(payload),"cid":cid,"day":day,"status":status} for cid,day,status,payload in store.db.execute("SELECT * FROM orders ORDER BY rowid DESC LIMIT 100")],
         "events":[{"ts":ts,"kind":kind,"payload":json.loads(p)} for ts,kind,p in store.db.execute("SELECT ts,kind,payload FROM events WHERE kind NOT IN ('input','account','heartbeat') ORDER BY id DESC LIMIT 40")],
         "cycles":[{"id":i,"status":s} for i,s in store.db.execute("SELECT id,status FROM cycles ORDER BY rowid DESC LIMIT 10")],
         "symbols":symbols,"strategy_version":policy.version,"risk":risk.model_dump()}
@@ -123,6 +125,9 @@ def create_app(db_path=None):
                 elif action=="start": start_worker()
                 elif action=="resume":
                     if store.pending(): return jsonify(error="有未确认订单，请先检查纸账户。"),409
+                    from .settings import ioc_permission_confirmed
+                    if store.safety_reason() or not ioc_permission_confirmed():
+                        return jsonify(error="安全模式："+(store.safety_reason() or "尚未确认 Paper 账户 IOC 权限；禁止恢复下单。")),409
                     start_worker()
                     store.pause(False)
                 elif action=="stop":

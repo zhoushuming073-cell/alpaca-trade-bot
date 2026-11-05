@@ -14,6 +14,7 @@ def test_control_requires_token_and_origin(tmp_path,monkeypatch):
     assert c.get("/api/status",base_url="http://evil.test").status_code==403
 
 def test_pause_resume_and_unknown_order_block(tmp_path,monkeypatch):
+    monkeypatch.setattr("trading_bot.settings.ioc_permission_confirmed",lambda:True)
     c=client(tmp_path,monkeypatch)
     status=c.get("/api/status",base_url=ORIGIN).json
     h={"Origin":ORIGIN,"X-Control-Token":status["control_token"]}

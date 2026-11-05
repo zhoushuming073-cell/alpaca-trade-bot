@@ -10,3 +10,10 @@ data/
 *key*.txt
 *.log
 logs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+htmlcov/
+.coverage
+test-results/

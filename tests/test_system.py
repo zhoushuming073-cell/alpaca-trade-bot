@@ -52,7 +52,7 @@ def test_pause(store,risk):
 
 def test_stale(store,risk):
     e=engine(store,risk,BuyAI());e.clock=lambda:datetime(2026,11,2,14,38,tzinfo=timezone.utc)
-    assert e.tick()=="failed" and e.broker.submissions==0
+    assert e.tick()=="skipped_no_valid_data" and e.broker.submissions==0
 
 @pytest.mark.parametrize("error",[ValueError("bad JSON"),TimeoutError("offline")])
 def test_ai_failure(store,risk,error):

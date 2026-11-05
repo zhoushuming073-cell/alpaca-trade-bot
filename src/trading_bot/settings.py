@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT = Path(__file__).resolve().parents[2]
 PAPER_URL = "https://paper-api.alpaca.markets"
 
+def ioc_permission_confirmed(root=ROOT):
+    path=root/"config/execution.yaml"
+    data=yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return isinstance(data,dict) and data.get("ioc_permission_confirmed") is True
+
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 

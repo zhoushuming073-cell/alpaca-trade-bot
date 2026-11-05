@@ -26,10 +26,11 @@ def test_lumibot_order_client_id():
         seen.append(order_data)
         return SimpleNamespace(id="fake-id",status="new")
     b.api=SimpleNamespace(submit_order=submit)
-    order=Order("fixture",Asset("TEST"),1,"buy",limit_price=100,time_in_force="day",custom_params={"client_order_id":"fixture-cid","extended_hours":False})
+    order=Order("fixture",Asset("TEST"),1,"buy",limit_price=100,time_in_force="ioc",custom_params={"client_order_id":"fixture-cid","extended_hours":False})
     b._submit_order(order)
     assert seen[0].client_order_id=="fixture-cid"
     assert seen[0].extended_hours is False
+    assert seen[0].time_in_force=="ioc"
 
 def test_regular_filter_early_close():
     import pandas as pd

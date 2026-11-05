@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 import json
 from .settings import ROOT, credentials, config
+from .settings import ioc_permission_confirmed
+from .safety import redact
 
 def run():
     from .broker import build_broker, PaperGateway
@@ -10,12 +12,12 @@ def run():
     symbols,policy,risk=config()
     broker=build_broker(credentials(),start_orders_thread=False)
     gate=PaperGateway(SimpleNamespace(broker=broker))
-    result={"timestamp":datetime.now(timezone.utc).isoformat(),"endpoint":"https://paper-api.alpaca.markets","strategy_ready":bool(policy.ready()),"symbols":len(symbols)}
+    result={"timestamp":datetime.now(timezone.utc).isoformat(),"endpoint":"https://paper-api.alpaca.markets","strategy_ready":bool(policy.ready()),"symbols":len(symbols),"ioc_permission_confirmed":ioc_permission_confirmed(),"order_execution_tested":False}
     try:
         result["account"]=gate.snapshot()
         result["market_open"]=gate.is_open()
     except Exception as exc:
-        result["account_error"]=type(exc).__name__
+        result["account_error"]={"type":type(exc).__name__,"stage":"alpaca_snapshot","reason":redact(str(exc)),"outcome":"preflight_blocked"}
         result["ready"]=False
         (ROOT/"data/preflight.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
         print(json.dumps(result,ensure_ascii=False,indent=2)); return
@@ -24,7 +26,7 @@ def run():
         try:
             gate.validate_assets([symbol])
         except Exception as exc:
-            issues.append({"symbol":symbol,"error":type(exc).__name__})
+            issues.append({"symbol":symbol,"error":type(exc).__name__,"stage":"asset_validation","reason":redact(str(exc))})
     result["asset_issues"]=issues
     try:
         from .market_data import daily_history
@@ -33,7 +35,8 @@ def run():
         daily=daily_history(broker.data_source.get_historical_prices(Asset(symbol),160,timestep="day").df,datetime.now(timezone.utc))
         result["market_data"]={"symbol":symbol,"feed":"iex","intraday_rows":len(bars),"last_intraday_start":str(bars.index[-1]),"daily_rows":len(daily),"last_daily":str(daily.index[-1])}
     except Exception as exc:
-        result["data_error"]=type(exc).__name__
-    result["ready"]=not issues and "data_error" not in result
+        result["data_error"]={"type":type(exc).__name__,"stage":"market_data","reason":redact(str(exc)),"outcome":"preflight_blocked"}
+    result["read_only_ready"]=not issues and "data_error" not in result
+    result["ready"]=result["read_only_ready"] and result["ioc_permission_confirmed"]
     (ROOT/"data/preflight.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
     print(json.dumps(result,ensure_ascii=False,indent=2))

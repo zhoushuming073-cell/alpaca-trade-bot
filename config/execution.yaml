@@ -1,0 +1,3 @@
+# Default closed. Confirm Paper account IOC permission with Alpaca before opting in.
+# This is NOT proof of an execution test; never enable automatically.
+ioc_permission_confirmed: false

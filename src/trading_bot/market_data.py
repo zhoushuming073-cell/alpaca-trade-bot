@@ -38,7 +38,7 @@ def validate_bars(df, end, now, risk, count):
         raise ValueError("Duplicate bars")
     df = df.loc[df.index + pd.Timedelta(minutes=5) <= end]
     if len(df) < count or df.index[-1] + pd.Timedelta(minutes=5) != end:
-        raise ValueError("Missing completed bars")
+        raise ValueError(f"Missing completed bars: required={count}, available={len(df)}, missing_count={max(0,count-len(df))}, expected_end={end}, latest_start={df.index[-1] if len(df) else None}")
     if not 0 <= (pd.Timestamp(now)-end).total_seconds() <= risk.max_bar_age_seconds:
         raise ValueError("Stale bars")
     df = df.tail(count)
@@ -54,7 +54,7 @@ def validate_bars(df, end, now, risk, count):
         valid = valid.union(pd.date_range(row.market_open, row.market_close-pd.Timedelta(minutes=5), freq="5min"))
     expected = valid[(valid >= df.index[0]) & (valid <= df.index[-1])]
     if len(expected) != len(df) or not df.index.isin(expected).all():
-        raise ValueError("Missing or misaligned regular-session bars")
+        raise ValueError(f"Missing or misaligned regular-session bars: missing_count={len(expected.difference(df.index))}, missing={list(expected.difference(df.index)[:10])}, unexpected={list(df.index.difference(expected)[:10])}")
     return df[["open","high","low","close","volume"]]
 
 def indicators(df, names):
@@ -86,19 +86,24 @@ def opening_minutes(now):
 
 def execution_open(now):
     minutes=opening_minutes(now)
-    return minutes is not None and 0<=minutes<29.5
+    return minutes is not None and 0<=minutes<30
 
 def daily_history(df, now):
     if df.index.tz is None or df.index.has_duplicates:
         raise ValueError("Invalid daily timestamps")
     today=pd.Timestamp(now).tz_convert("America/New_York").date()
+    df=df.sort_index()
     df=df.loc[df.index.tz_convert("America/New_York").date<today]
     schedule=CALENDAR.schedule(pd.Timestamp(today)-pd.DateOffset(months=6),pd.Timestamp(today)-pd.Timedelta(days=1))
     first=schedule.index[0].date()
     df=df.loc[df.index.tz_convert("America/New_York").date>=first]
-    if len(df)<len(schedule) or df.index[0].tz_convert("America/New_York").date()!=first or df.index[-1].tz_convert("America/New_York").date()!=schedule.index[-1].date():
-        raise ValueError("Stale or insufficient daily history")
+    actual=pd.Index(df.index.tz_convert("America/New_York").date)
+    expected=pd.Index(schedule.index.date)
+    if actual.has_duplicates or len(actual)!=len(expected) or not actual.equals(expected):
+        raise ValueError(f"Stale or insufficient daily history: required={len(expected)}, available={len(actual)}, missing_count={len(expected.difference(actual))}, missing={list(expected.difference(actual)[:10])}")
     v=df[["open","high","low","close","volume"]].to_numpy(float)
     if not np.isfinite(v).all() or (v[:,:4]<=0).any() or (v[:,4]<0).any():
         raise ValueError("Invalid daily bars")
+    if ((df.high < df[["open","close","low"]].max(axis=1)) | (df.low > df[["open","close","high"]].min(axis=1))).any():
+        raise ValueError("Invalid daily OHLC range")
     return df[["open","high","low","close","volume"]]

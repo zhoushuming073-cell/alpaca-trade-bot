@@ -4,18 +4,42 @@ from .engine import Engine
 from .settings import Policy, Check
 
 class FakeBroker:
-    def __init__(self):
+    def __init__(self, outcome="filled"):
         self.orders={}
         self.submissions=0
         self.open=True
+        self.outcome=outcome
+        self.positions={}
+        self.cash=100000.
+        self.snapshot_calls=0
+        self.clock_calls=0
+        self.cancel_calls=[]
     def snapshot(self):
-        return {"equity":100000.,"last_equity":100000.,"cash":100000.,"buying_power":100000.,"positions":{},"quantities":{},"open_orders":[],"blocked":False,"asof":"synthetic"}
-    def is_open(self): return self.open
+        from .storage import TERMINAL
+        self.snapshot_calls+=1
+        return {"equity":self.cash+sum(q*100 for q in self.positions.values()),"last_equity":100000.,"cash":self.cash,"buying_power":self.cash,"positions":{s:q*100 for s,q in self.positions.items()},"quantities":dict(self.positions),"open_orders":[dict(o) for o in self.orders.values() if o["status"] not in TERMINAL],"blocked":False,"asof":"synthetic"}
+    def is_open(self):
+        self.clock_calls+=1
+        return self.open
     def quote(self,*args): return {"ask":100.,"bid":100.,"source":"synthetic"}
     def lookup(self,cid): return self.orders.get(cid)
     def submit(self,intent,cid):
+        from .safety import validate_order
+        validate_order(intent)
+        if cid in self.orders:
+            raise AssertionError("Duplicate POST")
         self.submissions+=1
-        self.orders[cid]={"client_order_id":cid,"status":"filled","filled_qty":str(intent["quantity"]),"filled_avg_price":str(intent["limit_price"]),"synthetic":True}
+        qty=intent["quantity"] if self.outcome=="filled" else (min(2,intent["quantity"]) if self.outcome=="partial" else 0)
+        status="filled" if self.outcome=="filled" else ("rejected" if self.outcome=="rejected" else "canceled")
+        self.orders[cid]={"id":"fake-"+cid,"client_order_id":cid,"symbol":intent["symbol"],"side":intent["side"],"qty":str(intent["quantity"]),"type":"limit","time_in_force":"ioc","status":status,"filled_qty":str(qty),"filled_avg_price":str(intent["limit_price"]) if qty else None,"synthetic":True}
+        signed=qty if intent["side"]=="buy" else -qty
+        self.positions[intent["symbol"]]=self.positions.get(intent["symbol"],0)+signed
+        self.cash-=signed*intent["limit_price"]
+        return dict(self.orders[cid])
+    def cancel(self,cid):
+        self.cancel_calls.append(cid)
+        if cid in self.orders:
+            self.orders[cid]["status"]="canceled"
 
 class HoldAI:
     def decide(self,payload):

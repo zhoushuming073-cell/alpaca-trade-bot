@@ -13,15 +13,22 @@ class PaperStrategy(Strategy):
         self.minutes_before_opening=0
         symbols,policy,risk=config()
         self.daily_cache={}
-        self.gateway=PaperGateway(self)
-        self.gateway.validate_assets(symbols)
-        self.engine=Engine(store,self.gateway,DeepSeek(credentials()["DEEPSEEK_API_KEY"]),symbols,policy,risk,
+        from .settings import ioc_permission_confirmed
+        self.gateway=PaperGateway(self,store,ioc_permission_confirmed(),symbols)
+        self.engine=Engine(store,self.gateway,DeepSeek(credentials()["DEEPSEEK_API_KEY"],audit=store.event),symbols,policy,risk,
                            lambda s:self.get_historical_prices(s,policy.history_bars+2,timestep="5 minutes",include_after_hours=False).df,
                            daily_data=self.daily_history)
 
         from .watchdog import CutoffWatchdog
         self.watchdog=CutoffWatchdog(store.path,self.gateway)
         self.watchdog.start()
+        # One forced startup reconciliation, even while paused, recovers prior orders.
+        from .execution import reconcile
+        try:
+            reconcile(store,self.gateway)
+        except Exception as exc:
+            store.block("Startup reconciliation unavailable")
+            store.error("startup_reconciliation",exc)
 
     def on_trading_iteration(self):
         self.engine.tick()
@@ -31,7 +38,7 @@ class PaperStrategy(Strategy):
         try:
             reconcile(self.engine.store,self.gateway)
         except Exception as exc:
-            self.engine.store.event("error",{"type":type(exc).__name__})
+            self.engine.store.error("after_close_reconciliation",exc)
 
     def on_abrupt_closing(self):
         self.watchdog.stop()
@@ -43,5 +50,9 @@ class PaperStrategy(Strategy):
         key=(day,symbol)
         if key not in self.daily_cache:
             self.daily_cache={k:v for k,v in self.daily_cache.items() if k[0]==day}
-            self.daily_cache[key]=self.get_historical_prices(symbol,160,timestep="day").df
+            from .market_data import daily_history
+            raw=self.get_historical_prices(symbol,160,timestep="day").df
+            # Cache only validated completed sessions. A transient incomplete
+            # response must not exclude the symbol for the rest of the day.
+            self.daily_cache[key]=daily_history(raw,datetime.now(timezone.utc))
         return self.daily_cache[key]
