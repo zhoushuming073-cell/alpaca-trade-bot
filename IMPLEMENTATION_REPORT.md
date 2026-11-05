@@ -27,7 +27,7 @@
 - 新增 `src/trading_bot/sources.py`：官方 `POST /v1/tools/search` 和 `POST /v1/tools/fetch`，Bearer 鉴权、超时、408/429/5xx 重试、错误显式降级；密钥不进入审计。
 - 研究证据持久化：来源 URL、标题、发布时间、抓取时间、available time、内容哈希、摘要、verified；模型证据强制 `verified=false`，只有真实检索/Fetch 的 source adapter 可标记 verified。
 - 支持 `research-bootstrap --symbols/--all --batch --force`；已有未过期档案跳过，过期/force 才重研；档案版本递增、revision 保留。
-- 真实调用已验证 Search 与 Fetch；全池 48 只研究由后台批次运行，完成数量与失败标的以数据库最终统计为准（SKHY/SPCX 可能因日线历史不足失败）。
+- 真实调用已验证 Search 与 Fetch；全池 48 只研究批次已完成 **46/48**，327 条证据；`SKHY`、`SPCX` 因日线历史不足被明确跳过，没有伪造档案。
 
 ### Phase 3：盘前 AI 计划
 

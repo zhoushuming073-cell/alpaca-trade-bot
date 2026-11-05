@@ -55,7 +55,7 @@
   - `POST https://api.deepseek.com/v1/tools/fetch`
 - 已用真实 CRWV 查询验证 Search 返回标题/URL/日期/authority，Fetch 返回 Markdown 正文。
 - 研究档案已写入 SQLite：来源 URL、标题、发布时间、抓取时间、内容哈希、`verified`、摘要、档案版本和过期时间。
-- 研究批次仍在后台运行；完成数量以最终数据库/报告为准，不能把已开始的 48 只说成全部完成。
+- 全池批次已完成：**46/48** 个档案，327 条证据；`SKHY`、`SPCX` 因六个月日线历史不足被明确跳过（没有伪造档案）。
 
 ### 3.4 Phase 3：真实盘前计划
 
