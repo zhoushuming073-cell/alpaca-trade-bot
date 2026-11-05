@@ -3,7 +3,17 @@
 *.key
 *api-key*
 __pycache__/
+*.pyc
 .pytest_cache/
 *.egg-info/
 data/
 *key*.txt
+*.log
+logs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+htmlcov/
+.coverage
+test-results/

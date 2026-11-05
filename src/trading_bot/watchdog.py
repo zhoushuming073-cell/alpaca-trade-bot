@@ -1,37 +1,72 @@
-"""Independent cutoff cancellation; AI calls cannot block this worker."""
-from concurrent.futures import ThreadPoolExecutor
+"""Independent order reconciliation and watchdog health.
+
+The watchdog is a read-only reconciler in the new contract.  It never cancels a
+DAY order or a broker-side stop at 10:00.  It keeps the process honest by
+recording a heartbeat, consecutive failures and a final dead/alive flag, so a
+dead thread cannot look healthy from the main process.
+"""
+
+from __future__ import annotations
+
+import threading
 from datetime import datetime, timezone
-from threading import Event, Thread
-from .market_data import opening_minutes
+
+from .execution import OrderService
 from .storage import Store
 
+
 class CutoffWatchdog:
-    def __init__(self,path,broker):
-        self.path,self.broker=path,broker
-        self.stop_event=Event()
-        self.thread=Thread(target=self.run,name="cutoff-watchdog",daemon=True)
-    def start(self): self.thread.start()
-    def stop(self): self.stop_event.set()
+    COMPONENT = "watchdog"
+
+    def __init__(self, path, broker, execution, *, clock=None, interval_seconds=10):
+        self.path = path
+        self.broker = broker
+        self.execution = execution
+        self.clock = clock
+        self.interval_seconds = max(2, int(interval_seconds))
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self.run, name="order-watchdog", daemon=True)
+        self.consecutive_failures = 0
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
     def run(self):
-        store=Store(self.path)
+        store = None
         try:
-            while not self.stop_event.wait(1):
-                minutes=opening_minutes(datetime.now(timezone.utc))
-                if minutes is None or not 29.5<=minutes<30:
-                    continue
-                pending=store.pending()
-                if not pending: continue
-                with ThreadPoolExecutor(max_workers=10) as pool:
-                    tasks={cid:pool.submit(self.broker.cancel,cid) for cid in pending}
-                    for cid,task in tasks.items():
+            store = Store(self.path, role="watchdog", clock=self.clock)
+            store.set_alive(self.COMPONENT, True)
+            service = OrderService(store, self.broker, self.execution, clock=self.clock)
+            while not self.stop_event.wait(self.interval_seconds):
+                try:
+                    # A heartbeat before a potentially slow network reconcile
+                    # keeps a healthy-but-slow broker query from freezing the
+                    # worker's new-risk gate.
+                    store.touch(self.COMPONENT, {"phase": "start"})
+                    result = service.reconcile(cancel_lingering=False)
+                    self.consecutive_failures = 0
+                    store.heartbeat(self.COMPONENT, ok=True, detail=result)
+                except Exception as exc:  # noqa: BLE001 - loop isolation is the point
+                    self.consecutive_failures += 1
+                    try:
+                        store.heartbeat(
+                            self.COMPONENT, ok=False,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
+                        store.error("watchdog_loop", exc, outcome="watchdog_iteration_failed")
+                    except Exception:  # noqa: BLE001 - DB itself may be unavailable
+                        pass
+                    if self.consecutive_failures >= 3:
                         try:
-                            task.result()
-                            found=self.broker.lookup(cid)
-                            if found: store.order(cid,found)
-                        except Exception as exc:
-                            store.event("cutoff_error",{"cid":cid,"type":type(exc).__name__})
-                if store.pending():
-                    store.pause(True)
-                    store.event("critical_cutoff_pending",{"orders":store.pending()})
+                            store.block("WATCHDOG_UNHEALTHY: repeated reconciliation failures")
+                        except Exception:  # noqa: BLE001
+                            pass
         finally:
-            store.db.close()
+            if store is not None:
+                try:
+                    store.set_alive(self.COMPONENT, False)
+                finally:
+                    store.db.close()

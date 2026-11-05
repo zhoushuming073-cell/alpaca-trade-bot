@@ -1,14 +1,55 @@
-# 验证记录（2026-11-04，北京时间）
+# 验证记录（2026-11-05 终版）
 
-- Python 3.13.7；LumiBot 4.6.46 导入成功。
-- pytest：57 passed，1 个第三方 websockets 弃用提示；所有测试禁用网络。
-- pip check：No broken requirements found；compileall 成功。
-- Dry Run 已完整运行，HOLD 测试输入与决策保存到独立 SQLite。
-- 使用既有本地密钥实际调用 DeepSeek Flash 审核用户策略成功；首次响应不是有效 JSON，按失败处理，后续精简审核请求返回有效 JSON。未将失败响应当成交易信号。
-- Alpaca Paper 只读账户：equity/cash 均为 100000，未持仓、无未完成订单、未 blocked。
-- 48 个股票代码通过 Alpaca active/tradable/us_equity 检查。
-- CRWV IEX：42 根 5 分钟 K 线返回，最近六个月 128 根完整日 K 线通过验证。其余标的六个月历史尚未逐一实测。
-- LumiBot 真正进入 Strategy 初始化及等待开盘，处于持久化暂停状态；随后停止进程。宿主未转发 Ctrl+C 到子进程，因此采用明确 PID 停止，已确认没有遗留 paper 进程。
-- 真实模拟下单、成交、撤单和全天稳定性未测试；未发任何买卖单。
-- 当前配置：6 个自然月日线 + 40 根完整 5 分钟线；每天开盘后第 5/10/15/20/25 分钟决策，第 29:30 开始撤单，第 30 分钟起停止操作。
-- SQLite paper 控制状态保持 paused=true，需通过 resume 解除。
+本文件区分严格不同的验证等级，禁止把离线测试当作 Paper 成交验证。
+
+## 1. 代码/离线自动化
+
+- 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
+- 终版：`147 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+  - 运行：`.venv/Scripts/python -m pytest -q`
+- 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
+- `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
+
+## 2. 离线集成（无 socket）
+
+`.venv/Scripts/python -m trading_bot.offline_validation` 使用临时数据库、合成行情/券商/AI，主动禁用 socket：
+
+- 48 个固定池标的，盘前 `UNIVERSE_SCAN` → `PREMARKET_PLAN`；
+- 09:35 ET 触发 `EXECUTE_ORDER`，提交 1 张合成 DAY LIMIT 买单，3 股；
+- 模拟券商接受但暂不成交；10:05 ET 后没有新单，也没有自动撤单/平仓；
+- 全天之后券商成交，次一交易日盘前先对账为 FILLED，再生成新计划；
+- `NONE` 止损策略记录为 `NONE_BY_AI`；
+- 真实/Paper 外部订单提交：0。
+
+## 3. 真实 API 只读验证（已执行，无订单）
+
+2026-11-05 使用 `./run.ps1 preflight` 读取 Alpaca Paper：
+
+- 账户读取成功；已有持仓、无开放订单；`blocked=false`；具体余额和持仓不写入仓库文档；
+- IEX 5 分钟 80 根、6 个自然月日线 128 根通过读取；`read_only_ready=true`；
+- `BROKER_STOP` 状态：`UNVERIFIED`；`paper_order_lifecycle_verified=false`。
+
+注意：只读账户读取不是成交验证；buying_power 的融资额度没有被用作可花现金。
+
+### 3.1 真实全池只读行情测量
+
+2026-11-05 盘前使用 4 个有界 worker 读取全部 48 个固定池标的（只读，不下单）：
+
+- 48 只标的、日线 160 根 + 5 分钟 80 根，总耗时约 **8.4 秒**；单只最慢约 2.4 秒；
+- 46/48 通过六自然月完整日线校验；`SKHY`、`SPCX` 因历史不足被按设计排除（不是崩溃）；
+- 48/48 返回 5 分钟 K 线；
+- 非交易时段读取最新报价会因陈旧而被拒绝（`Stale or abnormal IEX quote`），这是预期的 fail-closed 行为，不应放宽新鲜度来制造成交。
+
+## 4. Paper 实际订单生命周期
+
+**未验证。** 本版本没有向 Alpaca Paper 提交任何订单，也没有测试真实 DAY 下午成交、部分成交、撤单竞态、OTO/止损组合、断网恢复或长期运行。任何“已通过全部测试”的说法都不包含这一级。
+
+## 5. 长期运行
+
+**未验证。** 看门狗心跳/SQLite 性能/输入压缩有离线测试，但没有 24/5 连续运行观测。
+
+## 6. 当前运行状态
+
+- worker：未运行；数据库持久化 `paused=true`；
+- 看板：本机 4200 的旧进程可能仍加载修改前代码；升级后需安全重启 dashboard 才会显示新页面；
+- 默认不自动恢复交易；没有发出订单。
