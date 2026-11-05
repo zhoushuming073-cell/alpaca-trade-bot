@@ -118,6 +118,7 @@ function render(s) {
     alerts.push("当前账户数据来自最近一次成功快照，不是实时 Alpaca 响应。");
   }
   if (s.account_error) alerts.push("Alpaca 账户同步异常：" + s.account_error);
+  if (s.recent_orders_error) alerts.push("最近历史订单同步失败：" + s.recent_orders_error);
   if (!s.account) alerts.push("没有可用的 Alpaca Paper 账户数据；页面不会用模拟数据填充。");
   if (s.broker_stop !== "VERIFIED") alerts.push("BROKER_STOP 未验证；AI 选择该策略的订单会被整体拒绝，不会降级为无止损。");
   $("notice").textContent = alerts.join(" ");

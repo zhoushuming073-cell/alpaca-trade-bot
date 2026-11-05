@@ -9,7 +9,7 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`162 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`163 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
 
@@ -110,7 +110,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`162 passed`，关键用例：
+`163 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -165,7 +165,7 @@
 
 ## 8. 测试数量与命令
 
-- `162 passed`：`.venv/Scripts/python -m pytest -q`
+- `163 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`

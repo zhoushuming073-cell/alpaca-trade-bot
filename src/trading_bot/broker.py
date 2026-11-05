@@ -202,15 +202,22 @@ class PaperGateway:
         from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import QueryOrderStatus
 
+        recent_orders = []
+        recent_orders_error = None
         with self.api.fresh_reads():
             account = self.api.get_account()
             positions = self.api.get_all_positions()
             orders = self.api.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500))
-            recent_orders = []
             if include_history:
-                recent_orders = self.api.get_orders(
-                    filter=GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=50)
-                )
+                try:
+                    recent_orders = self.api.get_orders(
+                        filter=GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=50)
+                    )
+                except Exception as exc:  # noqa: BLE001 - history is optional
+                    # The live account/open-order path must not fail just
+                    # because the optional recent-history query jittered.
+                    recent_orders_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    recent_orders = []
         if len(orders) >= 500:
             raise ValueError("Open order result may be truncated; execution blocked")
         account_number = str(getattr(account, "account_number", "") or "")
@@ -277,6 +284,7 @@ class PaperGateway:
                 order.model_dump(mode="json") if hasattr(order, "model_dump") else dict(order)
                 for order in (recent_orders or [])
             ],
+            "recent_orders_error": recent_orders_error,
             "asof": asof,
             "ts": asof,
         }

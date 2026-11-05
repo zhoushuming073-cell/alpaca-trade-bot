@@ -477,6 +477,7 @@ def snapshot(store, account_feed=None):
         "account_error": account_error,
         "account_fetched_at": fetched_at,
         "account_asof": (account or {}).get("asof") or (account or {}).get("ts"),
+        "recent_orders_error": (account or {}).get("recent_orders_error"),
         "daily_pnl": (
             float(account["equity"]) - float(account["last_equity"])
             if account and account.get("last_equity") is not None else None

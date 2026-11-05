@@ -1,7 +1,10 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from trading_bot.broker import PaperGateway
 from trading_bot.dashboard import (
     LiveAccountFeed,
     ORIGIN,
@@ -141,6 +144,36 @@ def test_recent_closed_order_is_visible_with_broker_status(tmp_path, monkeypatch
     assert rows[0]["status"] == "filled"
     assert rows[0]["state"] == "FILLED"
     assert rows[0]["qty"] == "100"
+
+
+def test_optional_closed_order_failure_does_not_break_account_snapshot(bundle):
+    class Api:
+        @contextmanager
+        def fresh_reads(self):
+            yield
+
+        def get_account(self):
+            return SimpleNamespace(
+                equity=1000.0, last_equity=990.0, cash=500.0, buying_power=1500.0,
+                portfolio_value=1000.0, trading_blocked=False, account_blocked=False,
+                currency="USD", status="ACTIVE", daytrade_count=0,
+                long_market_value=500.0, short_market_value=0.0,
+                initial_margin=0.0, maintenance_margin=0.0,
+            )
+
+        def get_all_positions(self):
+            return []
+
+        def get_orders(self, filter):
+            if str(getattr(filter.status, "value", filter.status)).lower() == "open":
+                return []
+            raise TimeoutError("closed-order endpoint jitter")
+
+    gateway = PaperGateway(SimpleNamespace(broker=SimpleNamespace(api=Api())), None, bundle.symbols, bundle.execution)
+    snapshot = gateway.snapshot(include_history=True)
+    assert snapshot["equity"] == 1000.0
+    assert snapshot["recent_orders"] == []
+    assert "TimeoutError" in snapshot["recent_orders_error"]
 
 
 def test_stale_feed_keeps_last_real_values_and_marks_error(tmp_path, monkeypatch):
