@@ -1,6 +1,7 @@
-# Conservative EXAMPLES, not empirically optimized parameters.
-max_symbol_weight: 0.10
-max_total_weight: 0.50
+# Non-positional protections retained from the previous system.
+# The old single-symbol 10% and total-portfolio 50% caps are removed by the
+# latest user specification.  Cash, no-margin, no-short, duplicate and
+# reservation checks live in risk_manager.py and are mandatory.
 max_daily_loss: 0.02
 max_daily_orders: 10
 max_bar_age_seconds: 120

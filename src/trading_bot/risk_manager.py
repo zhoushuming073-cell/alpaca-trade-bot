@@ -1,90 +1,254 @@
+"""Deterministic execution risk checks.
+
+The AI owns the trade decision and the exact share quantity.  Python never
+resizes an order.  It only verifies the hard contract:
+
+* Paper-only, fixed watchlist, long-only, whole shares, DAY LIMIT, regular hours.
+* No notional, no margin/leverage, no shorting.
+* Real cash (``cash``, not margin-inflated ``buying_power``) minus reserved
+  open BUY orders.
+* Sell quantity cannot exceed unencumbered whole shares (existing sells and
+  stop orders reserve shares).
+* Unknown/conflicting account or order facts freeze **new risk**.
+* Retained non-positional circuit breakers: daily loss and daily order
+  attempts.  They block new BUY risk but never block a legitimate reduction.
+* A requested broker stop is rejected as a whole intent when the capability is
+  not verified; it is never downgraded to NONE.
+"""
+
+from __future__ import annotations
+
 import math
-from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING
-from .safety import validate_order
-from .storage import TERMINAL
+from decimal import Decimal, ROUND_FLOOR
+
+from .order_state import TERMINAL_STATES, OrderState
+from .safety import BrokerStopUnsupported, OrderValidationError, validate_intent
+
+EPS = 1e-9
 
 
-def reserved_sells(account, symbol):
-    reserved = Decimal(0)
-    for order in account["open_orders"]:
-        if order.get("status") in TERMINAL:
+class RiskRejected(ValueError):
+    def __init__(self, code: str, detail: str = ""):
+        self.code = code
+        self.detail = detail
+        super().__init__(f"{code}: {detail}" if detail else code)
+
+
+def _payload_intent(row: dict) -> dict:
+    import json
+
+    raw = row.get("intent") or (row.get("payload") or "{}")
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return {}
+    if isinstance(value, dict) and isinstance(value.get("intent"), dict):
+        value = value["intent"]
+    return value if isinstance(value, dict) else {}
+
+
+def _remaining(order: dict) -> float:
+    try:
+        qty = Decimal(str(order.get("qty") or 0))
+        filled = Decimal(str(order.get("filled_qty") or 0))
+    except Exception:
+        return 0.0
+    return float(max(Decimal(0), qty - filled))
+
+
+def _is_stop(order: dict) -> bool:
+    kind = str(getattr(order.get("type"), "value", order.get("type")) or "").lower()
+    if kind in {"stop", "stop_limit"}:
+        return True
+    for leg in order.get("legs") or []:
+        leg_kind = str(leg.get("type") or leg.get("order_type") or "").lower()
+        if leg_kind in {"stop", "stop_limit"}:
+            return True
+    return False
+
+
+def reserved_buy_cash(account: dict, local_orders: list[dict] | None = None) -> float:
+    total = 0.0
+    for order in account.get("open_orders", []) or []:
+        side = str(order.get("side") or "").lower()
+        if side != "buy":
             continue
-        if not order.get("symbol") or order.get("side") not in ("buy", "sell"):
-            raise ValueError("Unrecognized open order; reconciliation required")
-        if order["symbol"] != symbol:
-            continue
-        if order["side"] == "buy":
-            raise ValueError("Conflicting open BUY")
         try:
-            qty, filled = Decimal(str(order["qty"])), Decimal(str(order.get("filled_qty", 0)))
-            if not qty.is_finite() or not filled.is_finite() or not 0 <= filled <= qty:
-                raise ValueError("Invalid reservation quantities")
-            reserved += qty - filled
-        except (KeyError, ArithmeticError) as exc:
-            raise ValueError("Uncertain SELL reservation") from exc
-    return reserved
+            price = float(order.get("limit_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        total += max(0.0, _remaining(order)) * max(0.0, price)
+    for row in local_orders or []:
+        try:
+            state = OrderState(row.get("state"))
+        except ValueError:
+            continue
+        if state in TERMINAL_STATES:
+            continue
+        intent = _payload_intent(row)
+        if str(intent.get("side") or intent.get("action") or "").lower() != "buy":
+            continue
+        total += max(0.0, float(intent.get("qty") or 0)) * max(0.0, float(intent.get("limit_price") or 0))
+    return total
 
 
-def sellable(account, symbol):
-    held = Decimal(str(account["quantities"].get(symbol, 0)))
-    if not held.is_finite() or held < 0:
-        raise ValueError("Invalid long position")
-    reserved = reserved_sells(account, symbol)
-    available = Decimal(str(account.get("available_quantities", {}).get(symbol, held)))
-    if not available.is_finite() or available < 0:
-        raise ValueError("Invalid available position")
-    return max(0, int(min(held - reserved, available).to_integral_value(rounding=ROUND_FLOOR)))
+def reserved_sell_qty(
+    symbol: str, account: dict, local_orders: list[dict] | None = None
+) -> float:
+    total = 0.0
+    for order in account.get("open_orders", []) or []:
+        if str(order.get("symbol") or "") != symbol:
+            continue
+        if str(order.get("side") or "").lower() != "sell":
+            continue
+        total += max(0.0, _remaining(order))
+    for row in local_orders or []:
+        try:
+            state = OrderState(row.get("state"))
+        except ValueError:
+            continue
+        if state in TERMINAL_STATES:
+            continue
+        intent = _payload_intent(row)
+        if str(intent.get("symbol") or "") != symbol:
+            continue
+        if str(intent.get("side") or intent.get("action") or "").lower() != "sell":
+            continue
+        total += max(0.0, float(intent.get("qty") or 0))
+    return total
 
 
-def plan(decision, account, quote, values, policy, risk, symbols, count, paused):
-    if paused or not policy.ready():
-        raise ValueError("Paused or strategy not configured")
-    if decision.symbol not in symbols:
-        raise ValueError("Outside watchlist")
-    if decision.action == "HOLD":
-        return None
-    if account["blocked"]:
-        raise ValueError("Account blocked")
-    equity, baseline = account["equity"], account["last_equity"]
-    numbers = [equity, baseline, account["cash"], account["buying_power"], *account["positions"].values(), *account["quantities"].values()]
-    if not all(math.isfinite(v) for v in numbers) or equity <= 0 or baseline <= 0 or any(v < 0 for v in [*account["positions"].values(), *account["quantities"].values()]):
-        raise ValueError("Unsupported or invalid account state")
-    buy = decision.action == "BUY"
-    if buy:
-        if account["open_orders"]:
-            raise ValueError("Open orders block increased exposure")
-        if account.get("unpriced_holdings"):
-            raise ValueError("Held symbols have invalid data; increased exposure blocked")
-        if equity <= baseline * (1 - risk.max_daily_loss) or count >= risk.max_daily_orders:
-            raise ValueError("Daily loss/order limit blocks increased exposure")
-        if decision.target_weight > risk.max_symbol_weight:
-            raise ValueError("Symbol weight limit")
-    for check in policy.entry_checks if buy else policy.exit_checks:
-        v = values.get(check.indicator)
-        if v is None or not math.isfinite(v) or not (v > check.value if check.op == "gt" else v < check.value):
-            raise ValueError("User strategy condition failed")
-    current = account["positions"].get(decision.symbol, 0)
-    delta = decision.target_weight * equity - current
-    if (buy and delta <= 0) or (not buy and delta >= 0):
-        raise ValueError("Action conflicts with target; SELL must reduce a real long position")
-    bid, ask = Decimal(str(quote["bid"])), Decimal(str(quote["ask"]))
-    if not bid.is_finite() or not ask.is_finite() or not 0 < bid <= ask:
-        raise ValueError("Invalid quote")
-    price = (ask if buy else bid).quantize(Decimal("0.01"), rounding=ROUND_CEILING if buy else ROUND_FLOOR)
-    if price <= 0:
-        raise ValueError("Invalid limit price")
-    quantity = int((Decimal(str(abs(delta))) / price).to_integral_value(rounding=ROUND_FLOOR))
-    if not buy:
-        additional=max(0,int((Decimal(quantity)-reserved_sells(account,decision.symbol)).to_integral_value(rounding=ROUND_FLOOR)))
-        quantity = min(additional, sellable(account, decision.symbol))
-    if quantity <= 0:
-        return None
-    cost = quantity * float(price)
-    if buy and (cost > min(account["cash"], account["buying_power"]) or
-                (sum(account["positions"].values()) + cost) / equity > risk.max_total_weight or
-                (current + cost) / equity > risk.max_symbol_weight):
-        raise ValueError("Buying power or exposure limit")
-    intent = {"symbol": decision.symbol, "side": decision.action.lower(), "quantity": quantity,
-              "limit_price": float(price), "type": "limit", "time_in_force": "ioc"}
-    validate_order(intent)
-    return intent
+def stop_orders(account: dict, symbol: str | None = None) -> list[dict]:
+    result = []
+    for order in account.get("open_orders", []) or []:
+        if symbol and str(order.get("symbol") or "") != symbol:
+            continue
+        if _is_stop(order):
+            result.append(order)
+    return result
+
+
+def sellable_qty(account: dict, symbol: str, local_orders: list[dict] | None = None) -> int:
+    held = float(account.get("quantities", {}).get(symbol, 0) or 0)
+    if held < 0 or not math.isfinite(held):
+        raise RiskRejected("INVALID_POSITION", "negative or invalid position")
+    held_whole = int(Decimal(str(held)).to_integral_value(rounding=ROUND_FLOOR))
+    available = float(account.get("available_quantities", {}).get(symbol, held))
+    reserved = reserved_sell_qty(symbol, account, local_orders)
+    available_whole = int(
+        Decimal(str(min(held - reserved, available))).to_integral_value(rounding=ROUND_FLOOR)
+    )
+    return max(0, min(held_whole - max(0, int(reserved)), available_whole))
+
+
+def validate_new_intent(
+    intent: dict,
+    *,
+    account: dict,
+    quote: dict,
+    risk,
+    execution,
+    symbols,
+    session,
+    buy_attempts: int,
+    local_orders: list[dict] | None = None,
+    freeze_reason: str = "",
+    stop_allowed: bool = False,
+) -> int:
+    """Validate one AI order intent.  Returns the unchanged quantity.
+
+    ``session`` must expose ``active`` and ``can_submit``/``now``; the engine
+    supplies the authoritative exchange-calendar view.
+    """
+    symbol = str(intent.get("symbol") or "")
+    side = str(intent.get("side") or intent.get("action") or "").lower()
+    if symbol not in symbols:
+        raise RiskRejected("OUTSIDE_WATCHLIST", symbol)
+    if side not in {"buy", "sell"}:
+        raise RiskRejected("INVALID_SIDE")
+    if freeze_reason:
+        # An unknown/conflicting order fact can make even a sell unsafe.
+        raise RiskRejected("FROZEN", freeze_reason)
+    if not session.active:
+        raise RiskRejected("OUTSIDE_ACTIVE_WINDOW", str(getattr(session, "phase", "")))
+    if not session.can_submit:
+        raise RiskRejected("AFTER_SUBMIT_CUTOFF", str(session.now_et))
+    if account.get("blocked"):
+        raise RiskRejected("ACCOUNT_BLOCKED")
+    equity = float(account.get("equity") or 0)
+    last_equity = float(account.get("last_equity") or 0)
+    cash = float(account.get("cash") or 0)
+    if not all(math.isfinite(v) for v in (equity, last_equity, cash)) or equity <= 0:
+        raise RiskRejected("INVALID_ACCOUNT", "non-finite or non-positive equity")
+    if last_equity <= 0:
+        raise RiskRejected("INVALID_ACCOUNT", "last_equity missing")
+    for name, value in list(account.get("positions", {}).items()):
+        if not math.isfinite(float(value)) or float(value) < 0:
+            raise RiskRejected("INVALID_POSITION", name)
+    for name, value in list(account.get("quantities", {}).items()):
+        if not math.isfinite(float(value)) or float(value) < 0:
+            raise RiskRejected("INVALID_POSITION", name)
+
+    stop_policy = str(intent.get("stop_policy") or "NONE").upper()
+    if stop_policy not in {"NONE", "BROKER_STOP"}:
+        raise RiskRejected("INVALID_STOP_POLICY", stop_policy)
+    if stop_policy == "BROKER_STOP" and not stop_allowed:
+        # Reject the whole intent; never silently add/remove protection.
+        raise BrokerStopUnsupported(
+            "BROKER_STOP requested but not verified for this Alpaca Paper account"
+        )
+    if stop_policy == "BROKER_STOP" and side != "buy":
+        raise BrokerStopUnsupported("BROKER_STOP is only supported for BUY intents")
+    if stop_policy == "NONE" and intent.get("stop_loss") not in (None, {}):
+        raise RiskRejected("UNEXPECTED_STOP", "NONE must not carry stop parameters")
+    try:
+        qty = validate_intent(intent, allow_stop=stop_allowed)
+    except OrderValidationError as exc:
+        raise RiskRejected("INVALID_ORDER", str(exc)) from exc
+    except BrokerStopUnsupported:
+        raise
+    if int(intent.get("qty", qty)) != qty:
+        raise RiskRejected("QTY_MISMATCH")
+
+    price = Decimal(str(intent["limit_price"]))
+    bid = Decimal(str(quote.get("bid") or 0))
+    ask = Decimal(str(quote.get("ask") or 0))
+    if not all(x.is_finite() for x in (bid, ask)) or not (0 < bid <= ask):
+        raise RiskRejected("INVALID_QUOTE", "bid/ask missing or crossed")
+    if float((ask - bid) / bid) > risk.max_spread:
+        raise RiskRejected("QUOTE_SPREAD", "spread above configured maximum")
+    reference = quote.get("last") or quote.get("close")
+    if reference:
+        reference = Decimal(str(reference))
+        if reference > 0 and abs(float(ask / reference - 1)) > risk.max_price_deviation:
+            raise RiskRejected("QUOTE_DEVIATION", "ask too far from last price")
+
+    if side == "buy":
+        if equity <= last_equity * (1 - risk.max_daily_loss):
+            raise RiskRejected("DAILY_LOSS_LIMIT")
+        if buy_attempts >= risk.max_daily_orders:
+            raise RiskRejected("DAILY_ORDER_LIMIT")
+        available = max(0.0, cash - reserved_buy_cash(account, local_orders))
+        cost = qty * float(price)
+        if cost > available + EPS:
+            raise RiskRejected(
+                "INSUFFICIENT_CASH",
+                f"need {cost:.2f}, non-margin available {available:.2f}",
+            )
+        # A buy must not be used to cover a short position.
+        if float(account.get("quantities", {}).get(symbol, 0) or 0) < 0:
+            raise RiskRejected("SHORT_POSITION")
+    else:
+        available = sellable_qty(account, symbol, local_orders)
+        if qty > available:
+            raise RiskRejected(
+                "INSUFFICIENT_SHARES", f"need {qty}, unencumbered whole shares {available}"
+            )
+    return qty
+
+
+def legacy_plan(decision, account, quote, values, policy, risk, symbols, count, paused):
+    """Compatibility shim for old imports; raises with a clear migration hint."""
+    raise RuntimeError(
+        "target_weight planning was removed; use validate_new_intent with AI qty"
+    )

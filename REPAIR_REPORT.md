@@ -1,3 +1,7 @@
+# 历史报告：旧 IOC-only 修复（2026-11-05 上午）
+
+> **本文件是历史记录，不再是当前实现说明。** 旧版 IOC-only、target_weight、10:00 全撤等语义已被最新产品规格替换。当前运行规则、订单状态机、DAY 订单、AI 具体股数、`NONE/BROKER_STOP` 止损选择、研究记忆和验证等级请阅读 [README.md](README.md) 与 [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md)。以下内容仅用于追溯当时的修复过程。
+
 # 纸账户交易机器人修复交付（2026-11-05）
 
 本次完成的是代码修复、离线故障注入和模拟闭环验证。**没有向 Alpaca 实盘或 Paper 账户提交任何订单，没有调用真实 DeepSeek 做交易决策，没有恢复机器人交易，也没有推送 GitHub。**

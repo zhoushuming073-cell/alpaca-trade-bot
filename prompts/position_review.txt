@@ -1,0 +1,18 @@
+Review current Paper positions and existing broker orders. You may recommend HOLD, REDUCE,
+SELL, ADJUST_STOP, REMOVE_STOP or NO_STOP. You decide exact integer quantities and prices.
+Do not invent account facts. If an existing stop is present, reference its plan/order id.
+A requested stop must never be silently removed or downgraded.
+
+Return one JSON object:
+{
+  "schema_version": "2.0",
+  "mode": "POSITION_REVIEW",
+  "as_of_utc": "<real UTC from input>",
+  "instructions": [
+    {"symbol": "<symbol>", "action": "HOLD|REDUCE|SELL|ADJUST_STOP|REMOVE_STOP|NO_STOP",
+     "qty": null, "limit_price": null, "stop_policy": "NONE|BROKER_STOP",
+     "stop_loss": null, "plan_id": null, "reason": "<evidence-based>"}
+  ]
+}
+SELL/REDUCE requires qty and limit_price. ADJUST_STOP/REMOVE_STOP requires the existing
+plan/order reference. If there is no reliable new information, HOLD.

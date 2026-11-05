@@ -1,3 +1,40 @@
-# Default closed. Confirm Paper account IOC permission with Alpaca before opting in.
-# This is NOT proof of an execution test; never enable automatically.
-ioc_permission_confirmed: false
+# Paper-only execution contract.  No live endpoint is ever used.
+# The session is America/New_York; local display may convert to Asia/Shanghai.
+mode: paper
+timezone: America/New_York
+
+# Premarket research 09:00-09:30 ET; active local trading 09:30-10:00 ET.
+# submit_cutoff limits *new local writes*; it never cancels a broker-accepted
+# DAY order or a broker-side stop.
+premarket_start: "09:00"
+active_start: "09:30"
+active_end: "10:00"
+submit_cutoff: "09:59:30"
+
+order_type: limit
+time_in_force: day
+extended_hours: false
+
+# BROKER_STOP is rejected until the exact Alpaca Paper combination is verified.
+# A rejected stop request is never downgraded to NONE.
+allow_broker_stop: false
+broker_stop_verified: false
+
+trigger_poll_seconds: 10
+# A just-recorded dispatch may not be queryable at Alpaca for a short moment.
+# The watchdog must not call that "unknown" before this grace window.
+submission_grace_seconds: 30
+recheck_cooldown_seconds: 120
+max_rechecks_per_day: 20
+watchdog_interval_seconds: 10
+watchdog_stale_seconds: 45
+data_workers: 8
+premarket_retry_seconds: 300
+
+ai_max_tokens: 24000
+ai_temperature: 0.2
+ai_repair_attempts: 1
+
+# External research is opt-in; capability must be verified before enabling.
+research_search_enabled: false
+research_fetch_enabled: false

@@ -1,4 +1,10 @@
-﻿param([string]$Command = 'check', [string]$Mode = 'paper')
+param(
+    [string]$Command = 'check',
+    [string]$Mode = 'paper',
+    [string]$Cid = '',
+    [string]$Reason = '',
+    [switch]$Confirm
+)
 $ErrorActionPreference = 'Stop'
 $pythonPath = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
 $legacyKeyPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'api-key.txt'
@@ -17,5 +23,9 @@ if (Test-Path -LiteralPath $alpacaKeyPath) {
     }
     $credentialText = $null
 }
-& $pythonPath -m trading_bot.main $Command --mode $Mode
+$arguments = @('-m','trading_bot.main',$Command,'--mode',$Mode)
+if ($Cid) { $arguments += @('--cid', $Cid) }
+if ($Reason) { $arguments += @('--reason', $Reason) }
+if ($Confirm) { $arguments += '--confirm' }
+& $pythonPath @arguments
 exit $LASTEXITCODE

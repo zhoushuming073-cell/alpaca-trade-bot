@@ -1,21 +1,243 @@
-const $=id=>document.getElementById(id);let state,token,busy=false;
-const esc=x=>String(x??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money=x=>x==null?'—':Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const percent=x=>x==null?'—':(x*100).toFixed(2)+'%';
-const date=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
-function table(headers,rows,empty){return rows.length?'<table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table>':'<div class="empty">'+esc(empty)+'</div>'}
-function symbols(){if(state)$('symbols').innerHTML=state.symbols.filter(s=>s.includes($('search').value.toUpperCase())).map(s=>'<span>'+esc(s)+'</span>').join('')||'<p>无匹配标的</p>'}
-function toast(text){$('toast').textContent=text;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',6000)}
-function render(s){state=s;token=s.control_token;$('process').textContent=s.running?'机器人进程运行中':'机器人未运行';$('process').className='pill '+(s.running?'ok':'');$('paused').textContent=s.paused?'下单已暂停':'下单已启用';$('paused').className='pill '+(s.paused?'warn':'ok');$('window').textContent=s.window;$('refresh').textContent='更新于 '+date(s.now)+' · 每 5 秒刷新';$('equity').textContent=money(s.account?.equity);$('cash').textContent='现金 '+money(s.account?.cash);$('pnl').textContent=money(s.daily_pnl);$('return').textContent=percent(s.return);$('drawdown').textContent=percent(s.drawdown);$('account-time').textContent=date(s.account?.ts);$('source').textContent=s.account_source+' · '+(s.account_age_seconds==null?'尚无数据':Math.floor(s.account_age_seconds/60)+' 分钟前的快照');$('limits').textContent='单股 '+percent(s.risk.max_symbol_weight)+' / 总仓位 '+percent(s.risk.max_total_weight);
-const alerts=[];if(!s.ioc_permission_confirmed)alerts.push('IOC 账户权限尚未确认，新委托保持禁用。');if(s.safety_reason)alerts.push('安全模式：'+s.safety_reason);if(s.unresolved.length)alerts.push('有 '+s.unresolved.length+' 笔未决订单，系统将阻止新订单。');if(s.account_age_seconds>120)alerts.push('账户快照已超过 2 分钟，以下金额不代表实时余额。');if(s.error)alerts.push('最近异常：'+s.error.type+' · '+(s.error.stage||'')+' · '+(s.error.reason||'')+'（'+date(s.error.ts)+'）');$('notice').textContent=alerts.join(' ');$('notice').style.display=alerts.length?'block':'none';
-$('position-table').innerHTML=table(['标的','数量','市值 · USD'],Object.entries(s.account?.positions||{}).map(([k,v])=>[k,s.account.quantities[k],money(v)]),'当前没有记录到持仓');
-const statuses={new:'已提交',accepted:'已接受',partially_filled:'部分成交',filled:'完全成交',canceled:'已取消',rejected:'已拒绝',expired:'已过期',unknown:'状态未确认',reconciliation_required:'待人工核对',pending_cancel:'等待撤单确认',pending_new:'等待接受'};
-$('order-table').innerHTML=table(['日期','标的','方向','委托数量','状态','成交数量','成交均价'],s.orders.map(o=>[o.day,o.symbol,o.side,o.qty??o.quantity,statuses[o.status]||o.status,o.filled_qty??'—',o.filled_avg_price??'—']),'尚无订单记录');$('pending').textContent=s.unresolved.length+' 笔未决 · 最近 100 笔订单';
-$('decision-time').textContent=s.decision?date(s.decision.ts)+' · '+s.decision.model:'尚无决策';$('decision-table').innerHTML=table(['标的','意图','目标权重','主观信心','判断依据','风险'],(s.decision?.decisions||[]).map(d=>[d.symbol,d.action,percent(d.target_weight),d.confidence,d.reason,d.risk_assessment]),'尚未产生 AI 决策。启动并恢复后，将在有效交易周期分析。');
-const labels={operator:'人工操作',error:'周期异常',risk_rejected:'风控拒绝',decision:'AI 决策',order:'订单更新',cutoff_cleanup:'截止撤单',critical_cutoff_pending:'截止时仍有未决订单',stopped:'进程停止'};
-$('events').innerHTML=s.events.map(e=>'<div class="event"><time>'+esc(date(e.ts))+'</time><details><summary>'+esc(labels[e.kind]||e.kind)+'</summary><pre>'+esc(JSON.stringify(e.payload,null,2))+'</pre></details></div>').join('')||'<div class="empty">暂无运行事件</div>';$('symbol-count').textContent='· '+s.symbols.length;$('version').textContent='策略版本：'+s.strategy_version;symbols();
-const pts=s.equity_history;if(pts.length<2){$('chart').innerHTML='<div class="empty">'+(pts.length?'已记录首个净值点 '+money(pts[0].equity)+' USD<br>更多快照到达后显示趋势':'尚无净值记录')+'</div>';$('chart-range').textContent=''}else{const lo=Math.min(...pts.map(p=>p.equity)),hi=Math.max(...pts.map(p=>p.equity));const points=pts.map((p,i)=>(i/(pts.length-1)*780+10)+','+(hi===lo?70:130-(p.equity-lo)/(hi-lo)*110)).join(' ');$('chart').innerHTML='<svg viewBox="0 0 800 150" role="img" aria-label="账户净值趋势"><path d="M10 130H790" stroke="#e4ecef"/><polyline points="'+points+'" fill="none" stroke="#208972" stroke-width="2.5"/></svg>';$('chart-range').innerHTML='<span>'+esc(date(pts[0].ts))+'</span><span>'+esc(date(pts.at(-1).ts))+'</span>'}
+const $ = (id) => document.getElementById(id);
+let state = null;
+let token = null;
+let busy = false;
+
+const esc = (x) => String(x ?? "—").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[c]));
+const money = (x) => x == null ? "—" : Number(x).toLocaleString("en-US", {
+  minimumFractionDigits: 2, maximumFractionDigits: 2
+});
+const percent = (x) => x == null ? "—" : (Number(x) * 100).toFixed(2) + "%";
+const date = (x) => x ? new Date(x).toLocaleString("zh-CN", {
+  timeZone: "Asia/Shanghai", hour12: false
+}) : "—";
+const et = (x) => x ? new Date(x).toLocaleString("en-US", {
+  timeZone: "America/New_York", hour12: false
+}) : "—";
+const pill = (text, cls) => `<span class="pill ${cls || ""}">${esc(text)}</span>`;
+
+function table(headers, rows, empty) {
+  if (!rows.length) return `<div class="empty">${esc(empty)}</div>`;
+  return `<table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}
+    </tbody></table>`;
 }
-async function refresh(){try{const r=await fetch('/api/status');if(!r.ok)throw Error();render(await r.json())}catch(e){$('process').textContent='网页服务连接失败';$('process').className='pill warn';$('refresh').textContent='更新失败，正在显示上次数据'}}
-async function control(action){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);try{const r=await fetch('/api/control/'+action,{method:'POST',headers:{'X-Control-Token':token}});const j=await r.json();if(!r.ok)throw Error(j.error);toast({start:'已请求启动，保留当前暂停状态',resume:'已恢复模拟交易',pause:'已暂停新订单',stop:'已停止机器人进程'}[action]);await refresh()}catch(e){toast(e.message)}finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false)}}
-['start','pause','stop'].forEach(a=>$(a).onclick=()=>control(a));$('resume').onclick=()=>$('confirm').showModal();$('cancel-confirm').onclick=()=>$('confirm').close();$('confirm-resume').onclick=()=>{$('confirm').close();control('resume')};$('search').oninput=symbols;refresh();setInterval(refresh,5000);
+
+const LABELS = {
+  operator: "人工操作",
+  error: "异常",
+  safety_alert: "安全告警",
+  order: "订单更新",
+  order_not_sent: "订单未发送",
+  order_imported: "导入券商订单",
+  order_recovery: "崩溃恢复",
+  premarket_plan: "盘前计划",
+  universe_scan: "全池扫描",
+  intraday_recheck: "盘中复核",
+  plan: "计划状态",
+  plan_invalidated: "计划失效",
+  intent_rejected: "意图拒绝",
+  config_pending: "配置待重启",
+  watchdog_loop: "看门狗异常",
+  research_profile: "研究档案",
+  premarket_data: "盘前数据",
+  quote_errors: "报价异常",
+  recheck_suppressed: "复核抑制",
+  startup_reconciliation: "启动对账",
+  after_close_reconcile: "收盘后对账",
+  ai_call: "AI 调用",
+  input: "AI 输入",
+};
+const STATES = {
+  RESERVED: "本地预留", VALIDATING: "本地校验", READY_TO_DISPATCH: "待发送",
+  DISPATCH_INTENT_RECORDED: "已记录发送意图", SUBMISSION_OUTCOME_UNKNOWN: "发送结果未知",
+  ACCEPTED: "券商已接受", PARTIALLY_FILLED: "部分成交", FILLED: "完全成交",
+  CANCELED: "已取消", EXPIRED: "已过期", REJECTED: "已拒绝",
+  RECONCILIATION_REQUIRED: "待人工对账", NOT_SENT: "确认未发送",
+};
+const STOP = {
+  NONE_BY_AI: "AI 选择不设", REQUESTED: "已请求", VERIFIED: "已确认",
+  FAILED: "建立失败", UNKNOWN: "未知",
+};
+
+function render(s) {
+  state = s;
+  token = s.control_token;
+  $("process").textContent = s.running ? "机器人进程运行中" : "机器人未运行";
+  $("process").className = "pill " + (s.running ? "ok" : "warn");
+  $("phase").textContent = s.phase;
+  $("phase").className = "pill " + (s.phase === "ACTIVE" ? "ok" : s.phase === "FROZEN" ? "warn" : "");
+  $("paused").textContent = s.paused ? "下单已暂停" : "下单已启用";
+  $("paused").className = "pill " + (s.paused ? "warn" : "ok");
+  $("now-et").textContent = et(s.now_et) + " ET / 北京 " + date(s.now);
+  $("refresh").textContent = "更新于 " + date(s.now) + " · 每 5 秒刷新";
+  $("equity").textContent = money(s.account?.equity);
+  $("cash").textContent = "现金 " + money(s.account?.cash);
+  $("available").textContent = "非杠杆现金 " + money(
+    s.account?.available_non_margin_cash ?? s.account?.non_margin_cash ?? s.account?.cash
+  );
+  $("pnl").textContent = money(s.daily_pnl);
+  $("return").textContent = percent(s.return);
+  $("drawdown").textContent = percent(s.drawdown);
+  $("account-time").textContent = date(s.account?.ts);
+  $("source").textContent = s.account_source + " · " + (
+    s.account_age_seconds == null ? "尚无数据" :
+    Math.floor(s.account_age_seconds / 60) + " 分钟前的快照"
+  );
+  $("config").textContent = "配置 " + (s.active_config_hash || "—") +
+    (s.config_pending_restart ? " · 磁盘配置待安全重启" : " · 已生效");
+  $("watchdog").textContent = "看门狗 " + (
+    s.health?.watchdog?.alive && !s.health?.watchdog?.stale ? "正常" : "异常/无心跳"
+  );
+  $("watchdog").className = "pill " + (
+    s.health?.watchdog?.alive && !s.health?.watchdog?.stale ? "ok" : "warn"
+  );
+  $("broker-stop").textContent = "BROKER_STOP " + s.broker_stop;
+  $("broker-stop").className = "pill " + (s.broker_stop === "VERIFIED" ? "ok" : "warn");
+
+  const alerts = [];
+  if (s.freeze_reason) alerts.push("冻结新风险：" + s.freeze_reason);
+  if (s.safety_reason) alerts.push("安全锁：" + s.safety_reason);
+  if (s.config_pending_restart) alerts.push("配置文件已变化，必须安全重启后才会生效。");
+  if (s.health?.watchdog && (!s.health.watchdog.alive || s.health.watchdog.stale)) {
+    alerts.push("订单看门狗没有有效心跳；不能依赖自动撤单/对账。");
+  }
+  if (s.account_age_seconds > 120) alerts.push("账户快照超过 2 分钟，金额可能不是实时余额。");
+  if (s.broker_stop !== "VERIFIED") alerts.push("BROKER_STOP 未验证；AI 选择该策略的订单会被整体拒绝，不会降级为无止损。");
+  $("notice").textContent = alerts.join(" ");
+  $("notice").style.display = alerts.length ? "block" : "none";
+
+  const positions = (s.account?.positions && Object.entries(s.account.positions)) || [];
+  const positionRows = positions.map(([symbol, value]) => {
+    const detail = (s.account.position_details || {})[symbol] || {};
+    return [
+      symbol, s.account.quantities?.[symbol] ?? "—", money(value),
+      money(detail.avg_entry_price), money(detail.unrealized_pl),
+      STOP[(detail.stop_status)] || detail.stop_status || "—",
+    ];
+  });
+  $("position-table").innerHTML = table(
+    ["标的", "股数", "市值 · USD", "均价", "浮盈亏", "止损状态"],
+    positionRows, "当前没有记录到持仓"
+  );
+
+  const orderRows = (s.orders || []).map((o) => [
+    o.day, o.symbol, o.side || o.action, o.qty ?? o.quantity,
+    o.filled_qty ?? "—", o.limit_price ?? "—", o.time_in_force || "—",
+    STATES[o.state] || o.state || o.status, STOP[o.stop_status] || o.stop_status || "—",
+  ]);
+  $("order-table").innerHTML = table(
+    ["日期", "标的", "方向", "委托", "已成交", "限价", "TIF", "本地状态", "止损"],
+    orderRows, "尚无订单记录"
+  );
+  $("pending").textContent = (s.unresolved || []).length + " 笔未决订单";
+
+  const planRows = (s.plans || []).map((p) => {
+    const c = p.candidate || {};
+    const intent = c.order_intent || {};
+    const triggers = (c.triggers || []).length;
+    return [
+      p.plan_id, p.status, date(p.valid_until),
+      c.trade_decision || "—", intent.qty ?? "—", intent.limit_price ?? "—",
+      intent.stop_policy || "—", triggers,
+    ];
+  });
+  $("plan-table").innerHTML = table(
+    ["计划", "状态", "有效期", "决策", "股数", "限价", "止损", "触发数"],
+    planRows, "今日没有生效计划"
+  );
+
+  const aiRows = (s.ai_calls || []).map((a) => [
+    date(a.ts), a.mode, a.model, a.prompt_tokens ?? "—",
+    a.completion_tokens ?? "—", a.latency_ms + " ms", a.outcome,
+  ]);
+  $("ai-table").innerHTML = table(
+    ["时间", "模式", "模型", "输入 tokens", "输出 tokens", "延迟", "结果"],
+    aiRows, "尚无 AI 调用记录"
+  );
+
+  const researchRows = (s.research || []).map((r) => [
+    r.symbol, r.status, "v" + r.version, date(r.verified_at), date(r.expires_at),
+  ]);
+  $("research-table").innerHTML = table(
+    ["标的", "档案状态", "版本", "最近核验", "过期时间"],
+    researchRows, "尚无研究档案（研究记忆未初始化）"
+  );
+
+  $("events").innerHTML = (s.events || []).map((e) => `
+    <div class="event"><time>${esc(date(e.ts))}</time>
+      <details><summary>${esc(LABELS[e.kind] || e.kind)}</summary>
+        <pre>${esc(JSON.stringify(e.payload, null, 2))}</pre>
+      </details>
+    </div>`).join("") || '<div class="empty">暂无运行事件</div>';
+
+  $("symbols").innerHTML = (s.symbols || []).filter((x) =>
+    x.includes(($("search").value || "").toUpperCase())
+  ).map((x) => `<span>${esc(x)}</span>`).join("") || "<p>无匹配标的</p>";
+  $("symbol-count").textContent = "· " + (s.symbols || []).length;
+  $("version").textContent = "策略版本：" + (s.strategy_version || "—");
+}
+
+async function refresh() {
+  try {
+    const response = await fetch("/api/status");
+    if (!response.ok) throw new Error();
+    render(await response.json());
+  } catch (error) {
+    $("process").textContent = "网页服务连接失败";
+    $("process").className = "pill warn";
+    $("refresh").textContent = "更新失败，正在显示上次数据";
+  }
+}
+
+async function control(action) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  try {
+    const response = await fetch("/api/control/" + action, {
+      method: "POST", headers: { "X-Control-Token": token }
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error);
+    const messages = {
+      start: "已请求启动（保留暂停状态）",
+      resume: "已恢复本地交易",
+      pause: "已暂停新订单",
+      restart: "已安全重启（保持暂停）",
+      stop: "已停止机器人进程",
+    };
+    toast(messages[action]);
+    await refresh();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    busy = false;
+    document.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+  }
+}
+
+function toast(text) {
+  $("toast").textContent = text;
+  $("toast").style.display = "block";
+  setTimeout(() => { $("toast").style.display = "none"; }, 7000);
+}
+
+["start", "pause", "stop", "restart"].forEach((action) => {
+  $(action).onclick = () => control(action);
+});
+$("resume").onclick = () => $("confirm").showModal();
+$("cancel-confirm").onclick = () => $("confirm").close();
+$("confirm-resume").onclick = () => { $("confirm").close(); control("resume"); };
+$("search").oninput = () => {
+  if (state) {
+    $("symbols").innerHTML = state.symbols.filter((x) =>
+      x.includes(($("search").value || "").toUpperCase())
+    ).map((x) => `<span>${esc(x)}</span>`).join("") || "<p>无匹配标的</p>";
+  }
+};
+
+refresh();
+setInterval(refresh, 5000);

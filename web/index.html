@@ -1,3 +1,145 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Paper Trader · 交易观察台</title><style>
-:root{font-family:Segoe UI,Microsoft YaHei,sans-serif;color:#172b3c;background:#f2f5f7;font-size:14px}*{box-sizing:border-box}body{margin:0}aside{position:fixed;width:220px;inset:0 auto 0 0;background:#132c39;color:#dae6eb;padding:32px 24px;display:flex;flex-direction:column}.brand{font-size:23px;font-weight:700;letter-spacing:-1px}.brand span{color:#74d9bc}.sub{font-size:12px;color:#90acb9;margin:9px 0 42px}nav a{display:block;color:#a9c1cc;text-decoration:none;padding:14px;margin:4px -10px;border-radius:6px}nav a:hover{background:#234451;color:white}.foot{margin-top:auto;font-size:12px;color:#a9c1cc;line-height:1.9}main{margin-left:220px;padding:32px 40px;max-width:1700px}header{display:flex;justify-content:space-between;align-items:center;gap:20px}h1{font-size:28px;margin:0 0 8px;letter-spacing:-1px}h2{font-size:17px;margin:0}p{color:#617787;line-height:1.7;margin:0}button{font:inherit;border:1px solid #c8d5dd;background:white;color:#233f4d;border-radius:6px;padding:10px 15px;cursor:pointer}button:hover{background:#edf5f6}button.primary{background:#197b67;border-color:#197b67;color:white}button:disabled{opacity:.45;cursor:wait}.controls{display:flex;flex-wrap:wrap;gap:8px}.statusbar{margin:24px 0;display:flex;flex-wrap:wrap;align-items:center;gap:12px;border-block:1px solid #dae2e7;padding:15px 0}.pill{padding:5px 10px;border-radius:4px;background:#e1e9ef;color:#3a576a;font-size:12px}.ok{background:#dcf2e9;color:#17674f}.warn{background:#fff0d1;color:#8c621c}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin:28px 0}.metric label{color:#647c8b;font-size:13px}.value{font-size:30px;letter-spacing:-1px;font-variant-numeric:tabular-nums;margin:12px 0 5px}.small{font-size:12px;color:#758a96;line-height:1.7}.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:22px}.panel{background:#fff;border:1px solid #dce5e9;border-radius:9px;padding:23px;min-width:0;margin-bottom:22px}.panelhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:20px}table{border-collapse:collapse;width:100%;font-size:13px}th{text-align:left;color:#738793;font-weight:500;background:#f7f9fa}td,th{padding:12px 10px;border-bottom:1px solid #ecf0f2;vertical-align:top}td.num{text-align:right;font-variant-numeric:tabular-nums}.scroll{overflow:auto}.empty{color:#8b9aa4;text-align:center;padding:38px 12px;line-height:1.8}.kv{display:flex;justify-content:space-between;border-bottom:1px solid #eef2f4;padding:12px 0;gap:18px}.kv span{color:#708592}.kv strong{font-weight:500;text-align:right}.chips{display:flex;flex-wrap:wrap;gap:7px}.chips span{background:#f0f4f6;color:#45616f;padding:5px 8px;border-radius:4px;font:12px Consolas,monospace}.event{border-left:2px solid #b9d8ce;padding:0 0 16px 14px;margin-top:8px;overflow-wrap:anywhere}.event time{font-size:11px;color:#81929c}.event summary{cursor:pointer;margin:6px 0}.event pre{white-space:pre-wrap;font-size:12px;color:#526b79;max-height:200px;overflow:auto}.notice{padding:12px 16px;background:#fff1d7;border-radius:6px;margin-bottom:16px;display:none}.chart{height:165px;display:flex;align-items:center;justify-content:center}.chart svg{width:100%;height:150px}.legend{display:flex;justify-content:space-between;color:#8798a3;font-size:11px}#toast{position:fixed;bottom:24px;right:24px;background:#163c48;color:white;padding:14px 20px;border-radius:8px;display:none;max-width:450px;z-index:10}input{font:inherit;border:1px solid #d5e0e5;padding:8px 10px;border-radius:5px;width:160px}footer{font-size:12px;color:#81929c;padding-bottom:20px}a{color:#197b67}dialog{border:1px solid #d8e3e8;border-radius:12px;padding:28px;max-width:430px}dialog::backdrop{background:#122c3980}dialog p{margin:15px 0 24px}@media(max-width:1100px){main{padding:24px}aside{width:180px}main{margin-left:180px}.grid{grid-template-columns:1fr}.value{font-size:24px}header{align-items:flex-start;flex-direction:column}}@media(max-width:700px){aside{position:static;width:auto;padding:18px 20px}.sub,nav,.foot{display:none}main{margin:0;padding:20px}.metrics{grid-template-columns:1fr 1fr;gap:20px}.controls{width:100%}.panel{padding:16px}.panelhead{flex-wrap:wrap}h1{font-size:24px}}
-</style><script src="/app.js" defer></script></head><body><aside><div class="brand">Paper<span>Trader</span></div><div class="sub">AI 模拟交易观察台</div><nav><a href="#overview">账户概览</a><a href="#positions">持仓与委托</a><a href="#decisions">AI 决策记录</a><a href="#activity">运行日志</a><a href="#watchlist">固定股票池</a></nav><div class="foot">ALPACA PAPER ONLY<br>本机服务 · 127.0.0.1<br>DeepSeek × LumiBot</div></aside><main><header id="overview"><div><h1>交易观察台</h1><p>了解账户变化，检查每一次决策。</p></div><div class="controls"><button id="start">启动机器人</button><button id="resume" class="primary">恢复交易</button><button id="pause">暂停下单</button><button id="stop">停止进程</button></div></header><div class="statusbar"><span id="process" class="pill">正在连接</span><span id="paused" class="pill">—</span><span id="window" class="pill">—</span><span class="small" id="refresh">每 5 秒刷新</span></div><div id="notice" class="notice" role="alert"></div><section class="metrics"><div class="metric"><label>账户净值 · USD</label><div class="value" id="equity">—</div><div class="small" id="cash">现金 —</div></div><div class="metric"><label>今日盈亏 · USD</label><div class="value" id="pnl">—</div><div class="small">相对上一交易日权益</div></div><div class="metric"><label>累计收益率</label><div class="value" id="return">—</div><div class="small">从首次记录起 · 未调整资金流</div></div><div class="metric"><label>最大观测回撤</label><div class="value" id="drawdown">—</div><div class="small">根据账户快照计算</div></div></section><div class="grid"><section class="panel"><div class="panelhead"><h2>净值轨迹</h2><span class="small" id="account-time">尚无账户快照</span></div><div id="chart" class="chart"></div><div class="legend" id="chart-range"></div><p class="small" id="source"></p></section><section class="panel"><div class="panelhead"><h2>当前运行规则</h2><span class="pill ok">仅模拟资金</span></div><div class="kv"><span>分析频率</span><strong>每 5 分钟 · 完整 K 线</strong></div><div class="kv"><span>历史范围</span><strong>6 个月日线 + 40 根分钟线</strong></div><div class="kv"><span>交易窗口</span><strong>美股开盘后前 30 分钟</strong></div><div class="kv"><span>决策点</span><strong>第 5 / 10 / 15 / 20 / 25 分钟</strong></div><div class="kv"><span>仓位保护</span><strong id="limits">—</strong></div></section></div><section class="panel" id="positions"><div class="panelhead"><h2>当前持仓</h2><span class="small">基于最近账户快照</span></div><div class="scroll" id="position-table"></div></section><section class="panel"><div class="panelhead"><h2>订单与成交</h2><span class="small" id="pending">—</span></div><div class="scroll" id="order-table"></div></section><section class="panel" id="decisions"><div class="panelhead"><h2>最近一次 AI 决策</h2><span class="small" id="decision-time">尚无决策</span></div><p class="small" style="margin-bottom:12px">信心分数为模型主观判断，不代表盈利概率。</p><div class="scroll" id="decision-table"></div></section><div class="grid"><section class="panel" id="activity"><div class="panelhead"><h2>运行事件</h2><span class="small">最近 40 条</span></div><div id="events"></div></section><section class="panel" id="watchlist"><div class="panelhead"><h2>固定股票池 <span id="symbol-count"></span></h2><input id="search" placeholder="筛选股票代码" aria-label="筛选股票代码"></div><div class="chips" id="symbols"></div><p class="small" id="version" style="margin-top:20px"></p></section></div><footer>数据源：Alpaca IEX。成交量不代表全市场。暂停禁止新订单，已有委托仍由截止监控处理；关闭网页不会停止机器人。</footer></main><div id="toast" role="status"></div><dialog id="confirm"><h2>恢复模拟交易？</h2><p>机器人会按当前策略在交易窗口内自动分析和下单，仅使用 Alpaca 模拟资金。</p><div class="controls"><button id="cancel-confirm">取消</button><button id="confirm-resume" class="primary">恢复模拟交易</button></div></dialog></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paper Trader · 交易观察台</title>
+<style>
+:root{font-family:Segoe UI,Microsoft YaHei,sans-serif;color:#172b3c;background:#f2f5f7;font-size:14px}
+*{box-sizing:border-box}body{margin:0}
+aside{position:fixed;width:210px;inset:0 auto 0 0;background:#132c39;color:#dae6eb;padding:28px 22px;display:flex;flex-direction:column}
+.brand{font-size:22px;font-weight:700}.brand span{color:#74d9bc}.sub{font-size:12px;color:#90acb9;margin:8px 0 28px}
+nav a{display:block;color:#a9c1cc;text-decoration:none;padding:10px;margin:3px -8px;border-radius:6px;font-size:13px}
+nav a:hover{background:#234451;color:white}.foot{margin-top:auto;font-size:11px;color:#a9c1cc;line-height:1.8}
+main{margin-left:210px;padding:26px 32px;max-width:1750px}h1{font-size:26px;margin:0 0 6px}
+h2{font-size:16px;margin:0}p{color:#617787;line-height:1.6;margin:0}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+button{font:inherit;border:1px solid #c8d5dd;background:white;color:#233f4d;border-radius:6px;padding:8px 12px;cursor:pointer}
+button:hover{background:#edf5f6}button.primary{background:#197b67;border-color:#197b67;color:white}
+button:disabled{opacity:.45;cursor:wait}
+.controls{display:flex;flex-wrap:wrap;gap:6px}
+.statusbar{margin:18px 0;display:flex;flex-wrap:wrap;align-items:center;gap:9px;border-block:1px solid #dae2e7;padding:11px 0}
+.pill{padding:4px 8px;border-radius:4px;background:#e1e9ef;color:#3a576a;font-size:12px}
+.ok{background:#dcf2e9;color:#17674f}.warn{background:#fff0d1;color:#8c621c}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin:18px 0}
+.metric{background:#fff;border:1px solid #dce5e9;border-radius:8px;padding:14px}
+.metric label{color:#647c8b;font-size:12px}.value{font-size:22px;margin:6px 0 3px;font-variant-numeric:tabular-nums}
+.small{font-size:12px;color:#758a96;line-height:1.6}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:#fff;border:1px solid #dce5e9;border-radius:8px;padding:16px;min-width:0;margin-bottom:16px}
+.panelhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
+.panelhead .small{text-align:right}
+table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{text-align:left;padding:3px 5px;border-bottom:1px solid #eef2f4;white-space:nowrap}
+th{color:#647c8b;font-weight:600}table{overflow-x:auto;display:block}
+.empty{color:#758a96;font-size:12.5px;padding:12px 0}
+.notice{background:#fff6df;border:1px solid #f0d79b;color:#72531b;border-radius:7px;padding:10px 13px;margin:12px 0;line-height:1.6}
+.events{max-height:340px;overflow:auto}.event{display:flex;gap:10px;padding:4px 0;border-bottom:1px solid #eef2f4;font-size:12px}
+.event time{color:#758a96;min-width:132px}.event summary{cursor:pointer}.event pre{white-space:pre-wrap;font-size:11px;color:#3a576a}
+#symbols span{display:inline-block;background:#eef3f5;border-radius:4px;padding:2px 6px;margin:2px;font-size:12px}
+#toast{display:none;position:fixed;right:22px;bottom:22px;background:#132c39;color:white;padding:10px 14px;border-radius:6px;z-index:20;max-width:520px}
+dialog{border:0;border-radius:8px;padding:20px;max-width:460px}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+.dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+@media(max-width:1100px){aside{display:none}main{margin-left:0;padding:16px}.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
+</style>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<aside>
+  <div class="brand">Paper<span>Trader</span></div>
+  <div class="sub">AI 模拟交易观察台</div>
+  <nav>
+    <a href="#overview">账户概览</a>
+    <a href="#positions">持仓与订单</a>
+    <a href="#plans">AI 计划与调用</a>
+    <a href="#activity">运行日志</a>
+    <a href="#research">研究档案</a>
+    <a href="#watchlist">固定股票池</a>
+  </nav>
+  <div class="foot">ALPACA PAPER ONLY<br>本机服务 · 127.0.0.1<br>DeepSeek × LumiBot</div>
+</aside>
+<main>
+  <header id="overview">
+    <div><h1>交易观察台</h1><p>AI 决定交易内容；Python 负责数据、时钟、订单合法性、对账与安全冻结。</p></div>
+    <div class="controls">
+      <button id="start">启动机器人</button>
+      <button id="resume" class="primary">恢复交易</button>
+      <button id="pause">暂停下单</button>
+      <button id="restart">安全重启</button>
+      <button id="stop">停止进程</button>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <span id="process" class="pill">正在连接</span>
+    <span id="phase" class="pill">—</span>
+    <span id="paused" class="pill">—</span>
+    <span id="watchdog" class="pill">—</span>
+    <span id="broker-stop" class="pill">—</span>
+    <span class="small" id="now-et">—</span>
+    <span class="small" id="refresh">每 5 秒刷新</span>
+  </div>
+
+  <div id="notice" class="notice" role="alert"></div>
+
+  <section class="metrics">
+    <div class="metric"><label>账户净值 · USD</label><div class="value" id="equity">—</div><div class="small" id="cash">现金 —</div><div class="small" id="available">非杠杆可用 —</div></div>
+    <div class="metric"><label>今日盈亏 · USD</label><div class="value" id="pnl">—</div><div class="small">相对上一交易日权益</div></div>
+    <div class="metric"><label>累计收益率</label><div class="value" id="return">—</div><div class="small">自首次快照 · 未调整资金流</div></div>
+    <div class="metric"><label>最大观测回撤</label><div class="value" id="drawdown">—</div><div class="small">基于账户快照</div></div>
+    <div class="metric"><label>运行配置</label><div class="small" id="config">—</div><div class="small" id="source">—</div></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panelhead"><h2>运行规则</h2><span class="small" id="account-time">尚无账户快照</span></div>
+      <p class="small">盘前研究 09:00–09:30 ET；主动交易 09:30–10:00 ET；10:00 后不自动撤单、不平仓，已接受的 DAY 订单与券商止损按券商规则继续有效。所有新单为整数股 DAY LIMIT，不使用融资、不做空。</p>
+      <div class="panelhead" style="margin-top:12px"><h2>持仓</h2></div>
+      <div id="position-table"></div>
+    </section>
+    <section class="panel">
+      <div class="panelhead"><h2>订单生命周期</h2><span class="small" id="pending">—</span></div>
+      <div id="order-table"></div>
+      <p class="small" style="margin-top:8px">“确认未发送”是本地可证明的安全终态；POST 超时/断网则保持“发送结果未知”，需按 client_order_id 与券商核对，绝不重发。</p>
+    </section>
+  </div>
+
+  <section class="panel" id="plans">
+    <div class="panelhead"><h2>今日 AI 计划</h2><span class="small">触发条件由 Python 机械比较，复核不是下单授权</span></div>
+    <div id="plan-table"></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panelhead"><h2>AI 调用</h2><span class="small">模型、Token、延迟、结果可审计</span></div>
+      <div id="ai-table"></div>
+    </section>
+    <section class="panel" id="research">
+      <div class="panelhead"><h2>研究档案</h2><span class="small">过期/来源不可用时明确标记，不伪造事实</span></div>
+      <div id="research-table"></div>
+    </section>
+  </div>
+
+  <section class="panel" id="activity">
+    <div class="panelhead"><h2>运行日志</h2><span class="small">最近 50 条重要事件</span></div>
+    <div id="events" class="events"></div>
+  </section>
+
+  <section class="panel" id="watchlist">
+    <div class="panelhead"><h2>固定股票池 <span id="symbol-count" class="small"></span></h2><span class="small" id="version">策略版本：—</span></div>
+    <input id="search" placeholder="筛选股票代码" style="width:180px;padding:5px 7px;border:1px solid #c8d5dd;border-radius:5px;margin-bottom:8px">
+    <div id="symbols"></div>
+  </section>
+</main>
+
+<div id="toast" role="status"></div>
+<dialog id="confirm">
+  <h2>确认恢复交易？</h2>
+  <p class="small" style="margin-top:8px">仅在 IOC 不再是统一阻断条件、没有未知/冲突订单、没有安全锁、配置已生效时可恢复。当前没有任何自动止损保证；AI 选择的 NONE 仓位在离线期间没有保护。</p>
+  <div class="dialog-actions">
+    <button id="cancel-confirm">取消</button>
+    <button id="confirm-resume" class="primary">确认恢复</button>
+  </div>
+</dialog>
+</body>
+</html>
