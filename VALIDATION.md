@@ -59,8 +59,8 @@
 
 ### 3.4 Phase 3：真实盘前计划
 
-- 2026-11-05 09:00 ET 使用真实账户、部分研究档案、行情和 AI 生成盘前计划；
-- AI 返回 7 个 `HOLD/WAIT` 计划，未生成可执行下单意图；
+- 2026-11-05 09:00 ET 使用真实账户、研究档案、行情和 AI 生成盘前计划；
+- 在 48/48 档案完成后再次用完整研究档案 replan：生成 7 个 `HOLD/WAIT/NO_TRADE` 计划，没有可执行下单意图；
 - `UNIVERSE_SCAN` 首次因模型把 numeric evidence_ids 返回为整数触发 schema error，修复重试后成功；随后增加了 evidence_ids 数字到字符串的输入规范化与 prompt 约束。
 - 本轮盘前脚本没有下单，也没有启动 worker。
 

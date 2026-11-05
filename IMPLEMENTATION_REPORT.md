@@ -32,7 +32,8 @@
 ### Phase 3：盘前 AI 计划
 
 - `Engine._base_payload` 已加入 `research`、已验证 `news`、账户、策略、会话和执行契约；`_premarket_plan` 继续提供候选行情/报价/触发；Python 只做数据、条件比较、风控、订单执行和审计。
-- 2026-11-05 09:00 ET 用真实账户/部分研究档案/行情运行一次 `premarket_once.py`：生成 7 个 `HOLD/WAIT` 计划，没有下单，没有启动 worker。
+- 2026-11-05 09:00 ET 用真实账户/研究档案/行情运行一次 `premarket_once.py`：生成 7 个 `HOLD/WAIT` 计划，没有下单，没有启动 worker。
+- 48/48 档案完成后再次用完整研究档案 replan：生成 7 个 `HOLD/WAIT/NO_TRADE` 计划，仍没有下单。
 - `UNIVERSE_SCAN` 第一次因模型把 `evidence_ids` 返回为整数触发 schema error，自动修复后成功；随后对 `Candidate/ScanCandidate.evidence_ids` 增加数字到字符串的输入规范化，并在 prompt 中要求字符串。
 - 独立 `POSITION_REVIEW`、`ADJUST_STOP/REMOVE_STOP`、真实 Paper 成交和长期运行仍未完成。
 
