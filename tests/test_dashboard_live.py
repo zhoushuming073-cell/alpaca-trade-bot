@@ -176,6 +176,31 @@ def test_optional_closed_order_failure_does_not_break_account_snapshot(bundle):
     assert "TimeoutError" in snapshot["recent_orders_error"]
 
 
+def test_broker_filled_state_overrides_stale_local_accepted(tmp_path, monkeypatch):
+    store = Store(tmp_path / "web.sqlite")
+    cid = "old-real-order"
+    store.reserve_order(cid, "2026-11-05", {
+        "symbol": "IREN", "side": "buy", "qty": 100, "limit_price": 22.0,
+    }, owner="owner")
+    assert store.claim_order(cid, "owner")
+    assert store.transition(cid, OrderState.READY_TO_DISPATCH,
+                            expected=OrderState.VALIDATING, owner="owner")
+    assert store.record_dispatch_intent(cid, "owner")
+    store.apply_broker_order(cid, {
+        "id": "broker-old", "client_order_id": cid, "symbol": "IREN",
+        "side": "buy", "qty": "100", "filled_qty": "0", "status": "new",
+        "type": "limit",
+    })
+    store.close()
+    c = client(tmp_path, monkeypatch, FakeFeed(account_snapshot()))
+    data = c.get("/api/status", base_url=ORIGIN).get_json()
+    row = [item for item in data["orders"] if item.get("cid") == cid][0]
+    assert row["status"] == "filled"
+    assert row["state"] == "FILLED"
+    assert row["local_state"] == OrderState.ACCEPTED.value
+    assert row["state_mismatch"] is True
+
+
 def test_stale_feed_keeps_last_real_values_and_marks_error(tmp_path, monkeypatch):
     feed = FakeFeed(account_snapshot(), stale=True, error="TimeoutError: read timeout")
     c = client(tmp_path, monkeypatch, feed)

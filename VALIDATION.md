@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`163 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`164 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -67,7 +67,7 @@
 
 ## 4. Paper 实际订单生命周期
 
-**部分验证。** 2026-11-05 09:30 ET 已执行用户授权的 1 股 AAPL Paper 测试：DAY LIMIT 356.21、NONE；Alpaca 返回 `pending_new`/`new`，本地 `ACCEPTED`，dashboard 已显示真实 open order。提交后系统恢复 `paused=true`，未启动 worker，未自动撤单/平仓。**尚未验证成交/部分成交/10:00 后是否仍有效/DAY 到期/次日对账。**
+**已成交。** 2026-11-05 09:30 ET 执行用户授权的 1 股 AAPL Paper 测试：DAY LIMIT 356.21、NONE；Alpaca 返回 `filled`，成交价 353.63，本地状态已对账为 `FILLED`，dashboard 显示真实 filled 订单和 1 股 AAPL 持仓。提交后系统恢复 `paused=true`，未启动 worker，未自动撤单/平仓。**10:00 后未成交 DAY 单持续有效、DAY 到期、部分成交和次日再对账仍未验证。**
 
 ## 5. 长期运行
 

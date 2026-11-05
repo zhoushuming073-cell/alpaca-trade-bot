@@ -120,6 +120,10 @@ function render(s) {
   if (s.account_error) alerts.push("Alpaca 账户同步异常：" + s.account_error);
   if (s.recent_orders_error) alerts.push("最近历史订单同步失败：" + s.recent_orders_error);
   if (!s.account) alerts.push("没有可用的 Alpaca Paper 账户数据；页面不会用模拟数据填充。");
+  const stateMismatches = (s.orders || []).filter((o) => o.state_mismatch);
+  if (stateMismatches.length) {
+    alerts.push("有 " + stateMismatches.length + " 笔本地账本与券商事实状态不一致；以券商事实为准，需对账。");
+  }
   if (s.broker_stop !== "VERIFIED") alerts.push("BROKER_STOP 未验证；AI 选择该策略的订单会被整体拒绝，不会降级为无止损。");
   $("notice").textContent = alerts.join(" ");
   $("notice").style.display = alerts.length ? "block" : "none";
@@ -141,10 +145,13 @@ function render(s) {
   const orderRows = (s.orders || []).map((o) => [
     o.day, o.symbol, o.side || o.action, o.qty ?? o.quantity,
     o.filled_qty ?? "—", o.limit_price ?? "—", o.time_in_force || "—",
-    o.status || "—", STATES[o.state] || o.state || o.status, STOP[o.stop_status] || o.stop_status || "—",
+    o.status || "—", o.state_mismatch ? "券商事实优先" :
+      (STATES[o.state] || o.state || o.status),
+    STATES[o.local_state] || o.local_state || "—",
+    STOP[o.stop_status] || o.stop_status || "—",
   ]);
   $("order-table").innerHTML = table(
-    ["日期", "标的", "方向", "委托", "已成交", "限价", "TIF", "券商状态", "本地状态", "止损"],
+    ["日期", "标的", "方向", "委托", "已成交", "限价", "TIF", "券商状态", "状态", "本地账本", "止损"],
     orderRows, "尚无订单记录"
   );
   $("pending").textContent = (s.unresolved || []).length + " 笔未决订单";

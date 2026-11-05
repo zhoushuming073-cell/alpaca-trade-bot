@@ -375,7 +375,14 @@ def snapshot(store, account_feed=None):
         item["day"] = (local or {}).get("day")
         item["status"] = order.get("status")
         item["local_state"] = (local or {}).get("state")
-        item["state"] = (local or {}).get("state") or "BROKER_OPEN"
+        broker_state = BROKER_STATUS_TO_STATE.get(
+            str(order.get("status") or "").lower(), "BROKER_OPEN"
+        )
+        broker_state = getattr(broker_state, "value", broker_state)
+        item["state"] = broker_state
+        item["state_mismatch"] = bool(
+            item["local_state"] and item["local_state"] != broker_state
+        )
         item["stop_status"] = (local or {}).get("stop_status") or order.get("stop_status")
         item["reason"] = (local or {}).get("reason")
         item["source"] = "ALPACA_OPEN"
@@ -387,17 +394,17 @@ def snapshot(store, account_feed=None):
         if cid and cid in seen:
             continue
         local = local_by_cid.get(cid) if cid else {}
-        state = (local or {}).get("state")
-        if not state:
-            state = BROKER_STATUS_TO_STATE.get(
-                str(order.get("status") or "").lower(), "BROKER_CLOSED"
-            )
-            state = getattr(state, "value", state)
+        local_state = (local or {}).get("state")
+        broker_state = BROKER_STATUS_TO_STATE.get(
+            str(order.get("status") or "").lower(), "BROKER_CLOSED"
+        )
+        broker_state = getattr(broker_state, "value", broker_state)
         item = {**order}
         item["cid"] = cid or None
         item["day"] = (local or {}).get("day") or (str(order.get("created_at") or "")[:10] or None)
-        item["local_state"] = (local or {}).get("state")
-        item["state"] = state
+        item["local_state"] = local_state
+        item["state"] = broker_state
+        item["state_mismatch"] = bool(local_state and local_state != broker_state)
         item["stop_status"] = (local or {}).get("stop_status") or order.get("stop_status")
         item["reason"] = (local or {}).get("reason")
         item["source"] = "ALPACA_RECENT"
