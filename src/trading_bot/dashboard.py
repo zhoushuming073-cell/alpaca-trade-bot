@@ -575,6 +575,7 @@ def create_app(db_path=None, account_feed=None):
             try:
                 if action == "pause":
                     store.pause(True)
+                    store.set_control("autopilot", "false")
                 elif action == "start":
                     start_worker()
                 elif action == "resume":
@@ -582,8 +583,10 @@ def create_app(db_path=None, account_feed=None):
                         return jsonify(error="安全模式或配置待重启：不能恢复下单。"), 409
                     start_worker()
                     store.pause(False)
+                    store.set_control("autopilot", "true")
                 elif action == "stop":
                     store.pause(True)
+                    store.set_control("autopilot", "false")
                     if store.has_unknown_orders():
                         return jsonify(error="存在未知/冲突订单，保留进程以继续对账。"), 409
                     terminate_workers()
@@ -591,6 +594,7 @@ def create_app(db_path=None, account_feed=None):
                         return jsonify(error="进程未能在安全时限内停止。"), 409
                 elif action == "restart":
                     store.pause(True)
+                    store.set_control("autopilot", "false")
                     if store.has_unknown_orders():
                         return jsonify(error="存在未知/冲突订单，拒绝安全重启。"), 409
                     terminate_workers()

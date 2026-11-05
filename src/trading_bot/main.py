@@ -179,6 +179,7 @@ def main():
                     "Resume blocked: unresolved/unknown order state, safety latch, or config pending restart"
                 )
         store.pause(args.command == "pause")
+        store.set_control("autopilot", "false" if args.command == "pause" else "true")
         print(args.command)
         return
     if args.command == "status":

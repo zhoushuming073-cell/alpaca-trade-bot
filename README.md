@@ -2,7 +2,7 @@
 
 本仓库是一个**只连接 Alpaca Paper** 的本地 AI 交易台：DeepSeek 负责研究、选股、交易判断、具体股数、限价、触发条件、止损选择和复核；Python 负责数据、时钟、研究记忆、订单合法性、真实非杠杆资金、幂等、恢复、对账、审计和硬性安全冻结。
 
-> 当前默认状态：**机器人未运行、持久化暂停**。`BROKER_STOP` 尚未在 Alpaca Paper 上完成真实生命周期验证，默认禁用；AI 选择 `BROKER_STOP` 的意图会被整体拒绝，不会被降级成无止损交易。`NONE` 模式允许无自动止损，但离线风险由用户明确接受。
+> 当前运行状态：**Paper 自主交易运行中**（worker 已启动，`paused=false`），不连接真实账户。`BROKER_STOP` 尚未在 Alpaca Paper 上完成真实生命周期验证，默认禁用；AI 选择 `BROKER_STOP` 的意图会被整体拒绝，不会被降级成无止损交易。`NONE` 模式允许无自动止损，但离线风险由用户明确接受。
 
 > 2026-11-05 09:30 ET 已执行一次**用户授权**的 1 股 AAPL Paper 测试（DAY LIMIT 356.21，NONE）；订单已 `filled`，成交价 353.63，提交后立即恢复暂停，未启动 worker，未自动撤单/平仓；当前留下 1 股 AAPL、无自动止损。其余情况下没有自动/真实订单。
 
@@ -95,11 +95,21 @@ Prompt 文件：
 
 ## 6. 本地网页（127.0.0.1:4200）
 
-启动：双击工作区 `启动交易台.bat`，或 `ai-paper-trader/Start-Paper-Trader.bat`。**启动脚本只启动本地网页，绝不会自动启动或恢复 worker。** 服务仅监听 loopback；需要手动点击“启动机器人”（仍保持暂停），再在安全门槛通过后点击“恢复交易”。
+启动：双击工作区 `启动交易台.bat`，或 `ai-paper-trader/Start-Paper-Trader.bat`。**普通启动脚本只启动本地网页，不会自动启动或恢复 worker。** 服务仅监听 loopback；需要手动点击“启动机器人”（仍保持暂停），再在安全门槛通过后点击“恢复交易”。
+
+### 自动启动与交易日调度
+
+- `tools/paper_supervisor.py` 计算美东 NYSE 交易日和开盘时间，自动适配 DST。
+- Windows 任务 `AlpacaAIPaperSupervisor` 每日 **20:30（Asia/Shanghai）** 启动 supervisor；它在 08:55 ET 前启动 dashboard/worker，09:02 ET 前后检查 heartbeat，安全条件通过后把 `autopilot` 打开并 `paused=false`。
+- 09:00–09:30 ET：worker 的 `before_market_opens` 完成 AI 盘前计划（失败最多 6 次、有界重试）。
+- 09:30–10:00 ET：Engine 监测 AI 授权触发；AI recheck 失败不会消耗触发，下个冷却窗口可重试。
+- 10:00 ET 后：本地不新增订单，不强制平仓/撤单。
+- 手动 `pause` 会关闭 `autopilot`，supervisor 下一交易日不会擅自恢复。
+- `tools/start_supervisor.ps1` 可由任务或手动启动；`tools/install_supervisor_task.ps1` 注册每日任务。
 
 看板展示：会话阶段（ET）、配置哈希/待重启、worker 与看门狗健康、账户/非杠杆现金、持仓及止损状态、DAY 订单的本地状态与券商状态、当日计划/触发、AI 调用 Token/延迟、研究档案、重要事件。`NONE_BY_AI` 显示为“AI 选择不设”而不是系统故障；`BROKER_STOP` 未验证时显示 UNVERIFIED 并提示该意图会被拒绝。
 
-> 本仓库修改后，**已在运行的旧 dashboard 进程不会自动加载新代码**；需要安全重启网页服务（不影响 worker，因为 worker 默认未运行）。启动脚本会复用已运行服务，所以升级后请先停止旧 dashboard 再重新双击，或直接重启该本地进程。旧 dashboard 的“启动机器人”会启动旧 worker；升级后必须先停止它，避免误启动旧代码。
+> 本仓库修改后，**已在运行的旧 dashboard 进程不会自动加载新代码**；需要安全重启网页服务。启动脚本会复用已运行服务；升级后请先停止旧 dashboard 再重新启动。worker 代码更新后同样需要安全重启。
 
 ## 7. 安装与命令
 

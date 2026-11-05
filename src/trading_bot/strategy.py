@@ -82,7 +82,7 @@ class PaperStrategy(Strategy):
         import time
 
         results = []
-        for attempt in range(3):
+        for attempt in range(6):
             result = self.engine.tick()
             results.append(result)
             try:
@@ -99,11 +99,11 @@ class PaperStrategy(Strategy):
 
             info = session_info(self.engine.clock(), self.engine.execution)
             if info.premarket:
-                time.sleep(3)
+                time.sleep(5)
                 continue
             if info.market_open and info.now_utc < info.market_open:
                 # LumiBot woke us a fraction before the 09:00 boundary.
-                time.sleep(3)
+                time.sleep(5)
                 continue
             break
 

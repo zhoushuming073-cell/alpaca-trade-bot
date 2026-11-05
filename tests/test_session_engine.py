@@ -189,6 +189,34 @@ def test_recheck_trigger_calls_ai_once_and_does_not_order(store, clock, bundle):
     assert ai.calls.count("INTRADAY_RECHECK") == 1
 
 
+def test_failed_recheck_does_not_consume_trigger(store, clock, bundle):
+    class FailingRecheck(FixedAI):
+        def complete(self, mode, payload, parser):
+            if mode == "INTRADAY_RECHECK":
+                self.calls.append(mode)
+                raise RuntimeError("simulated AI recheck transport failure")
+            return super().complete(mode, payload, parser)
+
+    clock.set(datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc))
+    now = clock()
+    ai = FailingRecheck(plan_with(now, trigger=Trigger(
+        trigger_id="recheck", purpose=TriggerPurpose.REQUEST_AI_RECHECK,
+        all_of=[Condition(field="last", op=">=", value=90)],
+    )))
+    engine, broker, _ = make_engine(store, clock, bundle, ai=ai)
+    assert engine.tick() == "premarket_planned"
+    plan = store.active_plans("2026-11-05")[0]
+    clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
+    engine.tick()
+    assert not store.trigger_fired(plan["plan_id"], "recheck")
+    assert store.plan(plan["plan_id"])["status"] == "ACTIVE"
+    clock.advance(121)
+    engine.tick()
+    assert not store.trigger_fired(plan["plan_id"], "recheck")
+    assert ai.calls.count("INTRADAY_RECHECK") >= 2
+    assert broker.submissions == 0
+
+
 def test_invalidate_trigger_prevents_order(store, clock, bundle):
     clock.set(datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc))
     now = clock()

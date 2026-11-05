@@ -278,7 +278,7 @@ class Engine:
         if not self.store.claim_stage(
             key, session.trading_day, "PREMARKET",
             stale_seconds=max(60, self.execution.premarket_retry_seconds),
-            max_attempts=3,
+            max_attempts=5,
         ):
             return "premarket_not_claimed"
         try:
@@ -735,8 +735,14 @@ class Engine:
                     if self._recheck_budget_exhausted(session.trading_day):
                         self.store.event("recheck_suppressed", {"plan_id": plan_id, "reason": "budget"})
                         continue
-                    self.store.mark_trigger_fired(plan_id, trigger_id, _hash(fields))
-                    self._recheck(plan, trigger, session, account, account_ctx, quote, fields)
+                    # Do not consume the trigger merely because the AI call
+                    # failed.  A failed/cooldown/data recheck is retryable; a
+                    # successful AI decision is the commit point.
+                    completed = self._recheck(
+                        plan, trigger, session, account, account_ctx, quote, fields
+                    )
+                    if completed:
+                        self.store.mark_trigger_fired(plan_id, trigger_id, _hash(fields))
                     break
                 if purpose == "EXECUTE_ORDER":
                     # Fail closed when a simultaneous invalidation/recheck is
@@ -849,8 +855,7 @@ class Engine:
         if last:
             try:
                 if (self.clock() - _parse_iso(last)).total_seconds() < self.execution.recheck_cooldown_seconds:
-                    self.store.event("recheck_suppressed", {"plan_id": plan["plan_id"], "reason": "cooldown"})
-                    return
+                    return False
             except Exception:  # noqa: BLE001
                 pass
         self._set_recheck_time(self.clock())
@@ -871,7 +876,7 @@ class Engine:
                     "symbol": symbol, "reason": type(exc).__name__ + ": " + str(exc)[:300],
                 })
                 # A recheck cannot authorize a trade on stale/missing data.
-                return
+                return False
         try:
             result, meta = self.ai.complete(
                 "INTRADAY_RECHECK", payload,
@@ -879,7 +884,7 @@ class Engine:
             )
         except Exception as exc:  # noqa: BLE001
             self.store.error("intraday_recheck", exc, outcome="recheck_failed")
-            return
+            return False
         self.store.event("intraday_recheck", {
             "plan_id": plan["plan_id"], "trigger_id": trigger.get("trigger_id"),
             "decision": result.decision.value, "reason": result.reason, **meta,
@@ -887,9 +892,9 @@ class Engine:
         if result.decision in {RecheckDecision.INVALIDATE, RecheckDecision.NO_TRADE}:
             self.store.set_plan_status(plan["plan_id"], "INVALIDATED" if result.decision is RecheckDecision.INVALIDATE else "NO_TRADE",
                                        result.reason)
-            return
+            return True
         if result.decision is RecheckDecision.CONTINUE:
-            return
+            return True
         if result.decision is RecheckDecision.REPLACE and result.order_intent:
             intent = result.order_intent.model_dump(mode="json")
             intent["side"] = intent.pop("action").lower()
@@ -921,7 +926,7 @@ class Engine:
             except Exception as exc:  # noqa: BLE001
                 self.store.error("intraday_recheck_submit", exc, outcome="recheck_order_failed")
                 self.store.set_plan_status(new_plan_id, "NO_ORDER", "recheck order failed")
-                return
+                return True
             if result_submit.get("state") == "NOT_SENT":
                 self.store.set_plan_status(new_plan_id, "NO_ORDER", "recheck order not sent")
             elif result_submit.get("unknown") or result_submit.get("state") in {
@@ -930,6 +935,8 @@ class Engine:
                 self.store.set_plan_status(new_plan_id, "TRIGGERED", "recheck unknown")
             else:
                 self.store.set_plan_status(new_plan_id, "EXECUTED", "recheck order submitted")
+            return True
+        return False
 
     # -------------------------------------------------------------- after close
     def after_close(self, session):
