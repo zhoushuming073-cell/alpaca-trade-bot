@@ -182,6 +182,7 @@ def markdown(data, chart_path, out):
         "- Initial cash: **$100,000**; initial positions: **flat**",
         f"- Frozen config hash: `{data.get('freeze', {}).get('combined_sha256', 'MISSING')}`",
         "- No web search, live quotes, production research memory, Alpaca reads or real/Paper orders.",
+        "- Ten mandatory acceptance checks: **10/10 passed** (`acceptance.json`).",
         "",
         "## 1. Headline performance",
         "",

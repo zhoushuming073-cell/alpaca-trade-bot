@@ -117,9 +117,11 @@ three-agent was not used.
 | AI calls after 10:00 ET | **0** |
 | Future bars supplied to AI | **0** |
 | Real/Paper orders | **0** |
+| Acceptance checks | **10/10 passed** (`data/exam_replay_runs/full15/acceptance.json`) |
 
 Full frozen report:
-`data/exam_replay_runs/full15/REPORT.md`.
+`data/exam_replay_runs/full15/REPORT.md`; acceptance evidence:
+`data/exam_replay_runs/full15/acceptance.json`.
 Raw report: `data/exam_replay_runs/full15/report.json`; AI
 requests/responses: `audit.jsonl`.
 
