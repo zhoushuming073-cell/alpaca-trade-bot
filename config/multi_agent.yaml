@@ -1,7 +1,7 @@
 # Three in-process agents share one DeepSeek API key but have separate prompts,
 # schemas, contexts, call records and budgets.  Disabled by default; enabling is
 # an explicit restart-level decision and never authorizes a Paper order.
-enabled: false
+enabled: true
 
 agents:
   researcher:
