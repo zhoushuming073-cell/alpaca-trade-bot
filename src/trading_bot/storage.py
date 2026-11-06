@@ -169,6 +169,34 @@ class Store:
                     component TEXT PRIMARY KEY, alive INTEGER DEFAULT 0,
                     last_heartbeat TEXT, last_success TEXT, consecutive_failures INTEGER DEFAULT 0,
                     last_error TEXT, detail TEXT);
+                CREATE TABLE IF NOT EXISTS agent_runs(
+                    run_id TEXT PRIMARY KEY, trading_day TEXT, mode TEXT, status TEXT,
+                    as_of_utc TEXT, universe_version TEXT, config_hash TEXT, snapshot_hash TEXT,
+                    baseline_status TEXT, error TEXT, created_at TEXT, updated_at TEXT);
+                CREATE TABLE IF NOT EXISTS agent_reports(
+                    report_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, role TEXT NOT NULL,
+                    symbol TEXT DEFAULT '', status TEXT NOT NULL, schema_version TEXT,
+                    model TEXT, prompt_hash TEXT, input_hash TEXT, output_hash TEXT,
+                    report_json TEXT, parsed_json TEXT, error TEXT,
+                    created_at TEXT, updated_at TEXT,
+                    UNIQUE(run_id, role, symbol));
+                CREATE TABLE IF NOT EXISTS agent_plan_links(
+                    run_id TEXT, plan_id TEXT, report_id TEXT, role TEXT,
+                    executed INTEGER DEFAULT 0, created_at TEXT,
+                    PRIMARY KEY(run_id, plan_id));
+                CREATE TABLE IF NOT EXISTS agent_feedback(
+                    id INTEGER PRIMARY KEY, run_id TEXT, symbol TEXT, plan_id TEXT,
+                    observed_at TEXT, outcome TEXT, payload TEXT, created_at TEXT);
+                CREATE TABLE IF NOT EXISTS agent_cache(
+                    cache_key TEXT PRIMARY KEY, role TEXT, model TEXT, input_hash TEXT,
+                    output_json TEXT, created_at TEXT, expires_at TEXT, hits INTEGER DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS agent_experiments(
+                    run_id TEXT PRIMARY KEY, trading_day TEXT, snapshot_hash TEXT,
+                    baseline_report_id TEXT, three_agent_plan_id TEXT,
+                    baseline_decision TEXT, three_agent_decision TEXT,
+                    baseline_tokens INTEGER, three_agent_tokens INTEGER,
+                    baseline_latency_ms INTEGER, three_agent_latency_ms INTEGER,
+                    created_at TEXT);
                 """
             )
             # Additive migration for databases created by the previous release.
@@ -194,6 +222,15 @@ class Store:
                 },
             )
             self._add_columns("cycles", {"updated_at": "TEXT"})
+            self._add_columns(
+                "ai_calls",
+                {
+                    "run_id": "TEXT",
+                    "agent_role": "TEXT",
+                    "cost_usd": "REAL",
+                    "cached": "INTEGER DEFAULT 0",
+                },
+            )
             self.db.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_events_kind_id ON events(kind, id);
@@ -206,6 +243,10 @@ class Store:
                 CREATE INDEX IF NOT EXISTS idx_ai_calls_ts ON ai_calls(ts);
                 CREATE INDEX IF NOT EXISTS idx_research_evidence_symbol ON research_evidence(symbol, id);
                 CREATE INDEX IF NOT EXISTS idx_research_revisions_symbol ON research_revisions(symbol, id);
+                CREATE INDEX IF NOT EXISTS idx_agent_reports_run ON agent_reports(run_id, role, symbol);
+                CREATE INDEX IF NOT EXISTS idx_agent_reports_symbol ON agent_reports(symbol, created_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_runs_day ON agent_runs(trading_day, created_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_plan_links_plan ON agent_plan_links(plan_id);
                 """
             )
             # Only rows from the old schema need a state mapping.  A row
@@ -1116,6 +1157,281 @@ class Store:
             rows = self.db.execute(sql, tuple(params)).fetchall()
         return [dict(row) for row in rows]
 
+    def set_agent_call_cost(self, run_id: str, role: str, cost_usd: float | None) -> None:
+        if cost_usd is None:
+            return
+        with self._tx():
+            self.db.execute(
+                "UPDATE ai_calls SET cost_usd=? WHERE id=("
+                "SELECT id FROM ai_calls WHERE run_id=? AND agent_role=? "
+                "ORDER BY id DESC LIMIT 1)",
+                (float(cost_usd), run_id, role),
+            )
+
+    # --------------------------------------------------------- multi-agent audit
+    def create_agent_run(self, run: dict) -> None:
+        now = _iso(self.clock())
+        with self._tx():
+            self.db.execute(
+                "INSERT OR IGNORE INTO agent_runs(run_id,trading_day,mode,status,as_of_utc,"
+                "universe_version,config_hash,snapshot_hash,baseline_status,error,created_at,updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    run["run_id"], run.get("trading_day"), run.get("mode", "THREE_AGENT"),
+                    run.get("status", "RUNNING"), run.get("as_of_utc"),
+                    run.get("universe_version"), run.get("config_hash"),
+                    run.get("snapshot_hash"), run.get("baseline_status", "PENDING"),
+                    run.get("error", ""), now, now,
+                ),
+            )
+            self.db.execute(
+                "UPDATE agent_runs SET trading_day=?,mode=?,status=?,as_of_utc=?,"
+                "universe_version=?,config_hash=?,snapshot_hash=?,baseline_status=?,error=?,"
+                "updated_at=? WHERE run_id=?",
+                (
+                    run.get("trading_day"), run.get("mode", "THREE_AGENT"),
+                    run.get("status", "RUNNING"), run.get("as_of_utc"),
+                    run.get("universe_version"), run.get("config_hash"),
+                    run.get("snapshot_hash"), run.get("baseline_status", "PENDING"),
+                    run.get("error", ""), now, run["run_id"],
+                ),
+            )
+
+    def update_agent_run(self, run_id: str, **fields) -> None:
+        allowed = {
+            "status", "baseline_status", "error", "snapshot_hash", "universe_version",
+        }
+        if not fields or any(key not in allowed for key in fields):
+            raise ValueError("Unsupported agent run field")
+        assignments = ", ".join(f"{key}=?" for key in fields) + ", updated_at=?"
+        with self._tx():
+            self.db.execute(
+                f"UPDATE agent_runs SET {assignments} WHERE run_id=?",
+                (*fields.values(), _iso(self.clock()), run_id),
+            )
+
+    def agent_run(self, run_id: str) -> dict | None:
+        with self.lock:
+            row = self.db.execute("SELECT * FROM agent_runs WHERE run_id=?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def recent_agent_runs(self, limit: int = 10) -> list[dict]:
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (max(1, min(int(limit), 50)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_agent_report(self, report: dict) -> None:
+        now = _iso(self.clock())
+        with self._tx():
+            self.db.execute(
+                "INSERT INTO agent_reports(report_id,run_id,role,symbol,status,schema_version,"
+                "model,prompt_hash,input_hash,output_hash,report_json,parsed_json,error,"
+                "created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(report_id) DO UPDATE SET status=excluded.status,"
+                " model=excluded.model,prompt_hash=excluded.prompt_hash,input_hash=excluded.input_hash,"
+                " output_hash=excluded.output_hash,report_json=excluded.report_json,"
+                " parsed_json=excluded.parsed_json,error=excluded.error,updated_at=excluded.updated_at",
+                (
+                    report["report_id"], report["run_id"], report["role"],
+                    report.get("symbol", ""), report.get("status", "OK"),
+                    report.get("schema_version", "1.0"), report.get("model"),
+                    report.get("prompt_hash"), report.get("input_hash"),
+                    report.get("output_hash"), report.get("report_json"),
+                    _json(report.get("parsed_json") or {}), report.get("error", ""),
+                    now, now,
+                ),
+            )
+
+    def agent_report(self, report_id: str) -> dict | None:
+        with self.lock:
+            row = self.db.execute(
+                "SELECT * FROM agent_reports WHERE report_id=?", (report_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def agent_reports(self, *, run_id: str | None = None, symbol: str | None = None,
+                      limit: int = 100) -> list[dict]:
+        sql = "SELECT * FROM agent_reports"
+        clauses = []
+        params: list = []
+        if run_id:
+            clauses.append("run_id=?")
+            params.append(run_id)
+        if symbol:
+            clauses.append("symbol=?")
+            params.append(symbol)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at, report_id LIMIT ?"
+        params.append(max(1, min(int(limit), 500)))
+        with self.lock:
+            rows = self.db.execute(sql, tuple(params)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["parsed"] = _loads(item.pop("parsed_json", None)) or {}
+            result.append(item)
+        return result
+
+    def agent_memory(self, symbols: Iterable[str], per_symbol: int = 2) -> dict[str, list[dict]]:
+        memory: dict[str, list[dict]] = {}
+        with self.lock:
+            for symbol in symbols:
+                rows = self.db.execute(
+                    "SELECT report_id,run_id,role,status,parsed_json,error,created_at "
+                    "FROM agent_reports WHERE symbol=? AND status='OK' "
+                    "ORDER BY created_at DESC, report_id DESC LIMIT ?",
+                    (symbol, max(1, min(int(per_symbol), 10))),
+                ).fetchall()
+                items = []
+                for row in rows:
+                    parsed = _loads(row["parsed_json"]) or {}
+                    items.append({
+                        "report_id": row["report_id"], "run_id": row["run_id"],
+                        "role": row["role"], "created_at": row["created_at"],
+                        "summary": str(
+                            parsed.get("research_conclusion")
+                            or parsed.get("overall_assessment")
+                            or parsed.get("market_decision")
+                            or ""
+                        )[:240],
+                    })
+                if items:
+                    memory[symbol] = items
+        return memory
+
+    def link_agent_plan(self, run_id: str, plan_id: str, *, report_id: str,
+                        role: str = "portfolio_manager", executed: bool = False) -> None:
+        with self._tx():
+            self.db.execute(
+                "INSERT OR REPLACE INTO agent_plan_links(run_id,plan_id,report_id,role,executed,created_at)"
+                " VALUES(?,?,?,?,?,?)",
+                (run_id, plan_id, report_id, role, 1 if executed else 0, _iso(self.clock())),
+            )
+
+    def agent_plan_links(self, run_id: str) -> list[dict]:
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT * FROM agent_plan_links WHERE run_id=? ORDER BY created_at", (run_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_agent_plan_executed(self, plan_id: str) -> None:
+        with self._tx():
+            self.db.execute(
+                "UPDATE agent_plan_links SET executed=1 WHERE plan_id=?", (plan_id,)
+            )
+
+    def record_agent_feedback(self, *, run_id: str, symbol: str, plan_id: str,
+                              outcome: str, payload: dict | None = None) -> None:
+        now = _iso(self.clock())
+        with self._tx():
+            self.db.execute(
+                "INSERT INTO agent_feedback(run_id,symbol,plan_id,observed_at,outcome,payload,created_at)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (run_id, symbol, plan_id, now, outcome, _json(redact(payload or {})), now),
+            )
+
+    def agent_feedback(self, symbol: str | None = None, limit: int = 20) -> list[dict]:
+        sql = "SELECT * FROM agent_feedback"
+        params: list = []
+        if symbol:
+            sql += " WHERE symbol=?"
+            params.append(symbol)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 200)))
+        with self.lock:
+            rows = self.db.execute(sql, tuple(params)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = _loads(item.get("payload")) or {}
+            result.append(item)
+        return result
+
+    def agent_cache_get(self, cache_key: str) -> dict | None:
+        now = _iso(self.clock())
+        with self._tx():
+            row = self.db.execute(
+                "SELECT * FROM agent_cache WHERE cache_key=? AND expires_at>?",
+                (cache_key, now),
+            ).fetchone()
+            if row:
+                self.db.execute(
+                    "UPDATE agent_cache SET hits=hits+1 WHERE cache_key=?", (cache_key,)
+                )
+        if not row:
+            return None
+        item = dict(row)
+        item["output"] = _loads(item.get("output_json")) or {}
+        return item
+
+    def agent_cache_put(self, *, cache_key: str, role: str, model: str,
+                        input_hash: str, output: dict, ttl_seconds: int = 900) -> None:
+        now = self.clock()
+        with self._tx():
+            self.db.execute(
+                "INSERT OR REPLACE INTO agent_cache(cache_key,role,model,input_hash,output_json,"
+                "created_at,expires_at,hits) VALUES(?,?,?,?,?,?,?,0)",
+                (
+                    cache_key, role, model, input_hash, _json(output),
+                    _iso(now), _iso(now + timedelta(seconds=max(1, int(ttl_seconds)))),
+                ),
+            )
+
+    def agent_usage_for_day(self, day: str) -> list[dict]:
+        start = day + "T00:00:00"
+        end = day + "T23:59:59.999999"
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT COALESCE(agent_role,'single_agent') AS role, "
+                "COUNT(*) AS calls, "
+                "COALESCE(SUM(prompt_tokens),0) AS prompt_tokens, "
+                "COALESCE(SUM(completion_tokens),0) AS completion_tokens, "
+                "COALESCE(SUM(latency_ms),0) AS latency_ms, "
+                "COALESCE(SUM(cost_usd),0) AS cost_usd, "
+                "COALESCE(SUM(cached),0) AS cached_calls "
+                "FROM ai_calls WHERE ts>=? AND ts<=? GROUP BY COALESCE(agent_role,'single_agent') "
+                "ORDER BY role",
+                (start, end),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_agent_experiment(self, experiment: dict) -> None:
+        with self._tx():
+            self.db.execute(
+                "INSERT OR REPLACE INTO agent_experiments(run_id,trading_day,snapshot_hash,"
+                "baseline_report_id,three_agent_plan_id,baseline_decision,three_agent_decision,"
+                "baseline_tokens,three_agent_tokens,baseline_latency_ms,three_agent_latency_ms,created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    experiment["run_id"], experiment.get("trading_day"),
+                    experiment.get("snapshot_hash"), experiment.get("baseline_report_id"),
+                    experiment.get("three_agent_plan_id"), _json(experiment.get("baseline_decision") or {}),
+                    _json(experiment.get("three_agent_decision") or {}),
+                    experiment.get("baseline_tokens"), experiment.get("three_agent_tokens"),
+                    experiment.get("baseline_latency_ms"), experiment.get("three_agent_latency_ms"),
+                    _iso(self.clock()),
+                ),
+            )
+
+    def agent_experiments(self, limit: int = 20) -> list[dict]:
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT * FROM agent_experiments ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["baseline_decision"] = _loads(item.get("baseline_decision")) or {}
+            item["three_agent_decision"] = _loads(item.get("three_agent_decision")) or {}
+            result.append(item)
+        return result
+
     def orders_for_day(self, day: str) -> list[dict]:
         with self.lock:
             rows = self.db.execute(
@@ -1279,15 +1595,18 @@ class Store:
         with self._tx():
             cur = self.db.execute(
                 "INSERT INTO ai_calls(ts,mode,model,prompt_hash,input_hash,output_hash,"
-                "prompt_tokens,completion_tokens,latency_ms,finish_reason,outcome,plan_id,error,usage)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "prompt_tokens,completion_tokens,latency_ms,finish_reason,outcome,plan_id,error,usage,"
+                "run_id,agent_role,cost_usd,cached)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     _iso(self.clock()), record.get("mode"), record.get("model"),
                     record.get("prompt_hash"), record.get("input_hash"), record.get("output_hash"),
                     record.get("prompt_tokens"), record.get("completion_tokens"),
                     record.get("latency_ms"), record.get("finish_reason"),
                     record.get("outcome"), record.get("plan_id"), record.get("error"),
-                    _json(record.get("usage") or {}),
+                    _json(record.get("usage") or {}), record.get("run_id"),
+                    record.get("agent_role"), record.get("cost_usd"),
+                    1 if record.get("cached") else 0,
                 ),
             )
             return int(cur.lastrowid)

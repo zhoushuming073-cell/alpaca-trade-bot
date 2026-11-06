@@ -27,6 +27,11 @@ PROMPT_FILES = {
     "INTRADAY_RECHECK": "intraday_recheck.txt",
     "POSITION_REVIEW": "position_review.txt",
     "RESEARCH_REFRESH": "research_refresh.txt",
+    "RESEARCHER_SCAN": "researcher_scan.txt",
+    "RESEARCH_REPORT": "researcher_report.txt",
+    "SKEPTIC_REVIEW": "skeptic_review.txt",
+    "PORTFOLIO_MANAGER": "portfolio_manager.txt",
+    "PORTFOLIO_RECHECK": "portfolio_recheck.txt",
 }
 
 
@@ -60,6 +65,9 @@ class DeepSeek:
         self.temperature = float(temperature)
         self.repair_attempts = max(0, min(int(repair_attempts), 1))
         self.prompt_dir = Path(prompt_dir or (ROOT / "prompts"))
+        # The client owns the canonical ai_calls row.  A multi-agent wrapper must
+        # not write a second row for the same provider call.
+        self.records_calls = True
 
     def _prompt(self, mode: str) -> str:
         name = PROMPT_FILES.get(mode)
@@ -86,8 +94,31 @@ class DeepSeek:
                 },
             )
 
-    def complete(self, mode: str, payload: dict, parser, *, plan_id: str | None = None):
-        """Return ``(parsed, meta)``; raise :class:`AICallError` on failure."""
+    def complete(
+        self,
+        mode: str,
+        payload: dict,
+        parser,
+        *,
+        plan_id: str | None = None,
+        model: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        timeout: float | None = None,
+        role: str | None = None,
+        run_id: str | None = None,
+        include_raw: bool = False,
+        cache_hit: bool = False,
+    ):
+        """Return ``(parsed, meta)``; raise :class:`AICallError` on failure.
+
+        Multi-agent callers pass their role/model/budget/run id here, but the
+        provider client and credential remain shared and are never exposed to
+        the returned object or to logs.
+        """
+        effective_model = model or self.model
+        effective_max_tokens = int(max_tokens or self.max_tokens)
+        effective_temperature = self.temperature if temperature is None else float(temperature)
         system = self._prompt(mode)
         user = json.dumps(payload, default=str, ensure_ascii=False)
         if self.input_record:
@@ -119,23 +150,27 @@ class DeepSeek:
                     }
                 )
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
+                client = self.client
+                if timeout is not None and hasattr(client, "with_options"):
+                    client = client.with_options(timeout=float(timeout))
+                response = client.chat.completions.create(
+                    model=effective_model,
                     messages=messages,
                     response_format={"type": "json_object"},
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
+                    max_tokens=effective_max_tokens,
+                    temperature=effective_temperature,
                     extra_body={"thinking": {"type": "disabled"}},
                 )
             except Exception as exc:  # noqa: BLE001 - provider/transport failure
                 record = {
-                    "mode": mode, "model": self.model, "prompt_hash": prompt_hash,
+                    "mode": mode, "model": effective_model, "prompt_hash": prompt_hash,
                     "input_hash": input_hash, "output_hash": None,
                     "prompt_tokens": None, "completion_tokens": None,
                     "latency_ms": int((time.monotonic() - started) * 1000),
                     "finish_reason": None, "outcome": "transport_error",
                     "plan_id": plan_id, "error": f"{type(exc).__name__}: {exc}",
-                    "usage": None,
+                    "usage": None, "run_id": run_id, "agent_role": role,
+                    "cached": cache_hit,
                 }
                 self._record(record)
                 raise AICallError("DeepSeek request failed: " + type(exc).__name__) from exc
@@ -155,16 +190,20 @@ class DeepSeek:
                 parsed = parser(content)
                 elapsed = int((time.monotonic() - started) * 1000)
                 meta = {
-                    "mode": mode, "model": self.model, "resolved_model": getattr(response, "model", None),
+                    "mode": mode, "model": effective_model,
+                    "resolved_model": getattr(response, "model", None),
                     "latency_ms": elapsed, "attempts": attempts + 1,
                     "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                     "finish_reason": finish_reason, "prompt_hash": prompt_hash,
                     "input_hash": input_hash, "output_hash": output_hash,
-                    "repair_used": bool(repair_note),
+                    "repair_used": bool(repair_note), "run_id": run_id,
+                    "agent_role": role, "cached": cache_hit,
                 }
+                if include_raw:
+                    meta["raw"] = content
                 self._record(
                     {
-                        "mode": mode, "model": self.model, "prompt_hash": prompt_hash,
+                        "mode": mode, "model": effective_model, "prompt_hash": prompt_hash,
                         "input_hash": input_hash, "output_hash": output_hash,
                         "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                         "latency_ms": elapsed, "finish_reason": finish_reason,
@@ -174,6 +213,7 @@ class DeepSeek:
                             "completion_tokens": completion_tokens,
                             "attempts": attempts + 1,
                         },
+                        "run_id": run_id, "agent_role": role, "cached": cache_hit,
                     }
                 )
                 return parsed, meta
@@ -181,12 +221,13 @@ class DeepSeek:
                 last_error = exc
                 self._record(
                     {
-                        "mode": mode, "model": self.model, "prompt_hash": prompt_hash,
+                        "mode": mode, "model": effective_model, "prompt_hash": prompt_hash,
                         "input_hash": input_hash, "output_hash": output_hash,
                         "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                         "latency_ms": int((time.monotonic() - attempt_started) * 1000),
                         "finish_reason": finish_reason, "outcome": "schema_error",
                         "plan_id": plan_id, "error": str(exc)[:2000], "usage": None,
+                        "run_id": run_id, "agent_role": role, "cached": cache_hit,
                     }
                 )
                 if attempts >= self.repair_attempts:

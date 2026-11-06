@@ -12,6 +12,7 @@ const PAGE_META = {
   overview: {title: "交易概览", subtitle: "账户、持仓与 AI 的最新进展。", crumb: "账户概览"},
   positions: {title: "持仓与订单", subtitle: "Alpaca Paper 实际持仓、委托与成交状态。", crumb: "持仓与订单"},
   plans: {title: "AI 计划", subtitle: "今日 AI 判断、触发条件与复核记录。", crumb: "AI 计划"},
+  agents: {title: "智能体", subtitle: "研究员、反方分析师与基金经理的独立研究记录；研究完成不等于下单。", crumb: "智能体"},
   research: {title: "研究档案", subtitle: "10 个板块 · 48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
   activity: {title: "运行记录", subtitle: "机器人、订单同步和系统事件。", crumb: "运行记录"},
   robot: {title: "机器人状态", subtitle: "实时观察 AI 指令、Python 执行与 Alpaca 回报。", crumb: "机器人状态"},
@@ -392,6 +393,147 @@ function renderPlans(s) {
       '<div class="plan-detail"><div>' + planDetailHtml(candidate, plan, state.label) + '</div></div></article>';
   }).join("");
   setHTML("plan-list", html || '<div class="empty">暂时没有交易计划。</div>');
+}
+
+function renderAgents(s) {
+  const ma = s.multi_agent || {};
+  const cfg = ma.config || {};
+  const agents = cfg.agents || {};
+  const budget = cfg.budget || {};
+  const costKnown = Number(budget.cost_per_1m_input_usd || 0) > 0 ||
+    Number(budget.cost_per_1m_output_usd || 0) > 0;
+  const run = ma.latest_run;
+  const reports = ma.reports || [];
+  const banner = $("agent-banner");
+  if (banner) {
+    banner.hidden = !!ma.enabled;
+    banner.textContent = "多智能体当前未启用；以下为只读历史或等待状态。启用需要显式配置并安全重启，不会自动下单。";
+  }
+  const byRole = (role) => reports.filter((item) => item.role === role);
+  const latestFor = (role) => byRole(role).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
+  const roleRows = [
+    ["researcher", "市场研究员", agents.researcher],
+    ["skeptic", "反方分析师", agents.skeptic],
+    ["portfolio_manager", "基金经理", agents.portfolio_manager],
+    ["baseline", "单智能体基准", agents.baseline],
+  ];
+  const roleHtml = roleRows.map(([role, label, roleCfg]) => {
+    const enabled = roleCfg?.enabled !== false && cfg.enabled;
+    const item = latestFor(role === "researcher" ? "researcher" : role);
+    const failed = run?.status === "FAILED" && role !== "baseline" && !item;
+    let status = "等待运行";
+    if (!cfg.enabled) status = "未启用";
+    else if (!enabled) status = "已关闭";
+    else if (failed) status = "失败";
+    else if (item?.status === "OK") status = "已完成";
+    else if (run?.status === "RUNNING") status = "运行中";
+    const error = run?.status === "FAILED" ? String(run.error || "") : "";
+    return '<article class="agent-role-card"><div class="agent-role-name">' + esc(label) + '</div>' +
+      '<div class="agent-role-model">' + esc(roleCfg?.model || "未配置") + '</div>' +
+      '<div class="agent-role-status"><span>' + esc(status) + '</span><span class="hint">' +
+      esc(item?.created_at ? shortDate(item.created_at) + " " + time(item.created_at) : "—") + '</span></div>' +
+      (error ? '<div class="agent-role-error">' + esc(error.slice(0, 180)) + '</div>' : '') +
+      '</article>';
+  }).join("");
+  setHTML("agent-role-grid", roleHtml || '<div class="empty">暂无智能体配置</div>');
+
+  setText("agent-run-status", run ? (run.status || "—") : "尚未运行");
+  if (!run) {
+    setHTML("agent-run", '<div class="empty">今天还没有多智能体研究记录。盘前研究完成前不会生成交易计划。</div>');
+  } else {
+    const usage = ma.usage || [];
+    const total = usage.reduce((sum, item) => sum + Number(item.prompt_tokens || 0) + Number(item.completion_tokens || 0), 0);
+    const cost = usage.reduce((sum, item) => sum + Number(item.cost_usd || 0), 0);
+    const items = [
+      ["运行编号", run.run_id], ["状态", run.status],
+      ["交易日", run.trading_day], ["配置版本", run.universe_version],
+      ["研究 / 质疑", byRole("researcher").length + " / " + byRole("skeptic").length],
+      ["预算内调用", usage.reduce((sum, item) => sum + Number(item.calls || 0), 0) + " 次"],
+      ["Token", total], ["估算成本", costKnown ? "$" + cost.toFixed(4) : "费率未配置"],
+      ["单智能体基准", run.baseline_status || "未运行"],
+    ];
+    setHTML("agent-run", items.map(([label, value]) =>
+      '<p><span>' + esc(label) + '</span><small>' + esc(String(value ?? "—")) + '</small></p>').join(""));
+  }
+
+  const usageRows = (ma.usage || []).map((item) => [
+    esc(item.role || "single_agent"),
+    esc(String(item.calls ?? 0)),
+    esc(String(item.prompt_tokens ?? 0)),
+    esc(String(item.completion_tokens ?? 0)),
+    costKnown ? "$" + Number(item.cost_usd || 0).toFixed(4) : "费率未配置",
+    item.calls ? (Number(item.latency_ms || 0) / Number(item.calls) / 1000).toFixed(1) + " 秒" : "—",
+    esc(String(item.cached_calls ?? 0)),
+  ]);
+  setHTML("agent-usage", table(["角色", "调用", "输入 Token", "输出 Token", "成本", "平均延迟", "缓存"], usageRows,
+    "今天还没有 API 调用记录"));
+  setText("agent-api-date", s.now_et ? "交易日 " + shortDate(s.now_et) : "");
+
+  const researchRows = byRole("researcher").map((item) => {
+    const report = item.parsed || {};
+    const critique = byRole("skeptic").find((row) => row.symbol === item.symbol)?.parsed || {};
+    return [
+      esc(item.symbol), esc(report.research_conclusion || "—"),
+      esc(String(report.technical_structure || "").slice(0, 150)),
+      esc(critique.overall_assessment || "未审查"),
+      esc(critique.critique_severity || "—"),
+      esc(String((report.supporting_evidence_ids || []).length) + " / " + String((report.counterevidence_ids || []).length)),
+    ];
+  });
+  setHTML("agent-research", table(["股票", "研究员结论", "技术结构摘要", "反方评估", "严重度", "支持 / 反证"], researchRows,
+    "本轮没有深度研究报告"));
+
+  const plan = ma.latest_decision;
+  const baseline = ma.baseline;
+  setText("agent-decision-mode", "三智能体最终计划");
+  if (!plan) {
+    setHTML("agent-decision", '<div class="empty">本轮尚未形成基金经理计划；没有计划就没有交易授权。</div>');
+    setText("agent-decision-foot", "");
+  } else {
+    const rows = (plan.candidates || []).map((candidate) => {
+      const intent = candidate.order_intent || {};
+      return [
+        esc(candidate.symbol), esc(label(candidate.trade_decision)),
+        esc(intent.qty ?? "—"), esc(intent.limit_price ?? "—"),
+        esc(intent.stop_policy === "BROKER_STOP" ? "券商止损" : "AI 选择不设"),
+        esc(candidate.research_report_id || "—"),
+        esc((candidate.counterevidence || []).slice(0, 2).join("；") || "—"),
+      ];
+    });
+    setHTML("agent-decision", table(["股票", "决策", "股数", "限价", "止损", "研究编号", "关键反证"], rows,
+      "基金经理选择不交易 / 观望"));
+    setText("agent-decision-foot", "市场判断：" + (plan.market_decision || "—") +
+      " · 计划完成不等于已下单；执行仍由 Python 触发与风控决定。" +
+      (baseline ? " 单智能体影子基准：" + (baseline.market_decision || "—") + "（不下单）。" : ""));
+  }
+  const experiment = (ma.experiments || [])[0];
+  if (!experiment) {
+    setHTML("agent-experiment", '<div class="empty">还没有对照实验记录。</div>');
+  } else {
+    const basePlan = experiment.baseline_decision || {};
+    const threePlan = experiment.three_agent_decision || {};
+    setHTML("agent-experiment", table(
+      ["组别", "市场判断", "候选", "Token", "延迟"],
+      [
+        ["单智能体基准", esc(basePlan.market_decision || "—"),
+          esc(String((basePlan.candidates || []).length)), esc(String(experiment.baseline_tokens ?? "—")),
+          experiment.baseline_latency_ms != null ? esc((Number(experiment.baseline_latency_ms) / 1000).toFixed(1) + " 秒") : "—"],
+        ["三智能体", esc(threePlan.market_decision || "—"),
+          esc(String((threePlan.candidates || []).length)), esc(String(experiment.three_agent_tokens ?? "—")),
+          experiment.three_agent_latency_ms != null ? esc((Number(experiment.three_agent_latency_ms) / 1000).toFixed(1) + " 秒") : "—"],
+      ], "没有对照记录"));
+  }
+
+  const safety = [
+    ["研究", run ? (run.status === "COMPLETE" ? "已完成" : run.status === "FAILED" ? "失败/已放弃" : "进行中或未完成") : "未运行"],
+    ["最终计划", plan ? (plan.market_decision === "NO_TRADE" ? "NO_TRADE" : "已形成，等待触发") : "无计划"],
+    ["交易执行", (s.unresolved || []).length ? "存在未知订单，已冻结" : (s.paused ? "已暂停" : "由 Python 监测/风控")],
+    ["订单事实", (s.orders || []).length ? "最近订单见持仓页" : "没有订单"],
+    ["单智能体基准", baseline ? "影子记录，不下单" : (ma.enabled ? "未完成" : "未启用")],
+    ["安全门", s.freeze_reason ? "冻结：" + s.freeze_reason : "无冻结"],
+  ];
+  setHTML("agent-safety", safety.map(([labelText, value]) =>
+    '<p><b>' + esc(labelText) + '</b>' + esc(value) + '</p>').join(""));
 }
 
 function populateSectors(groups) {
@@ -786,6 +928,7 @@ function render(s) {
   setHTML("order-table", table(["股票", "方向", "持仓意图", "股数 / 已成交", "限价", "状态"], orderRows, "暂时没有订单"));
   setText("pending", s.unresolved?.length ? s.unresolved.length + " 笔待核对" : "最近 8 笔");
   renderPlans(s);
+  renderAgents(s);
   setHTML("ai-list", (s.ai_calls || []).slice(0, 6).map((a) =>
     '<div class="ai-row"><div><strong>' + esc(MODE[a.mode] || "AI 分析") + '</strong><small>' +
     esc(shortDate(a.ts) + " " + time(a.ts) + " · " + a.model) + '</small></div><div>' +

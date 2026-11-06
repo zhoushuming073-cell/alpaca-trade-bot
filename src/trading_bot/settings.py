@@ -22,7 +22,7 @@ from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
 PAPER_URL = "https://paper-api.alpaca.markets"
@@ -92,7 +92,6 @@ def _validate_hhmm(value: str) -> str:
 
 class Execution(Strict):
     """Execution contract and session windows (America/New_York)."""
-
     mode: Literal["paper"] = "paper"
     timezone: Literal["America/New_York"] = "America/New_York"
     premarket_start: str = "09:00"
@@ -131,12 +130,80 @@ class Execution(Strict):
         return _validate_hhmm(value)
 
 
+class AgentRoleConfig(Strict):
+    enabled: bool = True
+    model: str = Field(default="deepseek-flash", min_length=1, max_length=80)
+    max_tokens: int = Field(default=6000, ge=256, le=64000)
+    timeout_seconds: int = Field(default=45, ge=5, le=300)
+    max_retries: int = Field(default=1, ge=0, le=3)
+    temperature: float = Field(default=0.2, ge=0, le=1)
+
+
+class AgentsConfig(Strict):
+    researcher: AgentRoleConfig = Field(default_factory=AgentRoleConfig)
+    skeptic: AgentRoleConfig = Field(default_factory=AgentRoleConfig)
+    portfolio_manager: AgentRoleConfig = Field(default_factory=AgentRoleConfig)
+    baseline: AgentRoleConfig = Field(
+        default_factory=lambda: AgentRoleConfig(max_tokens=8000, timeout_seconds=60)
+    )
+
+
+class MultiAgentExecution(Strict):
+    paper_only: Literal[True] = True
+    require_complete_decision: bool = True
+    max_deep_candidates: int = Field(default=6, ge=0, le=16)
+    max_parallel_requests: int = Field(default=2, ge=1, le=4)
+    deadline_buffer_seconds: int = Field(default=45, ge=0, le=600)
+
+
+class AgentBudget(Strict):
+    # null is not unlimited: effective_* falls back to explicit finite defaults.
+    max_session_tokens: int | None = Field(default=None, ge=1000)
+    max_session_cost_usd: float | None = Field(default=None, ge=0)
+    default_session_tokens: int = Field(default=120000, ge=1000, le=2_000_000)
+    default_session_cost_usd: float = Field(default=1.0, ge=0, le=100)
+    cost_per_1m_input_usd: float = Field(default=0.0, ge=0, le=1000)
+    cost_per_1m_output_usd: float = Field(default=0.0, ge=0, le=1000)
+
+    @property
+    def effective_max_tokens(self) -> int:
+        return int(self.max_session_tokens or self.default_session_tokens)
+
+    @property
+    def effective_max_cost(self) -> float:
+        if self.max_session_cost_usd is None:
+            return float(self.default_session_cost_usd)
+        return float(self.max_session_cost_usd)
+
+
+class AgentComparison(Strict):
+    enable_single_agent_baseline: bool = True
+    # The baseline is shadow-only in this build. A true value is rejected at
+    # config load rather than silently creating a second trading path.
+    baseline_can_trade: Literal[False] = False
+
+
+class MultiAgent(Strict):
+    enabled: bool = False
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    execution: MultiAgentExecution = Field(default_factory=MultiAgentExecution)
+    budget: AgentBudget = Field(default_factory=AgentBudget)
+    comparison: AgentComparison = Field(default_factory=AgentComparison)
+
+    @model_validator(mode="after")
+    def _baseline_is_shadow_only(self):
+        if self.comparison.baseline_can_trade:
+            raise ValueError("The single-agent baseline cannot trade")
+        return self
+
+
 @dataclass(frozen=True)
 class ConfigBundle:
     symbols: tuple[str, ...]
     policy: Policy
     risk: Risk
     execution: Execution
+    multi_agent: MultiAgent
     hashes: dict[str, str]
     raw: dict[str, dict]
 
@@ -161,7 +228,6 @@ class ConfigBundle:
 
     def __getitem__(self, index):
         return (self.symbols, self.policy, self.risk, self.execution)[index]
-
 
 def _read(root: Path, name: str) -> dict:
     raw = (root / "config" / name).read_text(encoding="utf-8")
@@ -244,20 +310,23 @@ def load_config(root: Path | str = ROOT) -> ConfigBundle:
     policy = Policy(**_read(root, "strategy.yaml"))
     risk = Risk(**_read(root, "risk.yaml"))
     execution = Execution(**_read(root, "execution.yaml"))
+    multi_agent = MultiAgent(**_read(root, "multi_agent.yaml"))
     raw = {
         "watchlist": watchlist,
         "strategy": _read(root, "strategy.yaml"),
         "risk": _read(root, "risk.yaml"),
         "execution": _read(root, "execution.yaml"),
+        "multi_agent": _read(root, "multi_agent.yaml"),
     }
     hashes = {
         "watchlist": _sha({"symbols": list(symbols), "groups": list(groups)}),
         "strategy": _sha(policy.model_dump()),
         "risk": _sha(risk.model_dump()),
         "execution": _sha(execution.model_dump()),
+        "multi_agent": _sha(multi_agent.model_dump()),
     }
     hashes["combined"] = _sha(hashes)
-    return ConfigBundle(symbols, policy, risk, execution, hashes, raw)
+    return ConfigBundle(symbols, policy, risk, execution, multi_agent, hashes, raw)
 
 
 def config(root: Path | str = ROOT):
@@ -276,6 +345,7 @@ def config_snapshot(bundle: ConfigBundle) -> dict:
         "hashes": dict(bundle.hashes),
         "version": bundle.policy.version,
         "execution": bundle.execution.model_dump(),
+        "multi_agent": bundle.multi_agent.model_dump(),
         "policy": {
             "version": bundle.policy.version,
             "enabled": bundle.policy.enabled,

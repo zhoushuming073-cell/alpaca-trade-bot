@@ -86,6 +86,7 @@ class Engine:
         self.policy = config.policy
         self.risk = config.risk
         self.execution = config.execution
+        self.multi_agent = config.multi_agent
         self.data = data
         self.daily_data = daily_data
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -343,6 +344,42 @@ class Engine:
                 self.store.finish_stage(key, "FAILED", {"reason": "no usable history"})
                 self.store.event("premarket_aborted", {"reason": "no usable history"})
                 return "premarket_failed"
+            if self.multi_agent.enabled:
+                result = self._multi_agent_premarket(
+                    session, account_ctx, history, held, unavailable
+                )
+                if result is None or result.plan is None:
+                    self.store.finish_stage(key, "FAILED", {
+                        "reason": "multi-agent research failed closed",
+                        "run_id": getattr(result, "run_id", None),
+                    })
+                    self.store.event("premarket_aborted", {
+                        "reason": "multi-agent research failed closed",
+                        "run_id": getattr(result, "run_id", None),
+                    })
+                    return "premarket_failed"
+                if not session_info(self.clock(), self.execution).premarket:
+                    self.store.finish_stage(key, "FAILED", {
+                        "reason": "plan completed after premarket",
+                    })
+                    self.store.event("premarket_aborted", {"reason": "plan completed after 09:30 ET"})
+                    return "premarket_failed"
+                saved, blocked = self._save_plans(
+                    session, result.plan,
+                    [row.get("symbol") for row in result.focus if row.get("symbol")],
+                    held,
+                    agent_run_id=result.run_id,
+                    agent_report_id=f"pm-{result.run_id}",
+                )
+                self.store.finish_stage(key, "DONE", {
+                    "plan_candidates": len(result.plan.candidates),
+                    "saved": saved, "blocked": blocked,
+                    "decision_mode": "THREE_AGENT", "run_id": result.run_id,
+                    "agent_reports": len(result.reports),
+                    "agent_critiques": len(result.critiques),
+                    "agent_tokens": result.usage.tokens,
+                })
+                return "premarket_planned" if saved else "premarket_no_trade"
             scan = self._universe_scan(session, account_ctx, history, held, unavailable)
             if scan is None:
                 self.store.finish_stage(key, "FAILED", {"reason": "universe scan failed"})
@@ -649,7 +686,88 @@ class Engine:
         })
         return plan, meta
 
-    def _save_plans(self, session, plan: PremarketPlan, focus, held):
+    def _multi_agent_premarket(self, session, account_ctx, history, held, unavailable):
+        """Run the three in-process agents and return a fail-closed result."""
+        from .multi_agent import MultiAgentOrchestrator
+
+        if not self.ai:
+            self.store.event("agent_run_failed", {"reason": "AI client unavailable"})
+            return None
+        universe = []
+        for symbol, daily in history.items():
+            compact = compact_history(daily, None)
+            compact["daily_recent"] = compact["daily_recent"][-30:]
+            compact["weekly"] = compact["weekly"][-13:]
+            compact["monthly"] = compact["monthly"][-6:]
+            universe.append({"symbol": symbol, "history": compact, "data_status": "OK"})
+        base_payload = self._base_payload(session, account_ctx)
+        base_payload["unavailable_context"] = list(base_payload.get("unavailable_context") or [])
+
+        def focus_loader(symbols):
+            symbols = list(dict.fromkeys(symbols))[:24]
+            quotes = self._quote_map(symbols)
+            rows = []
+            for symbol in symbols:
+                daily = history.get(symbol)
+                if daily is None:
+                    continue
+                try:
+                    intraday = self._intraday_for(symbol)
+                except Exception as exc:  # noqa: BLE001
+                    intraday = None
+                    self.store.event("premarket_data", {
+                        "symbol": symbol, "stage": "intraday", "reason": str(exc)[:300],
+                    })
+                rows.append({
+                    "symbol": symbol,
+                    "held": symbol in held,
+                    "position": next(
+                        (item for item in account_ctx.get("positions", [])
+                         if item.get("symbol") == symbol),
+                        None,
+                    ),
+                    "shortability": self._asset_status(symbol),
+                    "history": compact_history(daily, intraday),
+                    "quote": quotes.get(symbol),
+                })
+            return rows
+
+        deadline = (
+            session.market_open - timedelta(seconds=int(self.multi_agent.execution.deadline_buffer_seconds))
+            if session.market_open else None
+        )
+        orchestrator = MultiAgentOrchestrator(
+            self.store, self.ai, self.config, clock=self.clock,
+        )
+        result = orchestrator.run_premarket(
+            session=session,
+            base_payload=base_payload,
+            universe=universe,
+            held=held,
+            focus_loader=focus_loader,
+            deadline_utc=deadline,
+            universe_version=self.config.hashes.get("watchlist", self.config.hash),
+            trading_day=session.trading_day,
+        )
+        self.store.event("multi_agent_run", {
+            "run_id": result.run_id, "status": result.status,
+            "reports": len(result.reports), "critiques": len(result.critiques),
+            "blocked": result.blocked_symbols, "tokens": result.usage.tokens,
+            "cost_usd": result.usage.cost_usd if result.usage.cost_known else None,
+            "baseline": bool(result.baseline),
+        })
+        if result.plan is not None:
+            self.store.event("premarket_plan", {
+                "trading_day": session.trading_day,
+                "decision_mode": "THREE_AGENT",
+                "run_id": result.run_id,
+                "market_decision": result.plan.market_decision.value,
+                "candidates": [candidate.symbol for candidate in result.plan.candidates],
+            })
+        return result
+
+    def _save_plans(self, session, plan: PremarketPlan, focus, held, *,
+                    agent_run_id: str = "", agent_report_id: str = ""):
         if plan.market_decision is MarketDecision.NO_TRADE:
             return 0, 0
         saved = blocked = 0
@@ -717,11 +835,31 @@ class Engine:
                 "market_decision": plan.market_decision.value,
                 "account_snapshot_id": plan.account_snapshot_id,
                 "as_of_utc": plan.as_of_utc.isoformat(),
+                "run_id": plan.run_id,
+                "decision_mode": plan.decision_mode,
+                "research_report_ids": list(plan.research_report_ids),
+                "critique_report_ids": list(plan.critique_report_ids),
             }
             self.store.save_plan(
                 plan_payload, config_hash=self.config.hash,
                 trading_day=session.trading_day, supersede=False,
             )
+            if agent_run_id and agent_report_id:
+                self.store.link_agent_plan(
+                    agent_run_id, scoped_plan_id,
+                    report_id=agent_report_id, executed=False,
+                )
+                self.store.record_agent_feedback(
+                    run_id=agent_run_id,
+                    symbol=candidate.symbol,
+                    plan_id=scoped_plan_id,
+                    outcome="PLANNED",
+                    payload={
+                        "trade_decision": candidate.trade_decision.value,
+                        "qty": candidate.order_intent.qty if candidate.order_intent else None,
+                        "plan_valid_until_utc": candidate.plan_valid_until_utc.isoformat(),
+                    },
+                )
             saved += 1
         if saved == 0:
             self.store.event("premarket_no_trade", {
@@ -873,6 +1011,8 @@ class Engine:
                     buy_attempts=buy_attempts, freeze_reason=self.store.freeze_reason(),
                     attempt=attempt,
                 )
+                if result.get("state") != "NOT_SENT":
+                    self.store.mark_agent_plan_executed(plan_id)
                 triggered += 1
                 if result.get("state") == "NOT_SENT":
                     if attempt + 1 < 3 and current_session.can_submit and not self.store.freeze_reason():
@@ -919,10 +1059,15 @@ class Engine:
     # ----------------------------------------------------------------- recheck
     def _recheck_budget_exhausted(self, day) -> bool:
         try:
-            calls = self.store.ai_calls_for_day(day, "INTRADAY_RECHECK")
+            calls = self.store.ai_calls_for_day(day)
         except Exception:  # noqa: BLE001
             return True
-        return len(calls) >= self.execution.max_rechecks_per_day
+        used = [
+            row for row in calls
+            if row.get("mode") in {"INTRADAY_RECHECK", "PORTFOLIO_RECHECK"}
+            or row.get("agent_role") == "portfolio_manager" and row.get("mode") == "PORTFOLIO_RECHECK"
+        ]
+        return len(used) >= self.execution.max_rechecks_per_day
 
     def _set_recheck_time(self, now):
         self.store.set_control("recheck_last_at", now.astimezone(timezone.utc).isoformat())
@@ -936,6 +1081,10 @@ class Engine:
             except Exception:  # noqa: BLE001
                 pass
         self._set_recheck_time(self.clock())
+        if self.multi_agent.enabled:
+            return self._multi_agent_recheck(
+                plan, trigger, session, account, account_ctx, quote, fields
+            )
         payload = self._base_payload(session, account_ctx)
         payload["plan"] = plan.get("payload")
         payload["trigger"] = trigger
@@ -1013,7 +1162,123 @@ class Engine:
             return True
         return False
 
-    # -------------------------------------------------------------- after close
+    def _multi_agent_recheck(self, plan, trigger, session, account, account_ctx, quote, fields):
+        """Researcher -> skeptic -> PM update for one existing plan."""
+        from .multi_agent import MultiAgentOrchestrator
+
+        plan_id = plan.get("plan_id")
+        candidate = (plan.get("payload") or {}).get("candidate") or {}
+        symbol = candidate.get("symbol")
+        if not symbol:
+            return False
+        base_payload = self._base_payload(session, account_ctx)
+        history = None
+        if self.daily_data:
+            try:
+                daily = daily_history(self.daily_data(symbol), self.clock())
+                history = compact_history(daily, self._intraday_for(symbol))
+            except Exception as exc:  # noqa: BLE001 - no stale authorization
+                self.store.event("recheck_data", {
+                    "symbol": symbol,
+                    "reason": type(exc).__name__ + ": " + str(exc)[:300],
+                })
+                return False
+        focus_row = {
+            "symbol": symbol,
+            "held": symbol in account.get("quantities", {}),
+            "position": next(
+                (item for item in account_ctx.get("positions", []) if item.get("symbol") == symbol),
+                None,
+            ),
+            "shortability": self._asset_status(symbol),
+            "history": history,
+            "quote": quote,
+        }
+        deadline = session.active_end - timedelta(seconds=30) if session.active_end else None
+        orchestrator = MultiAgentOrchestrator(self.store, self.ai, self.config, clock=self.clock)
+        result = orchestrator.run_recheck(
+            session=session, base_payload=base_payload, symbol=symbol,
+            existing_plan=plan.get("payload") or {}, focus_row=focus_row,
+            deadline_utc=deadline, trading_day=session.trading_day,
+        )
+        if result.response is None:
+            self.store.error("intraday_recheck", RuntimeError(result.error or "agent recheck failed"),
+                             outcome="recheck_failed")
+            return False
+        response = result.response
+        self.store.event("intraday_recheck", {
+            "plan_id": plan_id, "trigger_id": trigger.get("trigger_id"),
+            "run_id": result.run_id, "decision": response.decision.value,
+            "reason": response.reason,
+            "research_reports": len(result.reports),
+            "critiques": len(result.critiques),
+        })
+        if response.decision in {RecheckDecision.INVALIDATE, RecheckDecision.NO_TRADE}:
+            self.store.set_plan_status(
+                plan_id,
+                "INVALIDATED" if response.decision is RecheckDecision.INVALIDATE else "NO_TRADE",
+                response.reason,
+            )
+            return True
+        if response.decision is RecheckDecision.CONTINUE:
+            return True
+        if response.decision is not RecheckDecision.REPLACE or not response.order_intent:
+            return False
+        intent = as_order_intent(response.order_intent)
+        new_plan_id = f"{plan_id}-r{int(self.clock().timestamp())}"
+        valid_until = response.plan_valid_until_utc or self.clock() + timedelta(minutes=5)
+        active_end = self._active_end_utc(session)
+        if active_end is not None and valid_until > active_end:
+            self.store.set_plan_status(plan_id, "INVALIDATED", "recheck replacement beyond active window")
+            return True
+        synthetic_candidate = {
+            "symbol": intent["symbol"], "triggers": [], "order_intent": intent,
+            "research_report_id": (result.reports[0]["report_id"] if result.reports else ""),
+            "critique_report_id": (result.critiques[0]["critique_id"] if result.critiques else ""),
+        }
+        synthetic = {
+            "plan_id": new_plan_id,
+            "mode": "INTRADAY_RECHECK",
+            "trading_day": session.trading_day,
+            "plan_valid_until_utc": valid_until.isoformat(),
+            "run_id": result.run_id,
+            "decision_mode": "THREE_AGENT",
+            "research_report_ids": [row["report_id"] for row in result.reports],
+            "critique_report_ids": [row["critique_id"] for row in result.critiques],
+            "candidate": synthetic_candidate,
+            "candidates": [{"plan_id": new_plan_id, "symbol": intent["symbol"], "triggers": []}],
+        }
+        self.store.save_plan(
+            synthetic, config_hash=self.config.hash, trading_day=session.trading_day,
+            supersede=False,
+        )
+        self.store.set_plan_status(plan_id, "SUPERSEDED", "multi-agent recheck replace")
+        self.store.link_agent_plan(
+            result.run_id, new_plan_id,
+            report_id=f"pm-recheck-{result.run_id}",
+        )
+        current_session = session_info(self.clock(), self.execution)
+        try:
+            submitted = self.orders.submit(
+                intent, plan_id=new_plan_id, trigger_id="recheck",
+                day=session.trading_day, session=current_session,
+                account=account, quote=quote, symbols=self.symbols, risk=self.risk,
+                buy_attempts=self.store.count_order_attempts(session.trading_day),
+                freeze_reason=self.store.freeze_reason(), attempt=0,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.store.error("intraday_recheck_submit", exc, outcome="recheck_order_failed")
+            self.store.set_plan_status(new_plan_id, "NO_ORDER", "recheck order failed")
+            return True
+        if submitted.get("state") == "NOT_SENT":
+            self.store.set_plan_status(new_plan_id, "NO_ORDER", "recheck order not sent")
+        elif submitted.get("unknown") or submitted.get("state") in {
+            "SUBMISSION_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED",
+        }:
+            self.store.set_plan_status(new_plan_id, "TRIGGERED", "submission outcome unknown")
+        else:
+            self.store.set_plan_status(new_plan_id, "EXECUTED", "order submitted")
+        return True
     def after_close(self, session):
         if session.market_close is None:
             return "closed"

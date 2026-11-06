@@ -1,0 +1,55 @@
+# Three in-process agents share one DeepSeek API key but have separate prompts,
+# schemas, contexts, call records and budgets.  Disabled by default; enabling is
+# an explicit restart-level decision and never authorizes a Paper order.
+enabled: false
+
+agents:
+  researcher:
+    enabled: true
+    model: deepseek-flash
+    max_tokens: 6000
+    timeout_seconds: 45
+    max_retries: 1
+    temperature: 0.2
+  skeptic:
+    enabled: true
+    model: deepseek-flash
+    max_tokens: 5000
+    timeout_seconds: 45
+    max_retries: 1
+    temperature: 0.2
+  portfolio_manager:
+    enabled: true
+    model: deepseek-flash
+    max_tokens: 8000
+    timeout_seconds: 60
+    max_retries: 1
+    temperature: 0.2
+  baseline:
+    enabled: true
+    model: deepseek-flash
+    max_tokens: 8000
+    timeout_seconds: 60
+    max_retries: 1
+    temperature: 0.2
+
+execution:
+  paper_only: true
+  require_complete_decision: true
+  max_deep_candidates: 6
+  max_parallel_requests: 2
+  deadline_buffer_seconds: 45
+
+budget:
+  # null is NOT unlimited.  Effective limits fall back to the finite defaults.
+  max_session_tokens: null
+  max_session_cost_usd: null
+  default_session_tokens: 120000
+  default_session_cost_usd: 1.0
+  cost_per_1m_input_usd: 0.0
+  cost_per_1m_output_usd: 0.0
+
+comparison:
+  enable_single_agent_baseline: true
+  # Shadow only.  Enforced as Literal[False] in the Python schema.
+  baseline_can_trade: false

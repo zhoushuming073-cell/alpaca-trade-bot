@@ -217,6 +217,16 @@ class Candidate(Strict):
     triggers: list[Trigger] = Field(default_factory=list, max_length=12)
     order_intent: OrderIntent | None = None
     invalidation: list[Condition] = Field(default_factory=list, max_length=8)
+    research_report_id: str = Field(default="", max_length=140)
+    critique_report_id: str = Field(default="", max_length=140)
+    counterevidence: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("counterevidence", mode="before")
+    @classmethod
+    def _counterevidence(cls, value):
+        if value is None:
+            return []
+        return [str(item) for item in value if item is not None]
 
     @field_validator("evidence_ids", mode="before")
     @classmethod
@@ -275,6 +285,10 @@ class PremarketPlan(Strict):
     account_snapshot_id: str = Field(min_length=1, max_length=120)
     plan_id: str | None = Field(default=None, max_length=100)
     candidates: list[Candidate] = Field(default_factory=list, max_length=24)
+    run_id: str = Field(default="", max_length=120)
+    decision_mode: Literal["THREE_AGENT", "SINGLE_AGENT"] | None = None
+    research_report_ids: list[str] = Field(default_factory=list, max_length=30)
+    critique_report_ids: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("as_of_utc")
     @classmethod
@@ -324,6 +338,9 @@ class RecheckResponse(Strict):
     order_intent: OrderIntent | None = None
     plan_valid_until_utc: datetime | None = None
     invalidation: list[Condition] = Field(default_factory=list, max_length=8)
+    run_id: str = Field(default="", max_length=120)
+    research_report_ids: list[str] = Field(default_factory=list, max_length=20)
+    critique_report_ids: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("as_of_utc", "plan_valid_until_utc")
     @classmethod

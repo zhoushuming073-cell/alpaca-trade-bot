@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`247 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`283 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询、10 个板块/48 只股票分组完整性；新增多空方向、空头权限/借券、保证金购买力、空头拒单、平空与平多区分、禁止跨零、空头止损方向和空头 P&L 方向保持。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -20,6 +20,14 @@
 - 全天之后券商成交，次一交易日盘前先对账为 FILLED，再生成新计划；
 - `NONE` 止损策略记录为 `NONE_BY_AI`；
 - 真实/Paper 外部订单提交：0。
+
+### 2.1 三智能体离线验证（2026-11-06）
+
+- 三个角色在同一个 Python 进程中执行：研究员扫描/深研 → 反方质疑 → 基金经理生成现有严格 `PremarketPlan`。
+- 测试覆盖：三角色完成、0 候选、反方同意/反对、反方超时、经理拒绝、池外股票、缺少研究/质疑关联、非法 JSON、额外字段、截止时间、有限 Token 预算、影子基准、研究记忆持久化、次日恢复和 Fake Alpaca 成交。
+- 测试中的 `FakeBroker` 只在 `active_triggered` 后模拟 1 次 Paper 成交；研究与计划阶段 0 次券商提交。
+- 基准只写 `agent_reports(role='baseline')` 和对照实验，不创建可执行计划。
+- **未调用真实 DeepSeek API，未提交真实/Paper 订单**；真实模型质量、费用和成交行为仍未验证。
 
 ## 3. 真实 API 只读验证（已执行，无订单）
 

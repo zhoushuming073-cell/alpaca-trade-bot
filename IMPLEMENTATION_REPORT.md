@@ -9,7 +9,7 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`247 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`283 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
 - 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
 
@@ -111,7 +111,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`247 passed`，关键用例：
+`283 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -137,6 +137,7 @@
 - **NONE/BROKER_STOP**：v2 `stop_policy`；NONE 记录 `NONE_BY_AI`；BROKER_STOP 未验证时整体拒绝，不降级；OTO 构造有离线测试，默认禁用。
 - **盘前研究/触发/复核**：09:00–09:30 生成计划；09:30–10:00 机械触发；`REQUEST_AI_RECHECK` 有冷却/预算/去重；无固定 5 分钟全量重研。
 - **多空双向（默认关闭）**：`OPEN_LONG/CLOSE_LONG/OPEN_SHORT/COVER_SHORT` 显式 action + Alpaca `position_intent`（`buy_to_open`/`sell_to_close`/`sell_to_open`/`buy_to_close`）；plain BUY/SELL 保留旧语义。做空默认 `allow_shorting=false`，且每次开空仍校验账户 `shorting_enabled`、asset `shortable`/`easy_to_borrow`/`marginable`、Alpaca buying_power、持仓和冲突订单。禁止一笔订单跨零；先平后开。空头止损在卖价上方，未验证时整体拒绝，不降级。
+- **三智能体（默认关闭，进程内）**：研究员扫描/深研、反方逐份质疑、基金经理输出既有 `PremarketPlan`；独立 Prompt/Schema/Token/超时/审计；研究员与反方无订单字段；`baseline` 仅影子记录；agent_* 表、短期缓存、用量和对照实验；`REQUEST_AI_RECHECK` 走研究员→反方→经理的有界复核。详见 `MULTI_AGENT.md`。
 - **研究记忆**：profiles/evidence/revisions/daily_scans；来源不可用标记；人工 `research-bootstrap`。
 - **性能**：AI 输入压缩 blob；看板有界查询；events 索引；高事件量测试；全池真实只读 48 只约 8.4 秒。
 
@@ -144,6 +145,9 @@
 
 - Paper 实际订单生命周期：未执行（用户禁止提交订单）；DAY 下午成交、部分成交、撤单竞态、真实 OTO/止损、断网恢复均未验证。
 - 做空真实 Paper 生命周期：未执行；账户虽返回 `shorting_enabled=true`，但 `allow_shorting=false`，没有空单。真实借券可用性、空头保证金、空头部分成交、空头跨日/被召回、空头 OTO 止损均未验证。
+- 三智能体真实 DeepSeek 调用：未执行（避免未经授权的额外费用）；Prompt 解析、Schema、预算、超时/重试和失败降级只在 Fake/离线测试中验证。真实模型输出质量、429/5xx 行为、Token/成本/延迟基准未验证。
+- 三智能体真实 Paper 订单：未执行；只通过 FakeBroker 离线验证研究→计划→触发→成交→次日对账，不代表 Alpaca 实际成交。
+- 单智能体基准的前向比较：尚无真实样本，不能用少量结果宣称多智能体更优。
 - `BROKER_STOP`：请求构造/拒绝路径已实现并有离线测试；Alpaca 账户是否支持所需 OTO/DAY/部分成交组合未知；默认禁用。
 - 独立 `POSITION_REVIEW` AI 调用：Schema/Prompt 已定义，引擎目前把持仓复审合并在 `PREMARKET_PLAN` 的账户上下文/候选中。
 - `ADJUST_STOP`/`REMOVE_STOP` 的券商改单/撤单：未实现。
@@ -168,7 +172,7 @@
 
 ## 8. 测试数量与命令
 
-- `247 passed`：`.venv/Scripts/python -m pytest -q`
+- `283 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`

@@ -23,7 +23,7 @@ from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
 from .order_state import BROKER_STATUS_TO_STATE
 from .robot_log import build_feed as build_robot_feed
-from .settings import ROOT, Execution, config_snapshot, credentials, load_config, paper_db_path
+from .settings import ROOT, Execution, MultiAgent, config_snapshot, credentials, load_config, paper_db_path
 from .storage import Store
 from .assistant import Companion, AssistantError, AssistantBusy
 
@@ -37,6 +37,9 @@ EVENT_KINDS = (
     "premarket_data", "quote_errors", "research_profile", "recheck_suppressed",
     "intent_rejected", "plan_invalidated", "startup_reconciliation",
     "source_call", "source_fetch_error", "research_news", "short_check", "short_data",
+    "agent_run_started", "agent_run_finished", "agent_run_failed", "agent_report",
+    "agent_critique", "agent_symbol_failed", "agent_baseline", "agent_baseline_failed",
+    "multi_agent_run",
 )
 
 
@@ -262,6 +265,7 @@ def _execution_for(active: dict | None):
 
 def snapshot(store, account_feed=None):
     active = store.active_config() or {}
+    disk = None
     try:
         disk = load_config()
         disk_hash = disk.hash
@@ -557,6 +561,40 @@ def snapshot(store, account_feed=None):
         "next": next_step,
         "as_of": now.isoformat(),
     }
+    multi_agent_config = disk.multi_agent if disk is not None else MultiAgent()
+    agent_runs = store.recent_agent_runs(8)
+    latest_agent_run = agent_runs[0] if agent_runs else None
+    latest_agent_reports = (
+        [
+            {key: value for key, value in item.items() if key != "report_json"}
+            for item in store.agent_reports(run_id=latest_agent_run["run_id"], limit=120)
+        ]
+        if latest_agent_run else []
+    )
+    agent_usage = store.agent_usage_for_day(session.trading_day)
+    agent_experiments = store.agent_experiments(3)
+    latest_decision = next(
+        (item["parsed"] for item in latest_agent_reports
+         if item.get("role") == "portfolio_manager"),
+        None,
+    )
+    baseline_report = next(
+        (item["parsed"] for item in latest_agent_reports
+         if item.get("role") == "baseline"),
+        None,
+    )
+    multi_agent = {
+        "enabled": bool(multi_agent_config.enabled),
+        "config": multi_agent_config.model_dump(),
+        "latest_run": latest_agent_run,
+        "runs": agent_runs,
+        "reports": latest_agent_reports,
+        "usage": agent_usage,
+        "experiments": agent_experiments,
+        "latest_decision": latest_decision,
+        "baseline": baseline_report,
+        "baseline_can_trade": bool(multi_agent_config.comparison.baseline_can_trade),
+    }
     return {
         "service": "ai-paper-trader",
         "now": now.isoformat(),
@@ -628,6 +666,7 @@ def snapshot(store, account_feed=None):
         "research_capabilities": research_capabilities,
         "symbols": symbols,
         "groups": disk_groups,
+        "multi_agent": multi_agent,
         "strategy_version": version,
         "risk": {},
         "control_token": None,  # filled by the route

@@ -17,12 +17,16 @@ ROBOT_KINDS = (
     "cutoff_cleanup", "safety_alert", "config_pending", "operator",
     "operator_resolution", "network_retry", "error", "stopped", "ai_call",
     "short_check", "short_data",
+    "agent_run_started", "agent_run_finished", "agent_run_failed", "agent_report",
+    "agent_critique", "agent_symbol_failed", "agent_baseline", "agent_baseline_failed",
+    "multi_agent_run",
 )
 
 _AI_KINDS = {
     "premarket_plan", "universe_scan", "intraday_recheck", "plan",
     "plan_invalidated", "plan_rejected", "premarket_no_trade", "premarket_lifecycle",
-    "ai_call",
+    "ai_call", "agent_run_started", "agent_run_finished", "agent_report",
+    "agent_critique", "agent_baseline", "multi_agent_run",
 }
 _SYSTEM_KINDS = {
     "error", "network_retry", "safety_alert", "config_pending", "operator",
@@ -67,6 +71,8 @@ def _source(kind: str, category: str) -> str:
         return "AI"
     if kind in {"short_check", "short_data"}:
         return "System"
+    if kind.startswith("agent_") or kind == "multi_agent_run":
+        return "AI"
     if kind in {"order", "order_imported", "order_recovery"}:
         return "Alpaca"
     if category == "system":
@@ -117,6 +123,24 @@ def _title(kind: str, payload: dict) -> str:
         return "做空权限 / 借券检查"
     if kind == "short_data":
         return "做空数据检查"
+    if kind == "agent_run_started":
+        return "三智能体研究开始"
+    if kind == "agent_run_finished":
+        return "三智能体研究完成"
+    if kind == "agent_run_failed":
+        return "三智能体研究失败"
+    if kind == "agent_report":
+        return "智能体报告保存"
+    if kind == "agent_critique":
+        return "反方分析完成"
+    if kind == "agent_baseline":
+        return "单智能体影子决策"
+    if kind == "agent_baseline_failed":
+        return "单智能体影子决策失败"
+    if kind == "agent_symbol_failed":
+        return "智能体候选失败"
+    if kind == "multi_agent_run":
+        return "三智能体运行摘要"
     if kind == "order_imported":
         return "Alpaca 历史订单导入"
     if kind == "order_recovery":

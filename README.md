@@ -2,7 +2,7 @@
 
 本仓库是一个**只连接 Alpaca Paper** 的本地 AI 交易台：DeepSeek 负责研究、选股、交易判断、具体股数、限价、触发条件、止损选择和复核；Python 负责数据、时钟、研究记忆、订单合法性、真实非杠杆资金、幂等、恢复、对账、审计和硬性安全冻结。
 
-> 当前运行状态：**Paper 自主交易运行中**（worker 已启动，`paused=false`），不连接真实账户。`BROKER_STOP` 尚未在 Alpaca Paper 上完成真实生命周期验证，默认禁用；AI 选择 `BROKER_STOP` 的意图会被整体拒绝，不会被降级成无止损交易。`NONE` 模式允许无自动止损，但离线风险由用户明确接受。
+> 当前运行状态：**Paper 自主交易已暂停**（worker 进程在运行，`paused=true`，`autopilot=false`），不连接真实账户。三智能体默认 `enabled=false`；本轮开发没有提交任何真实/Paper 订单，也不会自动恢复交易。`BROKER_STOP` 尚未在 Alpaca Paper 上完成真实生命周期验证，默认禁用；AI 选择 `BROKER_STOP` 的意图会被整体拒绝，不会被降级成无止损交易。`NONE` 模式允许无自动止损，但离线风险由用户明确接受。
 
 > 2026-11-05 09:30 ET 已执行一次**用户授权**的 1 股 AAPL Paper 测试（DAY LIMIT 356.21，NONE）；订单已 `filled`，成交价 353.63，提交后立即恢复暂停，未启动 worker，未自动撤单/平仓；当前留下 1 股 AAPL、无自动止损。其余情况下没有自动/真实订单。
 
@@ -103,6 +103,17 @@ Prompt 文件：
 - 备份在 **`D:\alpaca-ai\ai-paper-trader-backups`**；`latest.json` 记录 SHA256、UTC 时间和核心表计数；SQLite backup API 一致性复制，先写 `.partial`，完整性检查通过才发布。
 - Windows 任务 `AlpacaAIPaperDatabaseBackup` 每 15 分钟运行；同一电脑/磁盘备份，不防整盘损坏，也没有异地备份。
 - `main.py paper` 启动前会先做一次验证备份；备份失败则不启动策略线程。
+
+### 三智能体（默认关闭，进程内编排）
+
+- 三个角色不是三个长期服务，也不是三个独立进程。每次盘前运行由同一个 Python worker 依次/有限并发调用：`MarketResearchAgent`（全池轻扫 + 候选深研）→ `SkepticalAnalystAgent`（逐份质疑）→ `PortfolioManagerAgent`（最终决策）。
+- 三者共用现有 DeepSeek 客户端/API Key，但分别使用独立 Prompt、输入、Schema、模型名、Token 上限、超时和 `ai_calls` 角色记录；不共享聊天上下文。
+- 研究员和反方只输出研究报告，不包含订单字段；只有基金经理输出现有严格 `PremarketPlan`，再由原 `OrderService`/风控网关校验，不能直接访问 Alpaca。
+- 配置在 `config/multi_agent.yaml`，默认 `enabled: false`。启用是显式、需重启的配置变更；不会自动恢复交易，也不会让单智能体基准下单。
+- 单智能体基准使用同一行情/账户快照，只写影子决策和对照记录，`baseline_can_trade` 固定为 false。
+- 研究/质疑/经理原始结果、解析结果、Prompt hash、用量和计划关联分别写入 SQLite 的 `agent_*` 表；历史档案和旧数据库不删除。
+- 预算的 `null` 不表示无限：使用有限默认上限；实际成本需要配置费率，未配置时 UI 明确显示“费率未配置”，不伪造成本。
+- 详细设计、Schema、Prompt 和验证边界见 [MULTI_AGENT.md](MULTI_AGENT.md)。
 
 ### 做空开启步骤（默认关闭）
 

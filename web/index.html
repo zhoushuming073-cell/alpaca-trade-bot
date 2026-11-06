@@ -121,8 +121,24 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
   #view-research{padding-bottom:35px}
   #view-watchlist{padding-bottom:35px}
 }@media(max-width:480px){.research-group-grid{grid-template-columns:1fr}}
+.agent-role-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:20px}
+.agent-role-card{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:15px 16px;min-width:0}
+.agent-role-card .agent-role-name{font-size:13px;font-weight:600}
+.agent-role-card .agent-role-model{font-size:10px;color:var(--muted);margin-top:5px;overflow-wrap:anywhere}
+.agent-role-card .agent-role-status{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px}
+.agent-role-card .agent-role-error{margin-top:8px;font-size:10px;color:#8f3128;line-height:1.55;overflow-wrap:anywhere}
+.agent-run{display:grid;gap:7px;font-size:12px;color:#5f5a51}
+.agent-run p{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #eeeae2}
+.agent-run p:last-child{border:0}
+.agent-run small{color:var(--muted);text-align:right;overflow-wrap:anywhere}
+.agent-safety{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;font-size:11px}
+.agent-safety p{border:1px solid var(--line);border-radius:8px;background:#faf8f2;padding:10px;color:#6b655b;line-height:1.6}
+.agent-safety b{display:block;color:#4c463d;font-weight:500;margin-bottom:4px}
+.agent-token{font-variant-numeric:tabular-nums}
+@media(max-width:1100px){.agent-role-grid{grid-template-columns:1fr 1fr}.agent-safety{grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.agent-role-grid,.agent-safety{grid-template-columns:1fr}}
 </style>
-<script src="/app.js?v=20261106-groups4" defer></script>
+<script src="/app.js?v=20261106-agents3" defer></script>
 </head>
 <body>
 
@@ -137,6 +153,7 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
     <a href="#overview" data-page="overview" class="active" title="账户概览"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-label">账户概览</span></a>
     <a href="#positions" data-page="positions" title="持仓与订单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span class="nav-label">持仓与订单</span></a>
     <a href="#plans" data-page="plans" title="AI 计划"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 计划</span></a>
+    <a href="#agents" data-page="agents" title="智能体"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm6 0a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM5 17c0-2 2-3 4-3s4 1 4 3m2-3c2 0 4 1 4 3M12 11v3"/></svg><span class="nav-label">智能体</span></a>
     <a href="#research" data-page="research" title="研究档案"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7l2 2h7v14H4Z M8 10h8m-8 4h6"/></svg><span class="nav-label">研究档案</span></a>
     <a href="#activity" data-page="activity" title="运行记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="nav-label">运行记录</span></a>
     <a href="#robot" data-page="robot" title="机器人状态"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M8 16h8"/></svg><span class="nav-label">机器人状态</span></a>
@@ -196,6 +213,19 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
         <section class="panel" id="plans"><div class="section-head"><h2>最近 AI 计划</h2><span class="hint" id="plan-count">—</span></div><div id="plan-list" class="plan-list"></div></section>
         <section class="panel"><div class="section-head"><h2>AI 动态</h2><span class="hint">最近 6 次分析</span></div><div id="ai-list"></div></section>
       </div>
+    </section>
+
+    <section class="page-view" id="view-agents" data-page="agents" hidden>
+      <div id="agent-banner" class="notice" hidden></div>
+      <section class="agent-role-grid" id="agent-role-grid"></section>
+      <div class="grid">
+        <section class="panel"><div class="section-head"><h2>本轮运行</h2><span class="hint" id="agent-run-status">等待运行</span></div><div id="agent-run" class="agent-run"></div><p class="panel-foot" id="agent-run-foot">研究与计划完成不会自动下单；只有触发条件命中并由 Python 风控通过后才可能提交 Paper 订单。</p></section>
+        <section class="panel"><div class="section-head"><h2>API 使用</h2><span class="hint" id="agent-api-date"></span></div><div id="agent-usage"></div></section>
+      </div>
+      <section class="panel"><div class="section-head"><h2>股票研究</h2><span class="hint">研究员结论 + 反方质疑</span></div><div id="agent-research"></div></section>
+      <section class="panel"><div class="section-head"><h2>基金经理决策</h2><span class="hint" id="agent-decision-mode"></span></div><div id="agent-decision"></div><p class="panel-foot" id="agent-decision-foot"></p></section>
+      <section class="panel"><div class="section-head"><h2>对照实验</h2><span class="hint">同一数据快照 · 基准仅影子记录</span></div><div id="agent-experiment"></div><p class="panel-foot">单智能体基准不会向 Paper 账户下单；两组结果仅用于后续前向比较，不能用少量样本宣称优越性。</p></section>
+      <section class="panel"><div class="section-head"><h2>安全状态</h2><span class="hint">研究 / 计划 / 执行不是同一状态</span></div><div id="agent-safety" class="agent-safety"></div></section>
     </section>
 
     <section class="page-view" id="view-research" data-page="research" hidden>
