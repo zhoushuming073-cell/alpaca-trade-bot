@@ -50,12 +50,13 @@ def packet(day,asof,symbols,account,*,mode=ExamMode.EXPLORATORY,db_path=None,sta
     snapshot=get_v2_snapshot(day,asof,symbols,mode=mode,db_path=db_path)
     focus=set(symbols if focus is None else focus);rows=[]
     for s in list(symbols)+snapshot['market_reference']:
-        daily=[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Day'][-130:]
-        row={'symbol':s,'tradable':s in symbols,'daily':daily if s in focus else daily[-5:],
-             'weekly':[b for b in snapshot['weekly_bars'] if b['symbol']==s][-26:],
-             'monthly':[b for b in snapshot['monthly_bars'] if b['symbol']==s][-6:],
-             'minutes':[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Min'][-20:]}
-        row.update(select_evidence(snapshot,s))
+        focused=s in focus
+        daily=[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Day'][-130 if focused else -5:]
+        row={'symbol':s,'tradable':s in symbols,'daily':daily,
+             'weekly':[b for b in snapshot['weekly_bars'] if b['symbol']==s][-26 if focused else -3:],
+             'monthly':[b for b in snapshot['monthly_bars'] if b['symbol']==s][-6 if focused else -2:],
+             'minutes':[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Min'][-20 if focused else -1:]}
+        row.update(select_evidence(snapshot,s,news_k=3 if focused else 1,facts_k=12 if focused else 3))
         quote_bars=[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Min' and b['available_at']<=datetime.fromisoformat(snapshot['asof_utc'])]
         if quote_bars:
             q=quote_bars[-1]
@@ -82,6 +83,6 @@ def packet(day,asof,symbols,account,*,mode=ExamMode.EXPLORATORY,db_path=None,sta
              'response_schema':Response.model_json_schema()}
     return payload
 
-def messages(payload):
-    return [{'role':'system','content':(ROOT/'prompts/decision_v3.txt').read_text(encoding='utf-8')},
+def messages(payload,prompt='decision_v3.txt'):
+    return [{'role':'system','content':(ROOT/'prompts'/prompt).read_text(encoding='utf-8')},
             {'role':'user','content':canon(payload)}]

@@ -3,7 +3,7 @@ import json,heapq
 from datetime import datetime,time,timedelta,timezone
 from pathlib import Path
 from .broker import Broker
-from .contracts import time_state,validate_response,confirmed
+from .contracts import time_state,validate_response,confirmed,validate_scan
 from .inputs import packet,messages,digest
 from .risk import check_order,validate_profile,describe_profile
 from exam_data import ExamStore
@@ -46,13 +46,35 @@ class Engine:
     def close(self):self.audit.close()
     def record(self,kind,**fields):
         self.audit.write(json.dumps({'kind':kind,'recorded_at_utc':datetime.now(timezone.utc).isoformat(),**fields},ensure_ascii=False,default=str)+'\n');self.audit.flush()
-    def review(self,day,at,stage):
+    def scan(self,day,at):
+        state=time_state(at)
+        if self.day_calls>=self.max_calls_per_day:
+            self.record('scan_deferred',asof=at,reason='daily cost cap');return []
+        account=self.broker.account(at,self.marks)
+        payload=packet(day,at,self.symbols,account,db_path=self.db_path,mode=self.mode,
+                       stage='UNIVERSE_SCAN',focus=[])
+        from .contracts import ScanResponse
+        payload['response_schema']=ScanResponse.model_json_schema()
+        exact=messages(payload,'scan_v3.txt');call_id=f'{day}:scan'
+        config={'model':self.model,'temperature':.2,'max_tokens':8000,'tools':False}
+        self.record('input',call_id=call_id,model=self.model,config=config,messages=exact,input_sha256=digest(exact),asof=at)
+        self.day_calls+=1;self.calls+=1;raw=None
+        try:
+            raw=self.transport(exact,config)
+            ids=[e['id'] for row in payload['universe'] for e in row['news']+row['financials']]
+            parsed=validate_scan(raw,symbols=self.symbols,asof=at,account_id=payload['account_snapshot_id'],evidence_ids=ids)
+            self.record('output',call_id=call_id,raw=raw,parsed=parsed.model_dump(mode='json'),role='SCAN')
+            return [c.symbol for c in parsed.candidates if c.direction!='INSUFFICIENT']
+        except Exception as exc:
+            self.record('rejected_output',call_id=call_id,raw=raw,error_type=type(exc).__name__,reason=str(exc),role='SCAN');return []
+
+    def review(self,day,at,stage,focus_override=None):
         state=time_state(at)
         if stage!='PREMARKET' and not state['new_order_allowed']:raise ValueError('No AI after window')
         if self.day_calls>=self.max_calls_per_day:
             self.record('review_deferred',asof=at,reason='daily cost cap');return
         account=self.broker.account(at,self.marks)
-        focus=list(set(self.broker.positions)|set(self.plans)) if stage!='PREMARKET' else list(self.broker.positions)
+        focus=list(set(self.broker.positions)|set(focus_override or [])) if stage=='PREMARKET' else list(set(self.broker.positions)|{s for s,d in self.plans.items() if d.action not in {'HOLD','WAIT'}})
         theses={s:[{'decision_id':oid,'entry_time':o.at.isoformat(),
             'reason':o.decision.reason,'setup':o.decision.setup,'evidence_ids':o.decision.evidence_ids,
             'filled_qty':o.filled} for oid,o in self.broker.orders.items()
@@ -64,7 +86,8 @@ class Engine:
                        focus=focus,profit_context=self.tracker.state,
                        position_theses=theses,risk_policy=describe_profile(self.risk_profile))
         exact=messages(payload);call_id=f'{day}:{self.day_calls}'
-        config={'model':self.model,'temperature':.2,'max_tokens':7000,'tools':False}
+        self.record('snapshot',call_id=call_id,asof=at,account=account)
+        config={'model':self.model,'temperature':.2,'max_tokens':8000,'tools':False}
         self.record('input',call_id=call_id,model=self.model,config=config,messages=exact,input_sha256=digest(exact),asof=at)
         self.day_calls+=1;self.calls+=1
         raw=None
@@ -99,7 +122,8 @@ class Engine:
             rows=store.db.execute("SELECT symbol,timeframe,ts,end_at,available_at,open,high,low,close,volume,feed FROM bars WHERE timeframe='1Min' AND feed='iex' AND day=? AND ts>=? AND end_at<=? ORDER BY ts,symbol",[day,datetime.combine(day,time(9,30),ET),datetime.combine(day,time(16),ET)]).fetchall()
             cols=[x[0] for x in store.db.description];bars=[dict(zip(cols,row)) for row in rows]
         self.day_equity=self.broker.account(pre,self.marks)['equity']
-        self.review(day,pre,'PREMARKET')
+        scan_symbols=self.scan(day,pre)
+        if scan_symbols or self.broker.positions:self.review(day,pre,'PREMARKET',focus_override=scan_symbols)
         queue=[];seq=0
         for b in bars:
             # Matching is separate from information availability; completed bar is
@@ -117,7 +141,8 @@ class Engine:
             if queue and queue[0][0]==at:continue
             if time_state(at)['new_order_allowed']:
                 due=any(x['profit_review_due'] for x in self.tracker.state.values())
-                if at>=next_review or due:
+                active=any(d.action not in {'HOLD','WAIT'} for d in self.plans.values())
+                if due or (at>=next_review and (self.broker.positions or active)):
                     self.review(day,at,'PROFIT_REVIEW' if due else 'INTRADAY_REVIEW')
                     next_review=at+timedelta(minutes=5)
                 self.dispatch(at)

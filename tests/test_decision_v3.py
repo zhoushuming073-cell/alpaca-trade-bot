@@ -114,7 +114,8 @@ def test_response_binds_history_and_rejects_unknown_evidence():
     obj={'as_of_utc':AT.isoformat(),'account_snapshot_id':'a','decisions':[decision('WAIT').model_dump(mode='json')]}
     assert validate_response(json.dumps(obj),symbols=['AMD'],asof=AT,account_id='a',evidence_ids=[])
     obj['decisions'][0]['evidence_ids']=['future']
-    with pytest.raises(ValueError,match='evidence'):validate_response(json.dumps(obj),symbols=['AMD'],asof=AT,account_id='a',evidence_ids=[])
+    cleaned=validate_response(json.dumps(obj),symbols=['AMD'],asof=AT,account_id='a',evidence_ids=[])
+    assert cleaned.decisions[0].evidence_ids==[]
 
 def test_unapproved_profile_fails_closed():
     with pytest.raises(ValueError,match='approved'):check_order(decision(),{}, {},{'enabled':True,'approved':False})

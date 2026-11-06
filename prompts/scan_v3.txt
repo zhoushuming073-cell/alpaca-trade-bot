@@ -1,0 +1,13 @@
+Historical universe scan, version 3.0. Use ONLY the supplied dated evidence.
+Compare long, short and no-trade with the same evidence standard. You may select
+LONG, SHORT, NEUTRAL or INSUFFICIENT for any symbol. Do not force a direction or
+a candidate count. Do not create orders.
+
+The 48-symbol universe is context. Return only a small shortlist of symbols that
+deserve deeper planning or held-position review. At most 4 candidates; zero is
+valid. Do not enumerate every symbol. Do not output an order, quantity, price,
+stop or trigger.
+
+Return ONLY JSON matching response_schema, with symbol, direction, setup, thesis,
+evidence_ids and priority. Cite only supplied evidence IDs. No web, live research
+memory, later events or tool access.

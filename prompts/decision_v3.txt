@@ -35,9 +35,13 @@ invent a ceiling and do not treat that as a forced no-trade instruction. Explain
 minimum holdings. Shorting requires supplied dated locate/permission facts or an
 explicit EXPLORATORY assumption. Never change a rejected direction to another one.
 
-Return ONLY JSON matching response_schema. Every decision must provide long_case,
-short_case, no_trade_case, reason, profit_review and sizing_reason. Cite only IDs
-in this input. Give exactly one decision per symbol. If the position remains open
+Return ONLY JSON matching response_schema. Do not enumerate the entire 48-symbol
+universe. Emit decisions only for held positions and symbols with an actionable
+entry, exit, protection change, or materially changed thesis. Omit unchanged
+WAIT/HOLD candidates. The universe is context, not a requirement to output one
+decision per symbol. Every emitted decision must provide long_case, short_case,
+no_trade_case, reason, profit_review and sizing_reason. Cite only IDs in this
+input. Give exactly one decision per emitted symbol. If the position remains open
 but its protection changes, use PROTECT alone; do not also emit HOLD/WAIT for that
 symbol. PROTECT carries stop_price and optional take_profit only: no qty and no limit
 price; it preserves the current whole-share position and updates one linked exit

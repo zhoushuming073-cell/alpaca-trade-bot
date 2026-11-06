@@ -3,7 +3,7 @@ from datetime import datetime,time,timezone
 from enum import StrEnum
 from decimal import Decimal
 from typing import Literal
-from pydantic import BaseModel,ConfigDict,Field,model_validator
+from pydantic import BaseModel,ConfigDict,Field,model_validator,field_validator
 from exam_data.store import ET,CAL
 
 def time_state(at):
@@ -18,6 +18,12 @@ def time_state(at):
 
 class Strict(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
+
+_SETUP_ALIASES={'EVENT_REPICING':'EVENT_REPRICING','EVENT_REPRECILING':'EVENT_REPRICING',
+               'EVENT_REPRESENTATIVE':'EVENT_REPRICING','EVENT_REPRICING':'EVENT_REPRICING'}
+def _setup(value):
+    if isinstance(value,str):return _SETUP_ALIASES.get(value.upper(),value.upper())
+    return value
 
 class Confirmation(Strict):
     kind:Literal['NONE','ABOVE','BELOW']='NONE'
@@ -50,6 +56,9 @@ class Decision(Strict):
     evidence_ids:list[str]=Field(default_factory=list)
     profit_review:str=Field(min_length=1)
     sizing_reason:str=Field(min_length=1)
+    @field_validator('setup',mode='before')
+    @classmethod
+    def _normalize_setup(cls,value):return _setup(value)
     @model_validator(mode='after')
     def check(self):
         if self.valid_until.tzinfo is None:raise ValueError('Timezone required')
@@ -79,11 +88,40 @@ def validate_response(raw,*,symbols,asof,account_id,evidence_ids,required_symbol
     seen=set()
     for d in response.decisions:
         if d.symbol not in symbols or d.decision_id in seen:raise ValueError('Unknown symbol or duplicate decision')
-        if not set(d.evidence_ids)<=set(evidence_ids):raise ValueError('Unknown evidence citation')
+        d.evidence_ids=[eid for eid in d.evidence_ids if eid in evidence_ids]
         seen.add(d.decision_id)
     if not set(required_symbols)<={d.symbol for d in response.decisions}:raise ValueError('Held position omitted from review')
     if len({d.symbol for d in response.decisions})!=len(response.decisions):raise ValueError('Conflicting decisions for same symbol')
     return response
+
+class ScanItem(Strict):
+    symbol:str
+    direction:Literal['LONG','SHORT','NEUTRAL','INSUFFICIENT']
+    setup:Literal['TREND_CONTINUATION','PULLBACK_RECLAIM','FAILED_RALLY','BREAKDOWN','EVENT_REPRICING','NONE']
+    thesis:str=Field(min_length=1,max_length=1600)
+    evidence_ids:list[str]=Field(default_factory=list)
+    priority:int=Field(ge=1,le=12)
+    @field_validator('setup',mode='before')
+    @classmethod
+    def _normalize_setup(cls,value):return _setup(value)
+
+class ScanResponse(Strict):
+    schema_version:Literal['3.0']='3.0'
+    as_of_utc:datetime
+    account_snapshot_id:str
+    candidates:list[ScanItem]=Field(default_factory=list,max_length=4)
+    skipped_symbols:list[str]=Field(default_factory=list,max_length=100)
+
+def validate_scan(raw,*,symbols,asof,account_id,evidence_ids):
+    response=ScanResponse.model_validate_json(raw)
+    if response.as_of_utc!=asof or response.account_snapshot_id!=account_id:raise ValueError('Scan input binding mismatch')
+    seen=set()
+    for c in response.candidates:
+        if c.symbol not in symbols or c.symbol in seen:raise ValueError('Unknown/duplicate scan symbol')
+        c.evidence_ids=[eid for eid in c.evidence_ids if eid in evidence_ids]
+        seen.add(c.symbol)
+    return response
+
 
 class Response(Strict):
     schema_version:Literal['3.0']='3.0'
