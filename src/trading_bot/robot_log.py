@@ -15,12 +15,13 @@ ROBOT_KINDS = (
     "order_imported", "order_recovery", "fractional_residual", "startup_reconciliation",
     "after_close_reconcile", "after_close_reconciliation", "database_reconciliation",
     "cutoff_cleanup", "safety_alert", "config_pending", "operator",
-    "operator_resolution", "network_retry", "error", "stopped",
+    "operator_resolution", "network_retry", "error", "stopped", "ai_call",
 )
 
 _AI_KINDS = {
     "premarket_plan", "universe_scan", "intraday_recheck", "plan",
     "plan_invalidated", "plan_rejected", "premarket_no_trade", "premarket_lifecycle",
+    "ai_call",
 }
 _SYSTEM_KINDS = {
     "error", "network_retry", "safety_alert", "config_pending", "operator",
@@ -61,7 +62,7 @@ def _category(kind: str, payload: dict) -> str:
 
 
 def _source(kind: str, category: str) -> str:
-    if kind in {"premarket_plan", "universe_scan", "intraday_recheck"}:
+    if kind in {"premarket_plan", "universe_scan", "intraday_recheck", "ai_call"}:
         return "AI"
     if kind in {"order", "order_imported", "order_recovery"}:
         return "Alpaca"
@@ -87,6 +88,8 @@ def _title(kind: str, payload: dict) -> str:
         return "AI 扫描股票池"
     if kind == "intraday_recheck":
         return "DeepSeek 复核决策"
+    if kind == "ai_call":
+        return "DeepSeek 复核请求"
     if kind == "plan":
         return "交易计划状态更新"
     if kind == "plan_invalidated":
@@ -162,6 +165,9 @@ def _summary(kind: str, payload: dict, candidate: dict | None, order: dict | Non
         return "AI 判断今天不交易"
     if kind == "premarket_lifecycle":
         return str(payload.get("result") or payload.get("phase") or "盘前阶段更新")
+    if kind == "ai_call":
+        return f"{payload.get('mode', 'AI')} · {payload.get('outcome', '')} · " \
+               f"{payload.get('latency_ms', '—')} ms"
     if kind == "premarket_data":
         return f"可用 {payload.get('available', '—')} 只 · 失败 {len(payload.get('failures') or [])} 只"
     if kind == "quote_errors":
@@ -230,6 +236,8 @@ def build_feed(store: Store, *, after_id: int = 0, limit: int = 200) -> dict:
     events = []
     for row in rows:
         payload = row.get("payload") or {}
+        if row["kind"] == "ai_call" and payload.get("mode") != "INTRADAY_RECHECK":
+            continue
         plan_id = payload.get("plan_id")
         plan_entry = plans.get(str(plan_id)) if plan_id else None
         candidate = (plan_entry or {}).get("candidate") or {}
