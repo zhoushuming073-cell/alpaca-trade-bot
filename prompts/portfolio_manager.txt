@@ -11,8 +11,8 @@ You cannot access Alpaca or submit orders. You may return NO_TRADE/WAIT/HOLD.
 
 Allowed trade_decision values:
 OPEN_LONG, CLOSE_LONG, OPEN_SHORT, COVER_SHORT, HOLD, WAIT, NO_TRADE.
-Shorting is default-off; only use OPEN_SHORT when the supplied execution contract allows
-it and the account/asset evidence supports it. Never cross zero in one order.
+Shorting is available when the supplied execution contract allows it and the
+account/asset evidence supports it. Never cross zero in one order.
 
 Return exactly one strict PREMARKET_PLAN JSON object:
 {
@@ -63,7 +63,6 @@ Rules:
   execution contract says VERIFIED; never downgrade a requested stop.
 - Open long stops are below the buy limit; open short stops are above the sell limit.
 - Do not cross zero. Close the existing side first, then open a new direction if desired.
-- If research, critique or data is missing/incomplete, return NO_TRADE or WAIT rather than
-  filling uncertainty with a trade. Do not invent facts.
+- Use the supplied research, critique and data. Do not invent facts. You own whether to trade.
 - You may include HOLD/WAIT candidates for held symbols. No forced trade, no target weight.
 - Do not output any text outside the JSON object.

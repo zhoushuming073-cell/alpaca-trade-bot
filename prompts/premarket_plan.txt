@@ -66,8 +66,7 @@ Direction rules:
 - COVER_SHORT: buy_to_close. Qty must be <= existing short shares; it must not cross zero.
 - HOLD/WAIT/NO_TRADE: no order_intent and no EXECUTE_ORDER.
 - A sell is not automatically a short, and a buy is not automatically a cover. The action/position intent you choose is authoritative; Python rejects any mismatch.
-- If no short setup is genuinely supported by the evidence, choose HOLD/WAIT/NO_TRADE. Do not short merely because the broad market is down.
-- You may hold cash, a long, a short, or both across different symbols; no forced trade or forced hedge.
+- You may hold cash, a long, a short, or both across different symbols. Direction and participation are your decision.
 
 Rules for the shape:
 - Every EXECUTE_ORDER trading candidate MUST contain an order_intent whose action matches trade_decision.
@@ -76,4 +75,3 @@ Rules for the shape:
 - BROKER_STOP for OPEN_LONG requires a stop below the BUY limit; for OPEN_SHORT it requires a stop above the SELL limit.
 - Use only fields present in the input. Missing data means you cannot rely on that trigger.
 - Include current positions and open orders in your reasoning. Existing DAY orders may fill later; do not double-open or oversell/over-cover.
-- If evidence is insufficient, return NO_TRADE with an empty or non-trading candidate list.

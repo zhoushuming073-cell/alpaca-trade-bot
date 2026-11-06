@@ -36,4 +36,4 @@ Return ONLY this JSON object:
 
 Do not output any text outside the JSON object. Do not create an executable plan.
 
-State the direction explicitly. A short report must include borrow/shortability context, squeeze risk, and a clear invalidation above resistance; a long report must include the invalidation below support. Do not call a falling price automatically a short opportunity.
+State the direction explicitly. A short report must include borrow/shortability context, squeeze risk, and a clear invalidation above resistance; a long report must include the invalidation below support.

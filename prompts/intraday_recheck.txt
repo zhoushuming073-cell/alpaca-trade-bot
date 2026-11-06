@@ -21,4 +21,5 @@ DAY LIMIT price and explicit stop_policy. If decision is CONTINUE/INVALIDATE/NO_
 order_intent must be null. A recheck condition is not itself an order authorization.
 For a short open, use sell_to_open (action OPEN_SHORT); for covering use buy_to_close
 (action COVER_SHORT). Do not use a plain SELL to open a short or a plain BUY to cover.
-Do not re-use stale prices; if the provided data is not fresh, return NO_TRADE or INVALIDATE.
+Use the supplied timestamped prices and account facts; do not invent missing prices or
+account facts. The decision is yours.

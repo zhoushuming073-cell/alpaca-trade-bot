@@ -30,7 +30,5 @@ If decision is REPLACE:
 - use a positive integer qty, DAY LIMIT and explicit stop_policy;
 - plan_valid_until_utc must remain inside the active window.
 If CONTINUE/INVALIDATE/NO_TRADE, order_intent must be null.
-If the research or critique is incomplete, stale, contradictory in a material
-way, or the window is insufficient, return NO_TRADE/INVALIDATE rather than
-guessing. Never downgrade BROKER_STOP.
+Use the supplied evidence and data; do not invent missing facts. Never downgrade BROKER_STOP.
 Do not output any text outside the JSON object.

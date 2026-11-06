@@ -21,4 +21,4 @@ OPEN_LONG/OPEN_SHORT/CLOSE_LONG/COVER_SHORT require qty and limit_price.
 CLOSE_LONG must not exceed long shares; COVER_SHORT must not exceed short shares.
 Do not cross zero in one instruction: close the existing side first, then use a new
 OPEN instruction if appropriate. ADJUST_STOP/REMOVE_STOP requires the existing
-plan/order reference. If there is no reliable new information, HOLD.
+plan/order reference. Use the supplied data; do not invent missing account facts.
