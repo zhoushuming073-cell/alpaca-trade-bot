@@ -22,6 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
 from .order_state import BROKER_STATUS_TO_STATE
+from .robot_log import build_feed as build_robot_feed
 from .settings import ROOT, Execution, config_snapshot, credentials, load_config, paper_db_path
 from .storage import Store
 from .assistant import Companion, AssistantError, AssistantBusy
@@ -674,6 +675,21 @@ def create_app(db_path=None, account_feed=None, companion_model=None):
             data = snapshot(store, account_feed)
             data["control_token"] = token
             return jsonify(**data)
+        finally:
+            store.close()
+
+    @app.get("/api/robot-events")
+    def robot_events():
+        try:
+            after_id = int(request.args.get("after_id", "0"))
+            limit = int(request.args.get("limit", "200"))
+            if after_id < 0 or limit < 1 or limit > 500:
+                raise ValueError()
+        except ValueError:
+            return jsonify(error="Invalid robot-event cursor"), 400
+        store = Store(db_path, role="robot-events")
+        try:
+            return jsonify(build_robot_feed(store, after_id=after_id, limit=limit))
         finally:
             store.close()
 

@@ -361,6 +361,35 @@ class Store:
             for row in rows
         ]
 
+    def robot_events(self, kinds: Iterable[str], *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        """Incremental event cursor for the read-only robot terminal."""
+        kinds = list(dict.fromkeys(kinds))
+        if not kinds:
+            return []
+        placeholders = ",".join("?" for _ in kinds)
+        limit = max(1, min(int(limit), 500))
+        if int(after_id or 0) > 0:
+            sql = (
+                f"SELECT id,ts,kind,payload FROM events WHERE id>? AND kind IN ({placeholders}) "
+                "ORDER BY id ASC LIMIT ?"
+            )
+            args = (int(after_id), *kinds, limit)
+        else:
+            sql = (
+                f"SELECT id,ts,kind,payload FROM events WHERE kind IN ({placeholders}) "
+                "ORDER BY id DESC LIMIT ?"
+            )
+            args = (*kinds, limit)
+        with self.lock:
+            rows = self.db.execute(sql, args).fetchall()
+        result = [
+            {"id": row["id"], "ts": row["ts"], "kind": row["kind"], "payload": _loads(row["payload"])}
+            for row in rows
+        ]
+        if int(after_id or 0) <= 0:
+            result.reverse()
+        return result
+
     def recent_accounts(self, limit: int = 400) -> list[dict]:
         limit = max(1, min(int(limit), 2000))
         with self.lock:

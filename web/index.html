@@ -89,7 +89,11 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}.nav-pill{display:none!important}nav a.active{background:#e3dfd5!important}}
 ::view-transition-old(root),::view-transition-new(root){animation-duration:var(--m-standard);animation-timing-function:var(--ease-soft)}
 </style>
-<script src="/app.js?v=20261106-ux4" defer></script>
+<style>
+.robot-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;background:linear-gradient(120deg,#fbfaf5,#f2efe6);border:1px solid var(--line);border-radius:14px;padding:24px 26px;margin-bottom:20px}.robot-hero-copy h2{font:28px Georgia,"Noto Serif CJK SC","SimSun",serif;font-weight:500;margin:7px 0 8px;letter-spacing:.4px}.robot-hero-copy p{font-size:12px;color:#6d685f;line-height:1.7}.robot-hero-copy h2.ok{color:#48654d}.robot-hero-copy h2.warn{color:#8a5b32}.robot-hero-copy h2.danger{color:#8f3128}.robot-hero-copy h2.idle{color:#5b554b}.robot-hero-side{display:flex;gap:7px;align-items:center;font-size:10px;color:var(--muted);white-space:nowrap;padding-top:5px}.robot-live-dot{width:7px;height:7px;border-radius:50%;background:#6d886f;box-shadow:0 0 0 4px #6d886f18}.robot-monitor{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:9px}.robot-monitor-card{border:1px solid var(--line);border-radius:9px;background:#faf8f2;padding:12px 13px}.robot-monitor-card-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.robot-monitor-card b{font-size:14px}.robot-monitor-card p{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}.robot-monitor-card .condition{font-size:10px;color:#77695b;background:#f1ece2;border-radius:6px;padding:5px 7px;margin-top:8px;line-height:1.6}.robot-log-panel{padding-bottom:5px}.robot-filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.robot-timeline{position:relative;max-height:calc(100vh - 500px);min-height:150px;overflow:auto;overscroll-behavior:contain;padding:4px 2px 7px}.robot-event{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:15px 0;border-bottom:1px solid #eeeae2;cursor:pointer;transition:background var(--m-fast)}.robot-event:last-child{border-bottom:0}.robot-event:hover{background:#faf8f2}.robot-event:before{content:"";position:absolute;left:11px;top:0;bottom:0;width:1px;background:#e6e1d7}.robot-event:first-child:before{top:22px}.robot-dot{position:relative;z-index:1;width:9px;height:9px;margin-top:5px;margin-left:7px;border-radius:50%;background:#b5ada0;box-shadow:0 0 0 4px #f7f5ef}.robot-event.critical .robot-dot{background:#a04236;box-shadow:0 0 0 4px #f7f5ef,0 0 0 5px #a0423630}.robot-event.warning .robot-dot{background:#b27b45}.robot-event.ai .robot-dot{background:#8d7a9a}.robot-event.fill .robot-dot{background:#6d886f}.robot-event.execution .robot-dot{background:#a6533b}.robot-event.system .robot-dot{background:#8e8880}.robot-event-main{min-width:0}.robot-event-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:10px;color:var(--muted)}.robot-event-meta time{font-variant-numeric:tabular-nums}.robot-source{font-size:9px;letter-spacing:.4px;padding:2px 6px;border-radius:8px;background:#eee9df;color:#6e665b}.robot-source.ai{background:#eee8f2;color:#655574}.robot-source.alpaca{background:#e7ede3;color:#4d6953}.robot-source.python{background:#f2e7df;color:#8a5b45}.robot-event-symbol{font-weight:600;color:#62594e}.robot-event-title{font-size:13px;font-weight:500;margin:5px 0 3px;color:#464139}.robot-event-summary{font-size:11px;line-height:1.65;color:#777064;overflow-wrap:anywhere}.robot-event-detail{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--m-standard) var(--ease-spring),opacity var(--m-standard)}.robot-event-detail>div{overflow:hidden}.robot-event.open .robot-event-detail{grid-template-rows:1fr}.robot-event-detail-inner{padding:10px 0 2px;border-top:1px solid #eeeae2;margin-top:9px}.robot-event-detail dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 8px;font-size:11px;color:#6f685d;margin:0}.robot-event-detail dt{color:var(--muted)}.robot-event-detail dd{margin:0;overflow-wrap:anywhere}.robot-event-detail pre{background:#f3f0e8;border-radius:8px;padding:9px 10px;max-height:180px;overflow:auto;font-size:10px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}.robot-event.new{animation:robot-in 420ms var(--ease-spring)}@keyframes robot-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}.robot-empty{padding:30px 0;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:800px){.robot-hero{flex-direction:column;padding:20px}.robot-hero-side{white-space:normal}.robot-timeline{max-height:calc(100vh - 520px)}.robot-event{grid-template-columns:18px minmax(0,1fr);gap:8px}.robot-event:before{left:8px}.robot-dot{margin-left:4px}.robot-event-detail dl{grid-template-columns:72px minmax(0,1fr)}}
+</style>
+<script src="/app.js?v=20261106-robot2" defer></script>
 </head>
 <body>
 
@@ -106,6 +110,7 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
     <a href="#plans" data-page="plans" title="AI 计划"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 计划</span></a>
     <a href="#research" data-page="research" title="研究档案"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7l2 2h7v14H4Z M8 10h8m-8 4h6"/></svg><span class="nav-label">研究档案</span></a>
     <a href="#activity" data-page="activity" title="运行记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="nav-label">运行记录</span></a>
+    <a href="#robot" data-page="robot" title="机器人状态"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M8 16h8"/></svg><span class="nav-label">机器人状态</span></a>
     <a href="#watchlist" data-page="watchlist" title="关注股票"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg><span class="nav-label">关注股票</span></a>
   </nav>
   <div class="side-foot"><div class="paper-label"><span class="dot"></span>Alpaca 模拟账户</div><div class="side-note">仅模拟交易 · 本地运行</div></div>
@@ -189,6 +194,28 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
 
     <section class="page-view" id="view-watchlist" data-page="watchlist" hidden>
       <section class="panel" id="watchlist"><div class="section-head"><h2>关注股票 <span class="count" id="symbol-count">固定股票池</span></h2><span class="hint">固定池 · 搜索代码</span></div><input id="search" class="search" type="search" placeholder="搜索股票代码…" aria-label="搜索股票代码"><div id="symbols" class="symbols"></div><p class="panel-foot">固定股票池用于限制 AI 研究、扫描和 Paper 下单的标的范围。</p></section>
+    </section>
+
+    <section class="page-view" id="view-robot" data-page="robot" hidden>
+      <section class="robot-hero">
+        <div class="robot-hero-copy"><div class="eyebrow">实时行为观察</div><h2 id="robot-state">正在同步机器人状态</h2><p id="robot-task">等待系统快照。</p></div>
+        <div class="robot-hero-side"><span class="robot-live-dot" aria-hidden="true"></span><span id="robot-live-copy">真实系统数据 · 每 3 秒增量更新</span></div>
+      </section>
+      <section class="panel robot-monitor-panel">
+        <div class="section-head"><h2>当前监测 <span class="count" id="robot-monitor-count"></span></h2><span class="hint">来自有效 AI 计划</span></div>
+        <div id="robot-monitor" class="robot-monitor"></div>
+      </section>
+      <section class="panel robot-log-panel">
+        <div class="section-head"><h2>实时行为日志 <span class="count" id="robot-log-count"></span></h2><span class="hint" id="robot-log-updated">等待同步</span></div>
+        <div class="robot-filters" role="group" aria-label="行为日志筛选">
+          <button class="filter-chip active" type="button" data-robot-filter="all">全部</button>
+          <button class="filter-chip" type="button" data-robot-filter="ai">AI 决策</button>
+          <button class="filter-chip" type="button" data-robot-filter="execution">交易执行</button>
+          <button class="filter-chip" type="button" data-robot-filter="fill">订单成交</button>
+          <button class="filter-chip" type="button" data-robot-filter="system">系统异常</button>
+        </div>
+        <div id="robot-timeline" class="robot-timeline" aria-live="polite"></div>
+      </section>
     </section>
   </div>
 

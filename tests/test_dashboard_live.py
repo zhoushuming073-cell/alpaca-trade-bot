@@ -169,6 +169,32 @@ def test_research_detail_endpoint_reads_real_profile(tmp_path, monkeypatch):
     assert data["symbol"] == "CRWV"
 
 
+def test_robot_events_are_real_and_incremental(tmp_path, monkeypatch):
+    store = Store(tmp_path / "web.sqlite")
+    store.event("premarket_plan", {
+        "trading_day": "2026-11-05", "market_decision": "WATCH", "candidates": 7,
+    })
+    store.event("order", {
+        "symbol": "AAPL", "side": "buy", "qty": "1", "filled_qty": "1",
+        "status": "filled", "cid": "aip-real", "filled_avg_price": "353.63",
+    })
+    store.event("safety_alert", {"reason": "TEST_FREEZE", "outcome": "new_orders_disabled"})
+    store.close()
+    c = client(tmp_path, monkeypatch, FakeFeed(account_snapshot()))
+    response = c.get("/api/robot-events", base_url=ORIGIN)
+    assert response.status_code == 200
+    data = response.get_json()
+    by_kind = {item["kind"]: item for item in data["events"]}
+    assert by_kind["premarket_plan"]["category"] == "ai"
+    assert by_kind["premarket_plan"]["source"] == "AI"
+    assert by_kind["order"]["category"] == "fill"
+    assert by_kind["order"]["source"] == "Alpaca"
+    assert by_kind["safety_alert"]["severity"] == "critical"
+    assert data["next_after"] == max(item["id"] for item in data["events"])
+    incremental = c.get("/api/robot-events?after_id=" + str(data["next_after"]), base_url=ORIGIN).get_json()
+    assert incremental["events"] == []
+
+
 def test_optional_closed_order_failure_does_not_break_account_snapshot(bundle):
     class Api:
         @contextmanager

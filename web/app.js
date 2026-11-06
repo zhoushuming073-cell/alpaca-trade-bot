@@ -14,6 +14,7 @@ const PAGE_META = {
   plans: {title: "AI 计划", subtitle: "今日 AI 判断、触发条件与复核记录。", crumb: "AI 计划"},
   research: {title: "研究档案", subtitle: "48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
   activity: {title: "运行记录", subtitle: "机器人、订单同步和系统事件。", crumb: "运行记录"},
+  robot: {title: "机器人状态", subtitle: "实时观察 AI 指令、Python 执行与 Alpaca 回报。", crumb: "机器人状态"},
   watchlist: {title: "关注股票", subtitle: "固定股票池；研究、扫描和下单均受此约束。", crumb: "关注股票"},
 };
 const PAGE_ALIASES = {system: "activity"};
@@ -48,6 +49,7 @@ function setPage(name, {scroll = true} = {}) {
   setMobileSidebar(false);
   if (scroll) window.scrollTo({top: 0, behavior: "auto"});
   requestAnimationFrame(moveNavPill);
+  if (page === "robot" && !robotEvents.size) loadRobotLog(true);
 }
 
 function setSidebar(collapsed) {
@@ -193,6 +195,16 @@ let planRenderKey = "";
 const planExpanded = new Set();
 let researchState = {query: "", sector: "", status: "", detail: null, scroll: 0};
 let researchDetailData = null;
+let robotEvents = new Map();
+let robotNewIds = new Set();
+let robotExpanded = new Set();
+let robotCursor = 0;
+let robotFilter = "all";
+let robotMonitor = [];
+let robotServerTime = null;
+let robotLoading = false;
+let robotError = null;
+let robotRenderKey = "";
 const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const motionAllowed = () => !motionQuery.matches;
 
@@ -543,6 +555,134 @@ function togglePlanCard(card) {
   else planExpanded.delete(id);
 }
 
+function robotTaskText(s) {
+  if (s.freeze_reason || s.safety_reason) return "安全冻结，等待人工核对；不会提交新订单。";
+  if (!s.running) return "等待本地 supervisor 在交易日启动。";
+  if (s.paused) return "交易已暂停；已有券商委托仍可能成交。";
+  if (s.phase === "PREMARKET") return "正在准备今天的 AI 盘前计划。";
+  if (s.phase === "ACTIVE") return robotMonitor.length
+    ? "正在监测 " + robotMonitor.length + " 个有效价格条件。"
+    : "正在监测 AI 触发条件，等待行情或复核请求。";
+  if (s.phase === "NO_SESSION") return "今天是休市日，等待下个交易日。";
+  return "交易窗口已结束，等待下个交易日。";
+}
+
+function renderRobotStatus(s) {
+  if (!s) return;
+  const status = statusSummary(s);
+  const stateElement = $("robot-state");
+  if (stateElement) {
+    stateElement.textContent = status.label;
+    stateElement.className = status.tone;
+  }
+  setText("robot-task", robotTaskText(s));
+  setText("robot-live-copy", robotError ? "日志暂时不可用 · 保留最近记录" : "真实系统数据 · 每 3 秒增量更新");
+}
+
+function conditionLabel(condition) {
+  return conditionText(condition || {});
+}
+
+function renderRobotMonitor() {
+  const box = $("robot-monitor");
+  if (!box) return;
+  const items = robotMonitor || [];
+  setText("robot-monitor-count", items.length ? items.length + " 个条件" : "");
+  if (!items.length) {
+    box.innerHTML = '<div class="robot-empty">当前没有有效监测条件。</div>';
+    return;
+  }
+  box.innerHTML = items.slice(0, 12).map((item) => {
+    const conditions = (item.triggers || []).map((trigger) =>
+      '<div class="condition">' + esc(trigger.purpose || "TRIGGER") + " · " +
+      esc((trigger.all_of || []).map(conditionLabel).join(" 且 ")) + '</div>').join("");
+    return '<div class="robot-monitor-card"><div class="robot-monitor-card-top"><b>' + esc(item.symbol) +
+      '</b><span class="plan-tag active">' + esc(label(item.decision, "监测中")) + '</span></div>' +
+      '<p>有效期 ' + esc(date(item.valid_until)) + '</p>' + conditions + '</div>';
+  }).join("");
+}
+
+function renderRobotLog() {
+  const box = $("robot-timeline");
+  if (!box) return;
+  const categories = {all: "全部", ai: "AI 决策", execution: "交易执行", fill: "订单成交", system: "系统"};
+  const rows = [...robotEvents.values()]
+    .filter((event) => robotFilter === "all" || event.category === robotFilter)
+    .sort((a, b) => b.id - a.id);
+  setText("robot-log-count", rows.length + " 条");
+  setText("robot-log-updated", robotServerTime ? "更新于 " + time(robotServerTime) : "等待同步");
+  const renderKey = robotFilter + "|" + rows.map((event) => event.id + ":" + event.severity).join(",");
+  if (renderKey === robotRenderKey) return;
+  robotRenderKey = renderKey;
+  if (robotError && !rows.length) {
+    box.innerHTML = '<div class="robot-empty">日志暂时不可用：' + esc(robotError) + '</div>';
+    return;
+  }
+  if (!rows.length) {
+    box.innerHTML = '<div class="robot-empty">当前筛选下没有行为记录。</div>';
+    return;
+  }
+  const oldHeight = box.scrollHeight;
+  const nearTop = box.scrollTop < 55;
+  box.innerHTML = rows.map((event) => {
+    const open = robotExpanded.has(event.id);
+    const sourceClass = String(event.source || "system").toLowerCase().replace(/[^a-z]/g, "");
+    const detail = event.detail || {};
+    const decisions = event.decision ? '<dt>AI 决策</dt><dd>' + esc(event.decision) + '</dd>' : "";
+    const cid = event.cid ? '<dt>订单编号</dt><dd>' + esc(event.cid) + '</dd>' : "";
+    return '<article class="robot-event ' + esc(event.category) + ' ' + esc(event.severity) +
+      (open ? " open" : "") + (robotNewIds.has(event.id) ? " new" : "") +
+      '" data-event-id="' + event.id + '" role="button" tabindex="0" aria-expanded="' + String(open) + '">' +
+      '<span class="robot-dot" aria-hidden="true"></span><div class="robot-event-main">' +
+      '<div class="robot-event-meta"><time datetime="' + esc(event.ts) + '">' + esc(date(event.ts)) +
+      '</time><span class="robot-source ' + esc(sourceClass) + '">' + esc(event.source) + '</span>' +
+      '<span>' + esc(categories[event.category] || event.category) + '</span>' +
+      (event.symbol ? '<span class="robot-event-symbol">' + esc(event.symbol) + '</span>' : '') + '</div>' +
+      '<div class="robot-event-title">' + esc(event.title) + '</div>' +
+      '<div class="robot-event-summary">' + esc(event.summary || "") + '</div>' +
+      '<div class="robot-event-detail"><div><div class="robot-event-detail-inner"><dl>' +
+      '<dt>来源</dt><dd>' + esc(event.source) + '</dd><dt>事件类型</dt><dd>' + esc(event.kind) + '</dd>' +
+      decisions + cid + '</dl><pre>' + esc(JSON.stringify(detail, null, 2)) + '</pre></div></div></div>' +
+      '</div></article>';
+  }).join("");
+  if (!nearTop) box.scrollTop += box.scrollHeight - oldHeight;
+  robotNewIds.clear();
+}
+
+async function loadRobotLog(initial = false) {
+  if (robotLoading) return;
+  robotLoading = true;
+  try {
+    const after = initial ? 0 : robotCursor;
+    const response = await fetch("/api/robot-events?after_id=" + after + "&limit=200", {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) throw new Error("状态服务未返回日志");
+    const data = await response.json();
+    const received = data.events || [];
+    if (initial) robotEvents.clear();
+    for (const event of received) {
+      if (!robotEvents.has(event.id)) {
+        robotEvents.set(event.id, event);
+        if (!initial) robotNewIds.add(event.id);
+      }
+    }
+    robotCursor = Math.max(robotCursor, Number(data.next_after || 0));
+    robotMonitor = data.monitoring || [];
+    robotServerTime = data.server_time || robotServerTime;
+    robotError = null;
+    renderRobotMonitor();
+    renderRobotLog();
+    renderRobotStatus(state);
+  } catch (error) {
+    robotError = error.name === "TimeoutError" ? "请求超时" : error.message;
+    renderRobotStatus(state);
+    renderRobotLog();
+  } finally {
+    robotLoading = false;
+  }
+}
+
 function render(s) {
   state = s;
   token = s.control_token;
@@ -611,6 +751,7 @@ function render(s) {
     '<small>' + (a.latency_ms != null ? esc((a.latency_ms / 1000).toFixed(1)) + " 秒" : "") + '</small></div></div>'
   ).join("") || '<div class="empty">还没有 AI 分析记录</div>');
   renderResearchList(s);
+  renderRobotStatus(s);
   const seen = new Set();
   const events = [...(s.events || [])].reverse().filter((e) => !["input", "ai_raw"].includes(e.kind)).filter((e) => {
     const key = eventMessage(e).join("|");
@@ -781,6 +922,32 @@ $("plan-list").addEventListener("keydown", (event) => {
   event.preventDefault();
   togglePlanCard(card);
 });
+document.querySelectorAll("[data-robot-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    robotFilter = button.dataset.robotFilter || "all";
+    document.querySelectorAll("[data-robot-filter]").forEach((item) =>
+      item.classList.toggle("active", item === button));
+    robotRenderKey = "";
+    renderRobotLog();
+  });
+});
+$("robot-timeline").addEventListener("click", (event) => {
+  const item = event.target.closest(".robot-event");
+  if (!item) return;
+  const id = Number(item.dataset.eventId);
+  const open = !item.classList.contains("open");
+  item.classList.toggle("open", open);
+  item.setAttribute("aria-expanded", String(open));
+  if (open) robotExpanded.add(id);
+  else robotExpanded.delete(id);
+});
+$("robot-timeline").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const item = event.target.closest(".robot-event");
+  if (!item) return;
+  event.preventDefault();
+  item.click();
+});
 $("sidebar-toggle").onclick = () => setSidebar(!document.body.classList.contains("sidebar-collapsed"));
 $("mobile-nav").onclick = () => setMobileSidebar(!document.body.classList.contains("sidebar-open"));
 $("sidebar-close").onclick = () => setMobileSidebar(false);
@@ -797,6 +964,9 @@ setSidebar((() => { try { return localStorage.getItem("paper-sidebar-collapsed")
 setPage(pageFromHash(), {scroll: false});
 refresh();
 setInterval(refresh, 5000);
+setInterval(() => {
+  if (activePage === "robot" && !document.hidden) loadRobotLog();
+}, 3000);
 
 let chatBusy = false;
 let chatLoading = false;
