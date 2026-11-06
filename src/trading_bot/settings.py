@@ -28,6 +28,18 @@ ROOT = Path(__file__).resolve().parents[2]
 PAPER_URL = "https://paper-api.alpaca.markets"
 
 
+def paper_db_path():
+    """Keep live trading data outside the Git checkout, including on Windows."""
+    path = ROOT.parent / (ROOT.name + "-runtime") / "paper.sqlite"
+    if not path.exists() and (ROOT / "data/paper.sqlite").exists():
+        raise RuntimeError("External runtime database missing: migrate the existing database before starting; refusing an empty replacement")
+    return path
+
+
+def backup_directory():
+    return ROOT.parent / (ROOT.name + "-backups")
+
+
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 

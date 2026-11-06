@@ -97,6 +97,13 @@ Prompt 文件：
 
 启动：双击工作区 `启动交易台.bat`，或 `ai-paper-trader/Start-Paper-Trader.bat`。**普通启动脚本只启动本地网页，不会自动启动或恢复 worker。** 服务仅监听 loopback；需要手动点击“启动机器人”（仍保持暂停），再在安全门槛通过后点击“恢复交易”。
 
+### 外部运行库与备份
+
+- 当前运行库在 **`D:\alpaca-ai\ai-paper-trader-runtime\paper.sqlite`**，不在 Git checkout 内；项目 `data/paper.sqlite` 是保留副本，不要再作为运行库修改。
+- 备份在 **`D:\alpaca-ai\ai-paper-trader-backups`**；`latest.json` 记录 SHA256、UTC 时间和核心表计数；SQLite backup API 一致性复制，先写 `.partial`，完整性检查通过才发布。
+- Windows 任务 `AlpacaAIPaperDatabaseBackup` 每 15 分钟运行；同一电脑/磁盘备份，不防整盘损坏，也没有异地备份。
+- `main.py paper` 启动前会先做一次验证备份；备份失败则不启动策略线程。
+
 ### 自动启动与交易日调度
 
 - `tools/paper_supervisor.py` 计算美东 NYSE 交易日和开盘时间，自动适配 DST。

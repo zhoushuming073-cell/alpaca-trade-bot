@@ -29,8 +29,8 @@ class PremarketScheduler:
         if not info.premarket:
             # Initialization/idle liveness must not depend on the 09:00 hook.
             # This is NOT evidence of a successful broker reconciliation.
-            if info.reason == "before_premarket":
-                self.engine.store.heartbeat("worker", ok=True, detail={"phase": "premarket_wait"})
+            if not info.active:
+                self.engine.store.heartbeat("worker", ok=True, detail={"phase": "idle", "reason": info.reason})
             return "outside_premarket"
         result = self.engine.premarket_tick()  # rechecks time after acquiring lock
         signature = (info.trading_day, result)

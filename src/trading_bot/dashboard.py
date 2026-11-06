@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
 from .order_state import BROKER_STATUS_TO_STATE
-from .settings import ROOT, Execution, config_snapshot, credentials, load_config
+from .settings import ROOT, Execution, config_snapshot, credentials, load_config, paper_db_path
 from .storage import Store
 from .assistant import Companion, AssistantError, AssistantBusy
 
@@ -527,7 +527,7 @@ def snapshot(store, account_feed=None):
 
 def create_app(db_path=None, account_feed=None, companion_model=None):
     app = Flask(__name__)
-    db_path = db_path or ROOT / "data/paper.sqlite"
+    db_path = db_path or paper_db_path()
     app.config["MAX_CONTENT_LENGTH"] = 16384
     def read_status():
         store = Store(db_path, role="assistant-read")

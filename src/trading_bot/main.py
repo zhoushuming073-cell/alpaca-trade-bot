@@ -4,11 +4,13 @@ import logging
 import sys
 from pathlib import Path
 
-from .settings import ROOT, config_snapshot, credentials, load_config
+from .settings import ROOT, config_snapshot, credentials, load_config, paper_db_path
 from .storage import Store
 
 
 def _db_path(mode: str) -> Path:
+    if mode == "paper":
+        return paper_db_path()
     return ROOT / "data" / f"{mode}.sqlite"
 
 
@@ -204,7 +206,12 @@ def main():
     import portalocker
 
     _install_logging()
-    with portalocker.Lock(str(ROOT / "data" / f"{mode}.lock"), timeout=0):
+    with portalocker.Lock(str(_db_path(mode).with_suffix(".lock")), timeout=0):
+        from .backup import backup_database
+        from .settings import backup_directory
+
+        # No strategy threads are started if the pre-start safety copy fails.
+        backup_database(_db_path(mode), backup_directory())
         from lumibot.traders import Trader
 
         from .broker import build_broker

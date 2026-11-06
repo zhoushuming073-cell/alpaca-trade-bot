@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`165 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`224 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -45,7 +45,7 @@
 - dashboard 已切换为后台只读 `LiveAccountFeed`，不再用模拟数据填充账户字段。
 - 本地实测 `account_source=ALPACA PAPER 实时`，`account_stale=false`，`account_age≈0`；
 - 页面字段来自 Alpaca：净值、现金、购买力、非杠杆可用现金、持仓数量、成本价、市值、浮盈亏、开放订单和订单状态。
-- 实盘只读订单验证：Alpaca 返回 0 个 open order、1 个 closed order（IREN buy 100 filled，2026-11-04）；dashboard 已显示该真实历史订单，券商状态 `filled`、本地状态 `FILLED`，数量/成交价来自 Alpaca。没有提交新订单。
+- 实盘只读订单验证：Alpaca 返回 0 个 open order；账户历史有 IREN 100 股与 AAPL 1 股两笔 filled；dashboard 已显示真实历史订单、`filled`/本地 `FILLED`、数量/成交价，均来自 Alpaca。
 - 账户现金、数量、成本价可与同时段直连 Alpaca 快照核验；价格类字段（净值/市值/浮盈亏/购买力）会随两次请求间隔的行情变动，页面显示抓取时间与年龄。
 - 失败时保留最后一次真实快照并显示 `stale/error`；无快照时显示不可用，不填零或样例值。
 
@@ -75,7 +75,9 @@
 
 ## 6. 当前运行状态
 
-- worker：未运行；数据库持久化 `paused=true`；
-- 看板：已用新代码重启，4200 上 `account_source=ALPACA PAPER 实时`，不是旧进程；worker 仍未启动；
-- 研究：DeepSeek Search/Fetch 已真实验证，研究批次仍在后台构建，完成数量以数据库最终统计为准；
-- 默认不自动恢复交易；本轮已提交 1 股 AAPL 授权测试订单，当前无 worker，订单状态以 Alpaca 为准。
+- worker：运行中；数据库持久化 `paused=false`；`autopilot=true`；当前美股已收盘，`phase=CLOSED`，没有新增短线订单；
+- 看板：已用新代码重启，4200 上 `account_source=ALPACA PAPER 实时`；
+- 运行库：`D:\alpaca-ai\ai-paper-trader-runtime\paper.sqlite`；备份：`D:\alpaca-ai\ai-paper-trader-backups`；
+- 研究：48/48 档案、339 条证据；DeepSeek Search/Fetch 已真实验证；
+- 当前持仓：AAPL 1 股、IREN 100 股；券商 open orders=0；本地 unresolved=0；
+- 冻结：已按用户接管后的安全核对解除 `DATABASE_RESTORED_RECONCILIATION_REQUIRED`；解除前已完成全新 GET 对账、备份、224 项测试和 heartbeat 核验。

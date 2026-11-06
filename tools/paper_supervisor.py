@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from trading_bot.dashboard import PORT, start_worker, worker_environment, worker_processes  # noqa: E402
-from trading_bot.settings import load_config  # noqa: E402
+from trading_bot.settings import load_config, paper_db_path  # noqa: E402
 from trading_bot.storage import Store  # noqa: E402
 
 ET = ZoneInfo("America/New_York")
@@ -128,7 +128,7 @@ def start_worker_with_retry() -> bool:
 def wait_for_worker_health(*, until, started_at, clock=None, sleep=None) -> bool:
     clock = clock or (lambda: datetime.now(ET))
     sleep = sleep or time.sleep
-    store = Store(ROOT / "data/paper.sqlite", role="supervisor-health")
+    store = Store(paper_db_path(), role="supervisor-health")
     try:
         while clock() < until:
             healthy = True
@@ -223,7 +223,7 @@ def run_session(now, session, *, clock=None, sleep=None, keep_alive=True) -> int
         log("missed premarket window; no automatic resume")
         return 1
     log("pre-open supervisor wakeup")
-    store = Store(ROOT / "data/paper.sqlite", role="supervisor-control")
+    store = Store(paper_db_path(), role="supervisor-control")
     try:
         blocked = autopilot_block_reason(store)
         if blocked:
@@ -250,7 +250,7 @@ def run_session(now, session, *, clock=None, sleep=None, keep_alive=True) -> int
         log("worker heartbeat not healthy; autopilot remains paused")
         return 1
 
-    store = Store(ROOT / "data/paper.sqlite", role="supervisor-control")
+    store = Store(paper_db_path(), role="supervisor-control")
     try:
         blocked = autopilot_block_reason(store)
         if clock() >= market_open:

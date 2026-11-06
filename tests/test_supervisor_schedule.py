@@ -48,6 +48,7 @@ def scheduled(tmp_path, clock, bundle, monkeypatch):
     runner = PremarketScheduler(engine)
     starts, stops, messages = [], [], []
     monkeypatch.setattr(supervisor, "ROOT", tmp_path)
+    monkeypatch.setattr(supervisor, "paper_db_path", lambda: tmp_path / "data/paper.sqlite")
     monkeypatch.setattr(supervisor, "Store", lambda path, **kw: Store(path, clock=clock, **kw))
     monkeypatch.setattr(supervisor, "load_config", lambda: bundle)
     monkeypatch.setattr(supervisor, "log", messages.append)
@@ -269,3 +270,13 @@ def test_real_network_reconciliation_failure_is_not_healthy(store, clock, bundle
     health = store.health("watchdog")
     assert health["consecutive_failures"] == 3 and health["last_success"] is None
     assert "WATCHDOG_UNHEALTHY" in store.safety_reason()
+
+@pytest.mark.parametrize('instant,refresh', [('08:30:00', True), ('19:00:00', True), ('09:35:00', False)])
+def test_idle_liveness_does_not_mask_active_engine_failure(scheduled, clock, instant, refresh):
+    clock.set(at(instant))
+    scheduled.store.heartbeat('worker', ok=False, error='prior engine failure')
+    scheduled.runner.run_once()
+    health = scheduled.store.health('worker', 90)
+    assert (health['consecutive_failures'] == 0) is refresh
+    if refresh:
+        assert health['detail']['phase'] == 'idle'
