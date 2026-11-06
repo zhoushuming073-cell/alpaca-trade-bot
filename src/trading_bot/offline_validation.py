@@ -1,7 +1,7 @@
 """Offline end-to-end validation for the new session/order contract.
 
 No network, credentials, Paper orders or real market data are used.  The
-scenario covers premarket plan, a DAY limit order that stays open past 10:00,
+scenario covers premarket plan, a DAY limit order that stays open past 12:00,
 a later fill, next-day reconciliation and the absence of any automatic cancel.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -38,6 +39,8 @@ def offline_only():
 def run_validation():
     with offline_only(), TemporaryDirectory(prefix="paper-bot-offline-") as directory:
         bundle = load_config()
+        if bundle.multi_agent.enabled:
+            bundle = replace(bundle, multi_agent=bundle.multi_agent.model_copy(update={"enabled": False}))
         store = Store(Path(directory) / "simulation.sqlite")
         try:
             clock = [datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc)]
@@ -60,8 +63,8 @@ def run_validation():
             assert order_rows and order_rows[0]["state"] == "ACCEPTED", order_rows
             assert order_rows[0]["stop_policy"] == "NONE"
             cid = order_rows[0]["cid"]
-            # 10:05 ET: no new local order and no automatic cancellation.
-            clock[0] = datetime(2026, 11, 5, 15, 5, 10, tzinfo=timezone.utc)
+            # 12:05 ET: no new local order and no automatic cancellation.
+            clock[0] = datetime(2026, 11, 5, 17, 5, 10, tzinfo=timezone.utc)
             after = engine.tick()
             assert after in {"closed", "after_cutoff"} or after == "closed", after
             assert broker.cancel_calls == []

@@ -551,7 +551,7 @@ def snapshot(store, account_feed=None):
     elif store.paused():
         next_step = "交易已暂停：不会提交新订单。"
     elif valid_plans:
-        next_step = f"正在监测 {len(valid_plans)} 个有效 AI 计划；10:00 ET 后不再提交新的本地订单。"
+        next_step = f"正在监测 {len(valid_plans)} 个有效 AI 计划；12:00 ET 后不再提交新的本地订单。"
     else:
         next_step = "当前没有有效 AI 计划；等待下一次盘前研究。"
     brief = {
@@ -603,13 +603,16 @@ def snapshot(store, account_feed=None):
         "session_reason": session.reason,
         "window": {
             "PREMARKET": "盘前研究 09:00-09:30 ET",
-            "ACTIVE": "主动交易 09:30-10:00 ET",
+            "ACTIVE": "主动交易 09:30-12:00 ET",
             "CLOSED": "非主动操作时段",
             "FROZEN": "冻结：需人工核对",
             "NO_SESSION": "休市",
         }.get(phase, phase),
         "running": bool(worker_processes()),
         "paused": store.paused(),
+        "web_heartbeat_age_seconds": store.web_heartbeat_age(),
+        "web_connected": store.web_connected(),
+        "web_reconnect_required": store.web_reconnect_required(),
         "safety_reason": store.safety_reason(),
         "freeze_reason": store.freeze_reason(),
         "config_pending_restart": pending,
@@ -720,6 +723,26 @@ def create_app(db_path=None, account_feed=None, companion_model=None):
     def health():
         # Readiness is local: never wait for Alpaca, AI, or account snapshots.
         return jsonify(service="ai-paper-trader", ready=True)
+
+    @app.post("/api/heartbeat")
+    def heartbeat():
+        store = Store(db_path, role="dashboard-heartbeat")
+        try:
+            store.web_heartbeat()
+            return jsonify(ok=True, web_connected=store.web_connected(),
+                           reconnect_required=store.web_reconnect_required(),
+                           paused=store.paused())
+        finally:
+            store.close()
+
+    @app.post("/api/heartbeat/close")
+    def heartbeat_close():
+        store = Store(db_path, role="dashboard-heartbeat")
+        try:
+            store.web_disconnect()
+            return jsonify(ok=True, web_connected=False)
+        finally:
+            store.close()
 
     @app.get("/api/status")
     def status():

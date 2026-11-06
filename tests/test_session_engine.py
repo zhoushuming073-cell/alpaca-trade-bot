@@ -170,6 +170,7 @@ def test_watchdog_unhealthy_blocks_after_grace(store, clock, bundle):
     assert engine.tick() == "premarket_planned"
     clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
     clock.advance(120)
+    store.web_heartbeat()
     assert engine.tick() in {"watchdog_unhealthy", "config_pending", "frozen"}
     assert broker.submissions == 0
 
@@ -244,6 +245,7 @@ def test_failed_recheck_does_not_consume_trigger(store, clock, bundle):
     assert not store.trigger_fired(plan["plan_id"], "recheck")
     assert store.plan(plan["plan_id"])["status"] == "ACTIVE"
     clock.advance(121)
+    store.web_heartbeat()
     engine.tick()
     assert not store.trigger_fired(plan["plan_id"], "recheck")
     assert ai.calls.count("INTRADAY_RECHECK") >= 2

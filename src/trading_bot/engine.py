@@ -138,6 +138,10 @@ class Engine:
                 return "config_pending"
             if not self.policy.ready() or not self.symbols:
                 return "disabled"
+            if self.mode == "paper":
+                web_gate = self._web_gate()
+                if web_gate["ok"] is False:
+                    return web_gate["reason"]
             if session.premarket:
                 return self.premarket(session)
             if session.active:
@@ -148,6 +152,35 @@ class Engine:
                 self.store.error("engine_tick", exc, outcome="cycle_failed")
             finally:
                 return "failed"
+
+    def _web_gate(self) -> dict:
+        """Stop new decisions/orders when the browser heartbeat is stale.
+
+        Broker-accepted DAY orders and protective stops are not canceled here.
+        A reconnect requires a read-only reconciliation before new risk.
+        """
+        if not self.store.web_connected(30):
+            if self.store.get_control("web_disconnected_notified") != "true":
+                self.store.set_control("web_disconnected_notified", "true")
+                self.store.event("web_disconnected", {
+                    "outcome": "new_decisions_and_orders_stopped",
+                    "accepted_orders_untouched": True,
+                })
+            return {"ok": False, "reason": "web_disconnected"}
+        if self.store.get_control("web_disconnected_notified") == "true":
+            self.store.set_control("web_disconnected_notified", "false")
+        if self.store.web_reconnect_required():
+            try:
+                result = self.orders.reconcile(cancel_lingering=False)
+            except Exception as exc:  # noqa: BLE001
+                self.store.event("web_reconnect_reconcile_failed", {"reason": type(exc).__name__})
+                return {"ok": False, "reason": "web_reconnect_reconcile_failed"}
+            if result.get("errors") or result.get("unknown") or result.get("conflicts"):
+                self.store.event("web_reconnect_reconcile_failed", {"reason": "incomplete"})
+                return {"ok": False, "reason": "web_reconnect_reconcile_failed"}
+            self.store.set_web_reconnect_required(False)
+            self.store.event("web_reconnected", {"outcome": "reconciled_before_new_risk"})
+        return {"ok": True, "reason": "web_connected"}
 
     def _config_pending(self) -> bool:
         try:

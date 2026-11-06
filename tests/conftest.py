@@ -1,4 +1,5 @@
 import socket
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -38,7 +39,10 @@ def no_network(monkeypatch):
 
 @pytest.fixture
 def bundle():
-    return load_config()
+    # Most legacy engine tests exercise the single-agent path explicitly.
+    # Multi-agent tests construct their own config with enabled=True.
+    base = load_config()
+    return replace(base, multi_agent=base.multi_agent.model_copy(update={"enabled": False}))
 
 
 @pytest.fixture
@@ -49,6 +53,7 @@ def clock():
 @pytest.fixture
 def store(tmp_path, clock):
     s = Store(tmp_path / "test.sqlite", clock=clock, instance_id="test-instance")
+    s.web_heartbeat()
     yield s
     s.close()
 

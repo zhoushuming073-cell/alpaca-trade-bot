@@ -1153,6 +1153,54 @@ setSidebar((() => { try { return localStorage.getItem("paper-sidebar-collapsed")
 setPage(pageFromHash(), {scroll: false});
 refresh();
 setInterval(refresh, 5000);
+
+// The browser is the liveness authority for new risk.  This heartbeat never
+// clears a manual pause; it only proves that the page is still open.
+async function sendHeartbeat() {
+  try {
+    await fetch("/api/heartbeat", {
+      method: "POST", headers: token ? {"X-Control-Token": token} : {},
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch { /* the server-side 30s stale gate will stop new risk */ }
+}
+function sendHeartbeatClose() {
+  try {
+    const body = new Blob([""], {type: "text/plain"});
+    navigator.sendBeacon("/api/heartbeat/close", body);
+  } catch { /* server stale timeout is the fallback */ }
+}
+sendHeartbeat();
+setInterval(sendHeartbeat, 10000);
+
+function updateEtClock() {
+  const now = new Date();
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/New_York", hour: "2-digit", minute: "2-digit",
+    second: "2-digit", hour12: false
+  }).format(now);
+  const date = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", month: "short", day: "2-digit"
+  }).format(now);
+  const timeNode = document.getElementById("et-clock-time");
+  const dateNode = document.getElementById("et-clock-date");
+  const signal = document.getElementById("et-clock-signal");
+  if (timeNode) timeNode.textContent = time;
+  if (dateNode) dateNode.textContent = date.toUpperCase();
+  if (signal) {
+    const live = Boolean(state && state.web_connected);
+    signal.textContent = live ? "PAGE LIVE" : "PAGE OFFLINE";
+    signal.classList.toggle("ok", live);
+    signal.classList.toggle("warn", !live);
+  }
+}
+updateEtClock();
+setInterval(updateEtClock, 1000);
+document.addEventListener("visibilitychange", () => {
+  // A background tab is still an open page; keep the heartbeat alive.
+  if (!document.hidden) sendHeartbeat();
+});
+window.addEventListener("pagehide", sendHeartbeatClose);
 setInterval(() => {
   if (activePage === "robot" && !document.hidden) loadRobotLog();
 }, 3000);

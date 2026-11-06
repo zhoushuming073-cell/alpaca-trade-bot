@@ -138,7 +138,16 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
 @media(max-width:1100px){.agent-role-grid{grid-template-columns:1fr 1fr}.agent-safety{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.agent-role-grid,.agent-safety{grid-template-columns:1fr}}
 </style>
-<script src="/app.js?v=20261106-agents4" defer></script>
+<style>
+.et-clock{width:98px;height:98px;flex:0 0 98px;margin-left:auto;border:1px solid #cfc8ba;border-radius:4px;background:#fbfaf5;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 6px;box-shadow:0 5px 16px #302e2910;font-variant-numeric:tabular-nums}
+.et-clock-label{font-size:8px;letter-spacing:1.7px;color:#8a8173;font-weight:600}
+.et-clock-time{font:22px Georgia,"Times New Roman",serif;letter-spacing:.4px;color:#3f3a32;line-height:1.15;margin-top:3px}
+.et-clock-date{font-size:9px;color:#8f8678;letter-spacing:.3px;margin-top:2px}
+.et-clock-signal{font-size:8px;letter-spacing:.8px;color:#8a5b32;margin-top:5px;border-top:1px solid #e6dfd2;padding-top:4px;width:100%;text-align:center}
+.et-clock-signal.ok{color:#48654d}
+.et-clock-signal.warn{color:#8a5b32}
+@media(max-width:800px){.et-clock{width:74px;height:74px;flex-basis:74px}.et-clock-time{font-size:17px}.et-clock-label{font-size:7px;letter-spacing:1.2px}.et-clock-date{font-size:8px}.et-clock-signal{font-size:7px;letter-spacing:.3px}}
+</style>
 </head>
 <body>
 
@@ -167,6 +176,12 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
     <button id="mobile-nav" class="mobile-nav" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false">☰</button>
     <span class="crumb">工作空间 / <strong id="crumb-current">账户概览</strong></span>
     <span class="mobile-brand">✳ Paper</span><span id="today">正在连接…</span>
+    <div id="et-clock" class="et-clock" aria-label="美东时间与网页心跳">
+      <span class="et-clock-label">NEW YORK</span>
+      <span id="et-clock-time" class="et-clock-time">--:--:--</span>
+      <span id="et-clock-date" class="et-clock-date">----</span>
+      <span id="et-clock-signal" class="et-clock-signal">PAGE --</span>
+    </div>
   </div>
   <header class="pagehead">
     <div><h1 id="page-title">交易概览</h1><p class="subtitle" id="page-subtitle">账户、持仓与 AI 的最新进展。</p></div>
@@ -189,7 +204,7 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
         </div>
         <div class="session">
           <div><div class="session-top"><span class="eyebrow">机器人状态</span><span id="process" class="badge">连接中</span></div><h2 id="session-title">正在获取运行状态</h2><p id="session-copy">稍候，正在同步账户信息。</p></div>
-          <div class="timeline" aria-label="美东交易时段"><div class="stage" id="stage-research">盘前研究<span>09:00 — 09:30 ET</span></div><div class="stage" id="stage-trade">主动交易<span>09:30 — 10:00 ET</span></div><div class="stage" id="stage-rest">等待下个交易日<span>10:00 ET 之后</span></div></div>
+          <div class="timeline" aria-label="美东交易时段"><div class="stage" id="stage-research">盘前研究<span>09:00 — 09:30 ET</span></div><div class="stage" id="stage-trade">主动交易<span>09:30 — 12:00 ET</span></div><div class="stage" id="stage-rest">等待下个交易日<span>12:00 ET 之后</span></div></div>
         </div>
       </section>
       <section class="panel brief-panel" aria-label="AI 交易简报">

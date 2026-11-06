@@ -518,6 +518,40 @@ class Store:
         self.event("operator", {"action": "acknowledge_safety", "reason": self.safety_reason()})
         self.set_control("safety_reason", "")
 
+    # ---------------------------------------------------------- web heartbeat
+    WEB_HEARTBEAT_KEY = "web_heartbeat_at"
+    WEB_RECONNECT_KEY = "web_reconnect_required"
+
+    def web_heartbeat(self, *, now=None) -> None:
+        """Record a browser heartbeat; never changes manual pause."""
+        stamp = _iso(now or self.clock())
+        previous = _parse_iso(self.get_control(self.WEB_HEARTBEAT_KEY))
+        stale = previous is not None and (self.clock() - previous).total_seconds() > 30
+        if stale:
+            self.set_control(self.WEB_RECONNECT_KEY, "true")
+        self.set_control(self.WEB_HEARTBEAT_KEY, stamp)
+
+    def web_disconnect(self) -> None:
+        self.set_control(self.WEB_HEARTBEAT_KEY, "1970-01-01T00:00:00+00:00")
+        self.set_control(self.WEB_RECONNECT_KEY, "true")
+
+    def web_heartbeat_at(self):
+        return _parse_iso(self.get_control(self.WEB_HEARTBEAT_KEY))
+
+    def web_heartbeat_age(self):
+        stamp = self.web_heartbeat_at()
+        return None if stamp is None else max(0.0, (self.clock() - stamp).total_seconds())
+
+    def web_connected(self, max_age_seconds: int = 30) -> bool:
+        age = self.web_heartbeat_age()
+        return age is not None and age <= max(1, int(max_age_seconds))
+
+    def web_reconnect_required(self) -> bool:
+        return self.get_control(self.WEB_RECONNECT_KEY) == "true"
+
+    def set_web_reconnect_required(self, value: bool) -> None:
+        self.set_control(self.WEB_RECONNECT_KEY, "true" if value else "false")
+
     def active_config(self) -> dict | None:
         return _loads(self.get_control("active_config"))
 

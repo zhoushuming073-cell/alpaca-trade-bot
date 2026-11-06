@@ -385,7 +385,7 @@ class PaperGateway:
         if session is None:
             session = session_info(datetime.now(timezone.utc), self.execution)
         if not session.can_submit:
-            raise PreDispatchRejected("Outside 09:30-10:00 ET submission window")
+            raise PreDispatchRejected("Outside configured 09:30-12:00 ET submission window")
         if not self.is_open():
             raise PreDispatchRejected("Market closed before submission")
         asset = self.api.get_asset(symbol)

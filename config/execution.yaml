@@ -3,13 +3,13 @@
 mode: paper
 timezone: America/New_York
 
-# Premarket research 09:00-09:30 ET; active local trading 09:30-10:00 ET.
+# Premarket research 09:00-09:30 ET; active local trading 09:30-12:00 ET.
 # submit_cutoff limits *new local writes*; it never cancels a broker-accepted
 # DAY order or a broker-side stop.
 premarket_start: "09:00"
 active_start: "09:30"
-active_end: "10:00"
-submit_cutoff: "09:59:30"
+active_end: "12:00"
+submit_cutoff: "11:59:30"
 
 order_type: limit
 time_in_force: day

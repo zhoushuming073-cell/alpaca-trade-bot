@@ -96,8 +96,8 @@ class Execution(Strict):
     timezone: Literal["America/New_York"] = "America/New_York"
     premarket_start: str = "09:00"
     active_start: str = "09:30"
-    active_end: str = "10:00"
-    submit_cutoff: str = "09:59:30"
+    active_end: str = "12:00"
+    submit_cutoff: str = "11:59:30"
     order_type: Literal["limit"] = "limit"
     time_in_force: Literal["day"] = "day"
     extended_hours: Literal[False] = False

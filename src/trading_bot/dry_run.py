@@ -6,6 +6,7 @@ It exercises premarket plan -> trigger -> DAY limit submission -> reconcile.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -239,6 +240,10 @@ def _minutes(now):
 
 def run(store, bundle=None, *, now=None, fill=True):
     bundle = bundle or load_config()
+    # The deterministic dry-run fixture exercises the single-agent path;
+    # production multi-agent behavior is tested separately.
+    if bundle.multi_agent.enabled:
+        bundle = replace(bundle, multi_agent=bundle.multi_agent.model_copy(update={"enabled": False}))
     now = now or datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc)
     clock = [now]
     broker = FakeBroker(fill=fill)

@@ -1,7 +1,7 @@
 """Independent order reconciliation and watchdog health.
 
 The watchdog is a read-only reconciler in the new contract.  It never cancels a
-DAY order or a broker-side stop at 10:00.  It keeps the process honest by
+DAY order or a broker-side stop at the end of the active window.  It keeps the process honest by
 recording a heartbeat, consecutive failures and a final dead/alive flag, so a
 dead thread cannot look healthy from the main process.
 """
