@@ -430,14 +430,17 @@ function renderResearchList(s) {
   setHTML("research-empty", filtered.length ? "" : "没有匹配的研究档案");
   $("research-empty").hidden = filtered.length > 0;
   const sections = groups.map((group) => {
-    const rows = filtered.filter((item) => String(lookup.get(item.symbol)?.id || "") === String(group.id));
+    const rows = (group.symbols || [])
+      .map((symbol) => filtered.find((item) => item.symbol === symbol))
+      .filter(Boolean);
     if (!rows.length) return "";
+    const showGroupTag = Boolean(researchState.sector);
     const cards = rows.map((item) => {
       const status = label(item.status, "待更新");
       return '<button class="research-card" type="button" data-symbol="' + esc(item.symbol) + '">' +
         '<div class="research-card-top"><span class="research-card-symbol">' + esc(item.symbol) +
         '</span><span class="plan-tag ' + (item.status === "OK" ? "active" : "invalid") + '">' + esc(status) + '</span></div>' +
-        '<div class="research-card-sector">' + esc(groupText(group)) + '</div>' +
+        (showGroupTag ? '<div class="research-card-sector">' + esc(groupText(group)) + '</div>' : '') +
         '<div class="research-card-meta"><span>' + esc(item.evidence_count || 0) + ' 条证据</span><span>' +
         esc(shortDate(item.verified_at)) + '</span></div></button>';
     }).join("");
