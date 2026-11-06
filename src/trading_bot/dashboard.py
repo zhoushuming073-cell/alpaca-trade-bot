@@ -566,11 +566,7 @@ def snapshot(store, account_feed=None):
         "next": next_step,
         "as_of": now.isoformat(),
     }
-    multi_agent_config = (
-        MultiAgent(**active["multi_agent"])
-        if isinstance(active.get("multi_agent"), dict)
-        else (disk.multi_agent if disk is not None else MultiAgent())
-    )
+    multi_agent_config = disk.multi_agent if disk is not None else MultiAgent()
     agent_runs = store.recent_agent_runs(8)
     latest_agent_run = agent_runs[0] if agent_runs else None
     latest_agent_reports = (
