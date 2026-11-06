@@ -99,3 +99,16 @@ def test_patrol_model_failure_is_logged_and_silent():
     engine = _patrol_engine(_PatrolAI(error=TimeoutError("patrol timeout")))
     assert Engine._run_patrol(engine, None, datetime.now(timezone.utc), {"positions": []}, {}, []) == []
     assert events[-1][0] == "patrol" and events[-1][1]["status"] == "ERROR"
+
+
+def test_expert_timeout_releases_running_guard():
+    def timeout(*args, **kwargs):
+        raise TimeoutError("expert deadline")
+    engine = SimpleNamespace(
+        _expert_running=False, _last_expert=None,
+        _run_active_research=timeout,
+        store=SimpleNamespace(event=lambda *a, **k: None),
+    )
+    with pytest.raises(TimeoutError):
+        Engine._run_expert(engine, None, datetime.now(timezone.utc), {}, {}, [], "timeout")
+    assert engine._expert_running is False
