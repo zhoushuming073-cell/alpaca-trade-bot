@@ -127,7 +127,11 @@ function render(s) {
   $("process").textContent = !s.running ? "未启动" : !worker ? "状态待确认" : s.paused ? "已暂停交易" : "运行中";
   $("process").className = "badge " + (s.running && worker && !s.paused && !hasBlock(s) ? "ok" : "");
   let heading, copy;
-  if (hasBlock(s)) {
+  const recovering = (s.freeze_reason || s.safety_reason) === "DATABASE_RESTORED_RECONCILIATION_REQUIRED";
+  if (recovering) {
+    heading = "交易暂停，等待对账";
+    copy = "可以查看持仓、研究档案和使用交易助手。完成对账并经你确认后，才会恢复交易。";
+  } else if (hasBlock(s)) {
     heading = "需要你确认一下";
     copy = "交易恢复前有待处理事项，请查看下方运行详情。";
   } else if (!s.running) {
@@ -169,7 +173,8 @@ function render(s) {
   $("account-time").textContent = s.account_asof ? "账户更新 " + time(s.account_asof) : "等待账户同步";
 
   const alerts = [];
-  if (s.freeze_reason || s.safety_reason || s.unresolved?.length) alerts.push("有订单或运行状态需要核对，暂不能恢复交易。");
+  if (recovering) alerts.push("历史资料已从备份恢复。网页查询与聊天可用，自动交易保持暂停，等待对账。");
+  else if (s.freeze_reason || s.safety_reason || s.unresolved?.length) alerts.push("有订单或运行状态需要核对，暂不能恢复交易。");
   if (s.config_pending_restart) alerts.push("配置已更新，请从「更多」重启机器人后再继续交易。");
   if (s.running && (!worker || !watched)) alerts.push("机器人或订单同步暂未确认正常，请查看运行详情。");
   if (!accountFresh) alerts.push(s.account ? "账户数据尚未更新，金额可能不是最新值。" : "暂时无法读取账户数据。");
@@ -409,7 +414,7 @@ function renderChat() {
     const el = document.createElement("article");
     el.className = "chat-message " + (["assistant","user","system"].includes(m.role) ? m.role : "system");
     el.dataset.id = String(m.id);
-    const who = m.role === "user" ? "你" : m.role === "system" ? "连接提示" : m.source === "proactive" ? "助手 · 主动消息" : "交易助手";
+    const who = m.role === "user" ? "你" : m.role === "system" ? "系统提示" : m.source === "proactive" ? "助手 · 主动消息" : "交易助手";
     el.innerHTML = '<div class="chat-meta"><b>' + esc(who) + '</b><time>' + esc(shortDate(m.ts) + " " + time(m.ts)) +
       '</time></div><div class="chat-text">' + esc(m.body) + '</div>';
     if (m.role === "assistant") {
