@@ -28,7 +28,10 @@ class OrderService:
 
     @staticmethod
     def client_order_id(plan_id: str, trigger_id: str, intent: dict, attempt: int = 0) -> str:
-        raw = f"aip2:{plan_id}:{trigger_id}:{intent.get('symbol')}:{intent.get('side')}:{attempt}"
+        raw = (
+            f"aip2:{plan_id}:{trigger_id}:{intent.get('symbol')}:"
+            f"{intent.get('side')}:{intent.get('position_intent')}:{attempt}"
+        )
         return "aip-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:36]
 
     def _existing_result(self, cid: str) -> dict | None:

@@ -40,13 +40,18 @@ def make_engine(store, clock, bundle, ai=None, broker=None):
 
 def plan_with(now, *, trigger, valid_minutes=40, action="BUY", qty=3, stop_policy="NONE",
               stop_loss=None):
+    decision = {
+        "BUY": TradeDecision.BUY, "SELL": TradeDecision.SELL,
+        "OPEN_LONG": TradeDecision.OPEN_LONG, "CLOSE_LONG": TradeDecision.CLOSE_LONG,
+        "OPEN_SHORT": TradeDecision.OPEN_SHORT, "COVER_SHORT": TradeDecision.COVER_SHORT,
+    }[action]
     return PremarketPlan(
         as_of_utc=now, model_id="fixture",
         market_decision=MarketDecision.TRADE, account_snapshot_id="snap",
         candidates=[Candidate(
             symbol="CRWV", setup_type=SetupType.PULLBACK_RECLAIM,
             opportunity_grade=OpportunityGrade.A,
-            trade_decision=TradeDecision.BUY if action == "BUY" else TradeDecision.SELL,
+            trade_decision=decision,
             analysis="fixture", plan_id="plan-regression",
             plan_valid_until_utc=now + timedelta(minutes=valid_minutes),
             triggers=[trigger],
@@ -103,6 +108,34 @@ def test_premarket_then_trigger_posts_once(store, clock, bundle):
     assert engine.tick() in {"active_wait", "active_scan", "active_no_plan"}
     assert broker.submissions == 1
     assert len([o for o in broker.orders.values() if o["status"] == "filled"]) == 1
+
+
+def test_short_plan_submits_sell_to_open(bundle, store, clock, monkeypatch):
+    from dataclasses import replace
+
+    bundle = replace(
+        bundle,
+        execution=bundle.execution.model_copy(update={"allow_shorting": True}),
+        hashes={**bundle.hashes, "combined": "short-engine-test"},
+    )
+    monkeypatch.setattr("trading_bot.broker.load_config", lambda: bundle)
+    monkeypatch.setattr("trading_bot.settings.load_config", lambda: bundle)
+    clock.set(datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc))
+    now = clock()
+    ai = FixedAI(plan_with(now, trigger=Trigger(
+        trigger_id="short-exec", purpose=TriggerPurpose.EXECUTE_ORDER,
+        all_of=[Condition(field="last", op="<=", value=101)],
+    ), action="OPEN_SHORT", qty=2))
+    broker = FakeBroker(shorting_enabled=True, shortable=True)
+    engine, broker, _ = make_engine(store, clock, bundle, ai=ai, broker=broker)
+    assert engine.tick() == "premarket_planned"
+    clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
+    assert engine.tick() == "active_triggered"
+    assert broker.submissions == 1, store.recent_events(("order_not_sent", "intent_rejected", "error", "plan_rejected"), 10)
+    assert broker.positions["CRWV"] == -2
+    order = next(iter(broker.orders.values()))
+    assert order["side"] == "sell"
+    assert order["position_intent"] == "sell_to_open"
 
 
 def test_plan_expires_before_trigger(store, clock, bundle):

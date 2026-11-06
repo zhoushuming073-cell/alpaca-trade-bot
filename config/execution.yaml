@@ -20,6 +20,10 @@ extended_hours: false
 allow_broker_stop: false
 broker_stop_verified: false
 
+# Shorting is default OFF.  When enabled, every OPEN_SHORT still requires the
+# live Alpaca account shorting_enabled flag and asset shortable/easy_to_borrow.
+allow_shorting: false
+
 trigger_poll_seconds: 10
 # A just-recorded dispatch may not be queryable at Alpaca for a short moment.
 # The watchdog must not call that "unknown" before this grace window.

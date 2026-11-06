@@ -15,7 +15,10 @@ Return one JSON object:
   "invalidation": []
 }
 
-If decision is REPLACE, include a fully specified order_intent with an integer qty,
+If decision is REPLACE, include a fully specified order_intent with action
+OPEN_LONG|CLOSE_LONG|OPEN_SHORT|COVER_SHORT|BUY|SELL, an integer qty,
 DAY LIMIT price and explicit stop_policy. If decision is CONTINUE/INVALIDATE/NO_TRADE,
-order_intent must be null. A recheck condition is not itself a buy authorization.
+order_intent must be null. A recheck condition is not itself an order authorization.
+For a short open, use sell_to_open (action OPEN_SHORT); for covering use buy_to_close
+(action COVER_SHORT). Do not use a plain SELL to open a short or a plain BUY to cover.
 Do not re-use stale prices; if the provided data is not fresh, return NO_TRADE or INVALIDATE.

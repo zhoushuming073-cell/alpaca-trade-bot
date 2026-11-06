@@ -2,12 +2,16 @@
 
 The trading contract is intentionally narrow:
 
-* Alpaca Paper only, US equities/ETFs, long only.
+* Alpaca Paper only, US equities/ETFs.
 * Whole-share DAY LIMIT orders, regular hours only.
-* No notional orders, no leverage, no shorting.
+* Long and short position intents are explicit.  Shorting is default-off and
+  requires separate account/asset/borrow checks; a side alone never implies a
+  short or a cover.
+* No notional orders, leverage, options or crypto.
 * An optional broker-side stop may be requested by the AI; it is only valid
   when the execution capability has been explicitly verified.  A requested
   stop is never silently dropped.
+* A close/cover may never cross zero; reversing direction is a separate order.
 
 ``validate_order`` accepts both an intent dictionary and the final SDK wire
 dictionary.  It never changes a quantity; callers must reject an invalid
@@ -83,8 +87,28 @@ def _side(order: dict) -> str:
         raw = raw.value
     side = str(raw).lower()
     if side not in {"buy", "sell"}:
-        raise OrderValidationError("US equity symbol and long-only side required")
+        raise OrderValidationError("US equity symbol and side required")
     return side
+
+
+def _position_intent(order: dict, side: str) -> str:
+    raw = order.get("position_intent")
+    if raw is None:
+        # Legacy BUY/SELL intents are long-only.  New AI intents always carry
+        # an explicit position_intent; this fallback preserves existing callers.
+        return "buy_to_open" if side == "buy" else "sell_to_close"
+    if hasattr(raw, "value"):
+        raw = raw.value
+    intent = str(raw).lower()
+    expected_side = {
+        "buy_to_open": "buy", "buy_to_close": "buy",
+        "sell_to_open": "sell", "sell_to_close": "sell",
+    }
+    if intent not in expected_side:
+        raise OrderValidationError("Invalid position_intent")
+    if expected_side[intent] != side:
+        raise OrderValidationError("position_intent side mismatch")
+    return intent
 
 
 def _stop_price(order: dict) -> Decimal | None:
@@ -128,6 +152,7 @@ def validate_order(order: dict, *, allow_stop: bool = False) -> int:
     if not symbol:
         raise OrderValidationError("Symbol required")
     side = _side(order)
+    position_intent = _position_intent(order, side)
     tif = str(getattr(order.get("time_in_force", "day"), "value", order.get("time_in_force", "day"))).lower()
     if tif != "day":
         raise OrderValidationError("Only DAY orders are permitted for new orders")

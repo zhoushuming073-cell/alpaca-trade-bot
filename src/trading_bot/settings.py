@@ -72,8 +72,8 @@ class Risk(Strict):
     """Non-positional protections that remain enabled.
 
     The previous 10% single-symbol and 50% total-portfolio caps are deliberately
-    removed by the latest user specification.  Cash, no-margin, no-short and
-    duplicate-order checks are enforced in ``risk_manager`` instead.
+    removed by the latest user specification.  Long cash, short buying-power,
+    duplicate-order and no-cross-zero checks are enforced in ``risk_manager``.
     """
 
     max_daily_loss: float = Field(default=0.02, gt=0, lt=1)
@@ -107,6 +107,10 @@ class Execution(Strict):
     # rejected; it is never downgraded to NONE.
     allow_broker_stop: bool = False
     broker_stop_verified: bool = False
+    # Shorting is an explicit, default-off capability.  Even when true, every
+    # OPEN_SHORT still requires account shorting_enabled plus live asset
+    # shortable/easy_to_borrow checks from Alpaca.
+    allow_shorting: bool = False
     trigger_poll_seconds: int = Field(default=10, ge=2, le=60)
     submission_grace_seconds: int = Field(default=30, ge=5, le=300)
     recheck_cooldown_seconds: int = Field(default=120, ge=30, le=1800)

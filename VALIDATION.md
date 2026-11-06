@@ -5,9 +5,9 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`226 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`239 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
-- 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询。
+- 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询；新增多空方向、空头权限/借券、保证金购买力、空头拒单、平空与平多区分、禁止跨零、空头止损方向和空头 P&L 方向保持。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
 
 ## 2. 离线集成（无 socket）
@@ -30,6 +30,12 @@
 - `BROKER_STOP` 状态：`UNVERIFIED`；`paper_order_lifecycle_verified=false`。
 
 注意：只读账户读取不是成交验证；buying_power 的融资额度没有被用作可花现金。
+
+### 3.1 做空能力只读状态（2026-11-06）
+
+- `config/execution.yaml` 的 `allow_shorting` 保持 **false**；没有自动启用、没有真实 Paper 空单。
+- 实时 Alpaca Paper 账户返回 `shorting_enabled=true`，但系统配置未启用；UI 同时显示“Alpaca 允许 / 系统未启用”，避免把账户能力误当交易授权。
+- 空头资产检查读取实时 asset `shortable` / `easy_to_borrow` / `marginable`；离线测试覆盖借券不可用拒绝路径，但没有真实空单生命周期验证。
 
 ### 3.1 真实全池只读行情测量
 

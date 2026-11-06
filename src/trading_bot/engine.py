@@ -20,6 +20,7 @@ from .decision_schema import (
     RecheckDecision,
     SchemaError,
     as_intent,
+    as_order_intent,
     parse_plan,
     parse_recheck,
     parse_scan,
@@ -217,7 +218,10 @@ class Engine:
         return account
 
     def _account_context(self, account):
-        held = {symbol: qty for symbol, qty in account.get("quantities", {}).items() if float(qty) > 0}
+        held = {
+            symbol: qty for symbol, qty in account.get("quantities", {}).items()
+            if float(qty) != 0
+        }
         stops = stop_orders(account)
         stop_by_symbol = {}
         for order in stops:
@@ -229,19 +233,25 @@ class Engine:
                 "stop_price": order.get("stop_price"),
                 "status": order.get("status"),
                 "time_in_force": order.get("time_in_force"),
+                "position_intent": order.get("position_intent"),
             })
         positions = []
         for symbol, qty in held.items():
             detail = (account.get("position_details") or {}).get(symbol, {})
+            signed = float(qty)
             positions.append({
                 "symbol": symbol,
-                "qty": float(qty),
-                "whole_shares": int(Decimal(str(qty)).to_integral_value(rounding=ROUND_FLOOR)),
+                "qty": signed,
+                "direction": "long" if signed > 0 else "short",
+                "long_qty": max(0.0, signed),
+                "short_qty": max(0.0, -signed),
+                "whole_shares": int(abs(Decimal(str(qty))).to_integral_value(rounding=ROUND_FLOOR)),
                 "market_value": float(detail.get("market_value") or 0),
                 "avg_entry_price": float(detail.get("avg_entry_price") or 0),
                 "unrealized_pl": float(detail.get("unrealized_pl") or 0),
+                "unrealized_plpc": float(detail.get("unrealized_plpc") or 0),
                 "current_price": float(detail.get("current_price") or 0),
-                "available_qty": float((account.get("available_quantities") or {}).get(symbol, qty)),
+                "available_qty": float((account.get("available_quantities") or {}).get(symbol, abs(signed))),
                 "broker_stops": stop_by_symbol.get(symbol, []),
                 "stop_status": self._stop_status(symbol, stop_by_symbol.get(symbol, [])),
             })
@@ -252,7 +262,8 @@ class Engine:
                 "asof": account.get("asof"), "equity": account.get("equity"),
                 "cash": account.get("cash"),
                 "positions": account.get("quantities"), "orders": [
-                    (o.get("client_order_id"), o.get("status"), o.get("filled_qty"))
+                    (o.get("client_order_id"), o.get("status"), o.get("filled_qty"),
+                     o.get("position_intent"))
                     for o in account.get("open_orders", [])
                 ],
                 "config": self.config.hash,
@@ -261,16 +272,20 @@ class Engine:
             "last_equity": float(account.get("last_equity") or 0),
             "cash": cash,
             "buying_power": float(account.get("buying_power") or 0),
+            "regt_buying_power": float(account.get("regt_buying_power") or 0),
             "non_margin_cash": max(0.0, cash),
             "reserved_buy_cash": reserved,
             "available_non_margin_cash": max(0.0, cash - reserved),
+            "shorting_enabled": bool(account.get("shorting_enabled")),
+            "allow_shorting": bool(getattr(self.execution, "allow_shorting", False)),
+            "short_market_value": float(account.get("short_market_value") or 0),
             "blocked": bool(account.get("blocked")),
             "positions": positions,
             "open_orders": [
                 {k: order.get(k) for k in (
-                    "id", "client_order_id", "symbol", "side", "qty", "filled_qty",
-                    "type", "time_in_force", "limit_price", "stop_price", "status",
-                    "order_class", "legs", "created_at",
+                    "id", "client_order_id", "symbol", "side", "position_intent", "qty",
+                    "filled_qty", "type", "time_in_force", "limit_price", "stop_price",
+                    "status", "order_class", "legs", "created_at",
                 ) if k in order}
                 for order in account.get("open_orders", [])
             ],
@@ -283,13 +298,24 @@ class Engine:
     def _stop_status(self, symbol, stops):
         if stops:
             return "VERIFIED"
-        intent = self.store.latest_buy_intent(symbol)
+        intent = self.store.latest_intent(symbol)
         if not intent:
             return "UNKNOWN"
         policy = str(intent.get("stop_policy") or "NONE").upper()
         if policy == "NONE":
             return "NONE_BY_AI"
         return "FAILED"
+
+    def _asset_status(self, symbol):
+        if not hasattr(self.broker, "asset_status"):
+            return {"status": "UNKNOWN", "shortable": False, "easy_to_borrow": False}
+        try:
+            return self.broker.asset_status(symbol)
+        except Exception as exc:  # noqa: BLE001
+            self.store.event("short_data", {
+                "symbol": symbol, "reason": type(exc).__name__ + ": " + str(exc)[:200],
+            })
+            return {"status": "UNKNOWN", "shortable": False, "easy_to_borrow": False}
 
     # --------------------------------------------------------------- premarket
     def premarket(self, session):
@@ -466,8 +492,17 @@ class Engine:
                 "time_in_force": "day",
                 "whole_shares": True,
                 "extended_hours": False,
-                "no_margin": True,
-                "no_short": True,
+                "no_margin": not bool(getattr(self.execution, "allow_shorting", False)),
+                "long_no_margin": True,
+                "short_margin_required": True,
+                "no_short": not bool(getattr(self.execution, "allow_shorting", False)),
+                "shorting_allowed": bool(getattr(self.execution, "allow_shorting", False)),
+                "shorting": {
+                    "configured": bool(getattr(self.execution, "allow_shorting", False)),
+                    "account_shorting_enabled": bool(account_ctx.get("shorting_enabled")),
+                    "requested_notional_uses": "Alpaca buying_power",
+                    "requires_asset_shortable_and_easy_to_borrow": True,
+                },
                 "broker_stop_allowed": bool(
                     self.execution.allow_broker_stop and self.execution.broker_stop_verified
                 ),
@@ -567,6 +602,11 @@ class Engine:
             focus_rows.append({
                 "symbol": symbol,
                 "held": symbol in held,
+                "position": next(
+                    (item for item in account_ctx.get("positions", []) if item.get("symbol") == symbol),
+                    None,
+                ),
+                "shortability": self._asset_status(symbol),
                 "history": compact_history(daily, intraday),
                 "quote": quotes.get(symbol),
             })
@@ -575,6 +615,14 @@ class Engine:
         payload["held_symbols"] = sorted(held)
         payload["held_data_unavailable"] = sorted(unavailable_held)
         payload["stop_policy_choices"] = ["NONE", "BROKER_STOP"]
+        payload["position_choices"] = [
+            "OPEN_LONG", "CLOSE_LONG", "OPEN_SHORT", "COVER_SHORT", "HOLD", "WAIT",
+        ]
+        payload["shorting"] = {
+            "configured": bool(getattr(self.execution, "allow_shorting", False)),
+            "account_shorting_enabled": bool(account_ctx.get("shorting_enabled")),
+            "requires_asset_shortable_and_easy_to_borrow": True,
+        }
         try:
             plan, meta = self.ai.complete(
                 "PREMARKET_PLAN",
@@ -639,6 +687,14 @@ class Engine:
             ):
                 self.store.event("plan_rejected", {
                     "plan_id": candidate.plan_id, "reason": "BROKER_STOP_UNSUPPORTED",
+                })
+                blocked += 1
+                continue
+            if candidate.order_intent and candidate.order_intent.position_intent == "sell_to_open" and not (
+                getattr(self.execution, "allow_shorting", False)
+            ):
+                self.store.event("plan_rejected", {
+                    "plan_id": candidate.plan_id, "reason": "SHORTING_DISABLED",
                 })
                 blocked += 1
                 continue
@@ -709,7 +765,7 @@ class Engine:
             return "active_snapshot_failed"
         quotes = self._quote_map(symbols)
         account_ctx, held = self._account_context(account)
-        buy_attempts = self.store.count_buy_attempts(session.trading_day)
+        buy_attempts = self.store.count_order_attempts(session.trading_day)
         triggered = 0
         for plan in plans:
             plan_id = plan["plan_id"]
@@ -917,9 +973,7 @@ class Engine:
         if result.decision is RecheckDecision.CONTINUE:
             return True
         if result.decision is RecheckDecision.REPLACE and result.order_intent:
-            intent = result.order_intent.model_dump(mode="json")
-            intent["side"] = intent.pop("action").lower()
-            intent["stop_policy"] = str(intent.get("stop_policy") or "NONE")
+            intent = as_order_intent(result.order_intent)
             new_plan_id = f"{plan['plan_id']}-r{int(self.clock().timestamp())}"
             valid_until = result.plan_valid_until_utc or self.clock() + timedelta(minutes=5)
             synthetic = {
@@ -941,7 +995,7 @@ class Engine:
                     intent, plan_id=new_plan_id, trigger_id="recheck",
                     day=session.trading_day, session=current_session,
                     account=account, quote=quote, symbols=self.symbols, risk=self.risk,
-                    buy_attempts=self.store.count_buy_attempts(session.trading_day),
+                    buy_attempts=self.store.count_order_attempts(session.trading_day),
                     freeze_reason=self.store.freeze_reason(), attempt=0,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -982,7 +1036,10 @@ def as_intent_from_candidate(candidate: dict) -> dict | None:
     order = candidate.get("order_intent")
     if not isinstance(order, dict):
         return None
-    intent = dict(order)
-    intent["side"] = str(intent.pop("action", intent.get("action", ""))).lower()
-    intent["stop_policy"] = str(intent.get("stop_policy") or "NONE")
-    return intent
+    from .decision_schema import OrderIntent
+
+    try:
+        parsed = OrderIntent.model_validate(order)
+    except Exception:  # noqa: BLE001
+        return None
+    return as_order_intent(parsed)

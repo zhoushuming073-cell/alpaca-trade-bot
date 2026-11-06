@@ -16,6 +16,7 @@ ROBOT_KINDS = (
     "after_close_reconcile", "after_close_reconciliation", "database_reconciliation",
     "cutoff_cleanup", "safety_alert", "config_pending", "operator",
     "operator_resolution", "network_retry", "error", "stopped", "ai_call",
+    "short_check", "short_data",
 )
 
 _AI_KINDS = {
@@ -64,6 +65,8 @@ def _category(kind: str, payload: dict) -> str:
 def _source(kind: str, category: str) -> str:
     if kind in {"premarket_plan", "universe_scan", "intraday_recheck", "ai_call"}:
         return "AI"
+    if kind in {"short_check", "short_data"}:
+        return "System"
     if kind in {"order", "order_imported", "order_recovery"}:
         return "Alpaca"
     if category == "system":
@@ -110,6 +113,10 @@ def _title(kind: str, payload: dict) -> str:
         return "订单未发送"
     if kind == "order":
         return "Alpaca 订单回报"
+    if kind == "short_check":
+        return "做空权限 / 借券检查"
+    if kind == "short_data":
+        return "做空数据检查"
     if kind == "order_imported":
         return "Alpaca 历史订单导入"
     if kind == "order_recovery":
@@ -181,9 +188,19 @@ def _summary(kind: str, payload: dict, candidate: dict | None, order: dict | Non
     if kind == "order_not_sent":
         return str(payload.get("reason") or payload.get("outcome") or "未发送到券商")
     if kind == "order":
-        return f"{payload.get('side', '')} {payload.get('qty', '')} 股 · " \
+        intent_label = {
+            "sell_to_open": "卖空开仓", "buy_to_close": "买入平空",
+            "buy_to_open": "买入开多", "sell_to_close": "卖出平多",
+        }.get(str(payload.get("position_intent") or ""), str(payload.get("side", "")))
+        return f"{intent_label} {payload.get('qty', '')} 股 · " \
                f"{_STATUS_TEXT.get(str(payload.get('status', '')).lower(), payload.get('status', ''))} · " \
                f"已成交 {payload.get('filled_qty', '0')}"
+    if kind == "short_check":
+        return f"{payload.get('outcome', '—')} · shortable={payload.get('shortable')} · " \
+               f"easy_to_borrow={payload.get('easy_to_borrow')} · " \
+               f"buying_power={payload.get('buying_power')}"
+    if kind == "short_data":
+        return str(payload.get("reason") or "做空数据不可用")[:220]
     if kind == "order_imported":
         return f"{payload.get('outcome', 'imported')} · {payload.get('cid', '')}"
     if kind == "order_recovery":

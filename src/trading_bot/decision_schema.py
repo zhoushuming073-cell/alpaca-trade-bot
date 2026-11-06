@@ -36,9 +36,39 @@ class TradeDecision(StrEnum):
     BUY = "BUY"
     SELL = "SELL"
     REDUCE = "REDUCE"
+    OPEN_LONG = "OPEN_LONG"
+    CLOSE_LONG = "CLOSE_LONG"
+    OPEN_SHORT = "OPEN_SHORT"
+    COVER_SHORT = "COVER_SHORT"
     HOLD = "HOLD"
     WAIT = "WAIT"
     NO_TRADE = "NO_TRADE"
+
+
+class OrderAction(StrEnum):
+    BUY = "BUY"
+    SELL = "SELL"
+    REDUCE = "REDUCE"
+    OPEN_LONG = "OPEN_LONG"
+    CLOSE_LONG = "CLOSE_LONG"
+    OPEN_SHORT = "OPEN_SHORT"
+    COVER_SHORT = "COVER_SHORT"
+
+    @property
+    def side(self) -> str:
+        return "buy" if self in {
+            OrderAction.BUY, OrderAction.OPEN_LONG, OrderAction.COVER_SHORT,
+        } else "sell"
+
+    @property
+    def position_intent(self) -> str:
+        if self in {OrderAction.BUY, OrderAction.OPEN_LONG}:
+            return "buy_to_open"
+        if self in {OrderAction.SELL, OrderAction.REDUCE, OrderAction.CLOSE_LONG}:
+            return "sell_to_close"
+        if self is OrderAction.OPEN_SHORT:
+            return "sell_to_open"
+        return "buy_to_close"
 
 
 class StopPolicy(StrEnum):
@@ -98,6 +128,10 @@ class PositionAction(StrEnum):
     HOLD = "HOLD"
     REDUCE = "REDUCE"
     SELL = "SELL"
+    OPEN_LONG = "OPEN_LONG"
+    CLOSE_LONG = "CLOSE_LONG"
+    OPEN_SHORT = "OPEN_SHORT"
+    COVER_SHORT = "COVER_SHORT"
     ADJUST_STOP = "ADJUST_STOP"
     REMOVE_STOP = "REMOVE_STOP"
     NO_STOP = "NO_STOP"
@@ -126,7 +160,7 @@ class StopLoss(Strict):
 
 
 class OrderIntent(Strict):
-    action: Literal["BUY", "SELL"]
+    action: OrderAction
     symbol: str = Field(min_length=1, max_length=12)
     qty: int = Field(gt=0, strict=True)
     order_type: Literal["limit"] = "limit"
@@ -135,6 +169,14 @@ class OrderIntent(Strict):
     extended_hours: Literal[False] = False
     stop_policy: StopPolicy = StopPolicy.NONE
     stop_loss: StopLoss | None = None
+
+    @property
+    def side(self) -> str:
+        return self.action.side
+
+    @property
+    def position_intent(self) -> str:
+        return self.action.position_intent
 
     @field_validator("limit_price")
     @classmethod
@@ -146,12 +188,16 @@ class OrderIntent(Strict):
     @model_validator(mode="after")
     def _stop_consistency(self):
         if self.stop_policy == StopPolicy.BROKER_STOP:
-            if self.action != "BUY":
-                raise ValueError("BROKER_STOP is only supported for BUY intents")
+            if self.action not in {
+                OrderAction.BUY, OrderAction.OPEN_LONG, OrderAction.OPEN_SHORT,
+            }:
+                raise ValueError("BROKER_STOP is only supported for opening intents")
             if self.stop_loss is None:
                 raise ValueError("BROKER_STOP requires stop_loss")
-            if self.stop_loss.stop_price >= self.limit_price:
+            if self.side == "buy" and self.stop_loss.stop_price >= self.limit_price:
                 raise ValueError("BUY stop must be below the limit price")
+            if self.side == "sell" and self.stop_loss.stop_price <= self.limit_price:
+                raise ValueError("SELL short stop must be above the limit price")
         elif self.stop_loss is not None:
             raise ValueError("NONE stop policy must not carry stop_loss")
         return self
@@ -188,11 +234,24 @@ class Candidate(Strict):
     def _decision_consistency(self):
         if self.veto:
             return self
-        if self.trade_decision in {TradeDecision.BUY, TradeDecision.SELL, TradeDecision.REDUCE}:
+        trading = {
+            TradeDecision.BUY, TradeDecision.SELL, TradeDecision.REDUCE,
+            TradeDecision.OPEN_LONG, TradeDecision.CLOSE_LONG,
+            TradeDecision.OPEN_SHORT, TradeDecision.COVER_SHORT,
+        }
+        if self.trade_decision in trading:
             if self.order_intent is None:
                 raise ValueError("trading candidates require order_intent")
-            expected = "BUY" if self.trade_decision is TradeDecision.BUY else "SELL"
-            if self.order_intent.action != expected:
+            expected_actions = {
+                TradeDecision.BUY: {"BUY", "OPEN_LONG"},
+                TradeDecision.OPEN_LONG: {"OPEN_LONG", "BUY"},
+                TradeDecision.SELL: {"SELL"},
+                TradeDecision.REDUCE: {"SELL", "REDUCE"},
+                TradeDecision.CLOSE_LONG: {"SELL", "CLOSE_LONG"},
+                TradeDecision.OPEN_SHORT: {"OPEN_SHORT"},
+                TradeDecision.COVER_SHORT: {"COVER_SHORT"},
+            }[self.trade_decision]
+            if self.order_intent.action.value not in expected_actions:
                 raise ValueError("order_intent.action does not match trade_decision")
             if self.order_intent.symbol != self.symbol:
                 raise ValueError("order_intent.symbol does not match candidate")
@@ -293,11 +352,13 @@ class PositionInstruction(Strict):
 
     @model_validator(mode="after")
     def _shape(self):
-        if self.action in {PositionAction.SELL, PositionAction.REDUCE}:
+        opening_or_closing = {
+            PositionAction.SELL, PositionAction.REDUCE, PositionAction.CLOSE_LONG,
+            PositionAction.OPEN_LONG, PositionAction.OPEN_SHORT, PositionAction.COVER_SHORT,
+        }
+        if self.action in opening_or_closing:
             if self.qty is None or self.limit_price is None:
-                raise ValueError("sell/reduce requires qty and limit_price")
-            if self.stop_policy is StopPolicy.BROKER_STOP:
-                raise ValueError("BROKER_STOP is not supported for exits in this build")
+                raise ValueError("position order requires qty and limit_price")
         if self.action in {PositionAction.ADJUST_STOP, PositionAction.REMOVE_STOP}:
             if not self.plan_id:
                 raise ValueError("stop changes require the existing plan/order reference")
@@ -435,10 +496,16 @@ def parse_research(raw: str, *, symbol: str | None = None) -> ResearchRefresh:
     return profile
 
 
+def as_order_intent(order_intent: OrderIntent) -> dict:
+    intent = order_intent.model_dump(mode="json")
+    intent["action"] = order_intent.action.value
+    intent["side"] = order_intent.side
+    intent["position_intent"] = order_intent.position_intent
+    intent["stop_policy"] = str(intent.get("stop_policy") or "NONE")
+    return intent
+
+
 def as_intent(candidate: Candidate) -> dict | None:
     if candidate.order_intent is None:
         return None
-    intent = candidate.order_intent.model_dump(mode="json")
-    intent["side"] = intent.pop("action").lower()
-    intent["stop_policy"] = str(intent.get("stop_policy") or "NONE")
-    return intent
+    return as_order_intent(candidate.order_intent)

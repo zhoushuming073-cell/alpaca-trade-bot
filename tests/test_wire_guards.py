@@ -79,6 +79,78 @@ def dispatch_ready(store, bundle, cid="cid-1", value=None):
     assert store.record_dispatch_intent(cid, "owner")
 
 
+def test_short_prepare_checks_borrow_and_dispatches_position_intent(tmp_path, monkeypatch):
+    gateway, broker, store, calls, _ = prepared_gateway(tmp_path, monkeypatch)
+    bundle = load_config()
+    gateway.execution = bundle.execution.model_copy(update={"allow_shorting": True})
+    account = {
+        "account_id_hash": "x", "equity": 100000.0, "last_equity": 100000.0,
+        "cash": 100000.0, "buying_power": 100000.0, "blocked": False,
+        "shorting_enabled": True, "positions": {}, "position_details": {},
+        "quantities": {}, "available_quantities": {}, "open_orders": [],
+        "asof": NOW,
+    }
+    monkeypatch.setattr(gateway, "snapshot", lambda: account)
+    monkeypatch.setattr(broker.api, "get_asset", lambda symbol: SimpleNamespace(
+        tradable=True, status=SimpleNamespace(value="active"),
+        asset_class=SimpleNamespace(value="us_equity"),
+        shortable=True, easy_to_borrow=True, marginable=True,
+    ))
+    short = {
+        "action": "OPEN_SHORT", "side": "sell", "position_intent": "sell_to_open",
+        "symbol": "TEST", "qty": 2, "limit_price": 100.0,
+        "order_type": "limit", "time_in_force": "day", "extended_hours": False,
+        "stop_policy": "NONE", "stop_loss": None,
+    }
+    cid = "short-1"
+    store.reserve_order(cid, "2026-11-05", short, owner="owner")
+    assert store.claim_order(cid, "owner")
+    assert store.transition(cid, OrderState.READY_TO_DISPATCH,
+                            expected=OrderState.VALIDATING, owner="owner")
+    assert store.record_dispatch_intent(cid, "owner")
+    result = gateway.dispatch(short, cid)
+    assert result["status"] == "filled"
+    assert calls[0]["position_intent"] == "sell_to_open"
+    assert calls[0]["side"] == "sell"
+
+
+def test_short_prepare_rejects_asset_without_borrow(tmp_path, monkeypatch):
+    gateway, broker, store, calls, _ = prepared_gateway(tmp_path, monkeypatch)
+    bundle = load_config()
+    gateway.execution = bundle.execution.model_copy(update={"allow_shorting": True})
+    account = {
+        "account_id_hash": "x", "equity": 100000.0, "last_equity": 100000.0,
+        "cash": 100000.0, "buying_power": 100000.0, "blocked": False,
+        "shorting_enabled": True, "positions": {}, "position_details": {},
+        "quantities": {}, "available_quantities": {}, "open_orders": [],
+        "asof": NOW,
+    }
+    monkeypatch.setattr(gateway, "snapshot", lambda: account)
+    monkeypatch.setattr(broker.api, "get_clock", lambda: SimpleNamespace(
+        is_open=True, timestamp=__import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        )
+    ))
+    monkeypatch.setattr(broker.api, "get_asset", lambda symbol: SimpleNamespace(
+        tradable=True, status=SimpleNamespace(value="active"),
+        asset_class=SimpleNamespace(value="us_equity"),
+        shortable=False, easy_to_borrow=False, marginable=True,
+    ))
+    short = {
+        "action": "OPEN_SHORT", "side": "sell", "position_intent": "sell_to_open",
+        "symbol": "TEST", "qty": 2, "limit_price": 100.0,
+        "order_type": "limit", "time_in_force": "day", "extended_hours": False,
+        "stop_policy": "NONE", "stop_loss": None,
+    }
+    cid = "short-2"
+    store.reserve_order(cid, "2026-11-05", short, owner="owner")
+    assert store.claim_order(cid, "owner")
+    active = session_info(__import__("datetime").datetime.fromisoformat(NOW), bundle.execution)
+    with pytest.raises(PreDispatchRejected):
+        gateway.prepare(short, cid, session=active)
+    assert calls == []
+
+
 def test_dispatch_builds_whole_share_day_limit(tmp_path, monkeypatch):
     gateway, broker, store, calls, orders = prepared_gateway(tmp_path, monkeypatch)
     bundle = load_config()

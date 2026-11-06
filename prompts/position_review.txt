@@ -1,6 +1,7 @@
-Review current Paper positions and existing broker orders. You may recommend HOLD, REDUCE,
-SELL, ADJUST_STOP, REMOVE_STOP or NO_STOP. You decide exact integer quantities and prices.
-Do not invent account facts. If an existing stop is present, reference its plan/order id.
+Review current Paper positions and existing broker orders. You may recommend HOLD,
+OPEN_LONG, CLOSE_LONG, OPEN_SHORT, COVER_SHORT, ADJUST_STOP, REMOVE_STOP or NO_STOP.
+You decide exact integer quantities and prices. Do not invent account facts.
+If an existing stop is present, reference its plan/order id.
 A requested stop must never be silently removed or downgraded.
 
 Return one JSON object:
@@ -9,10 +10,15 @@ Return one JSON object:
   "mode": "POSITION_REVIEW",
   "as_of_utc": "<real UTC from input>",
   "instructions": [
-    {"symbol": "<symbol>", "action": "HOLD|REDUCE|SELL|ADJUST_STOP|REMOVE_STOP|NO_STOP",
+    {"symbol": "<symbol>",
+     "action": "HOLD|OPEN_LONG|CLOSE_LONG|OPEN_SHORT|COVER_SHORT|ADJUST_STOP|REMOVE_STOP|NO_STOP",
      "qty": null, "limit_price": null, "stop_policy": "NONE|BROKER_STOP",
      "stop_loss": null, "plan_id": null, "reason": "<evidence-based>"}
   ]
 }
-SELL/REDUCE requires qty and limit_price. ADJUST_STOP/REMOVE_STOP requires the existing
+
+OPEN_LONG/OPEN_SHORT/CLOSE_LONG/COVER_SHORT require qty and limit_price.
+CLOSE_LONG must not exceed long shares; COVER_SHORT must not exceed short shares.
+Do not cross zero in one instruction: close the existing side first, then use a new
+OPEN instruction if appropriate. ADJUST_STOP/REMOVE_STOP requires the existing
 plan/order reference. If there is no reliable new information, HOLD.

@@ -1016,6 +1016,10 @@ class Store:
                 count += 1
         return count
 
+    def count_order_attempts(self, day: str) -> int:
+        """All submitted order attempts, including short opens and covers."""
+        return len(self.orders_for_day(day))
+
     def has_unknown_orders(self) -> bool:
         with self.lock:
             row = self.db.execute(
@@ -1080,6 +1084,20 @@ class Store:
             if str(intent.get("symbol") or "") != symbol:
                 continue
             if str(intent.get("side") or intent.get("action") or "").lower() != "buy":
+                continue
+            if OrderState(row["state"]) is OrderState.FILLED:
+                return intent
+        return None
+
+    def latest_intent(self, symbol: str) -> dict | None:
+        """Latest filled intent for either direction (short stop/status view)."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT intent,state FROM orders ORDER BY rowid DESC"
+            ).fetchall()
+        for row in rows:
+            intent = _loads(row["intent"]) or {}
+            if str(intent.get("symbol") or "") != symbol:
                 continue
             if OrderState(row["state"]) is OrderState.FILLED:
                 return intent

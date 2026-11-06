@@ -235,6 +235,9 @@ class PaperGateway:
             positions_by_symbol[symbol] = {
                 "symbol": symbol,
                 "qty": qty,
+                "direction": "long" if qty > 0 else "short" if qty < 0 else "flat",
+                "long_qty": max(0.0, qty),
+                "short_qty": max(0.0, -qty),
                 "qty_available": qty_available,
                 "market_value": float(position.market_value),
                 "avg_entry_price": float(position.avg_entry_price or 0),
@@ -270,6 +273,9 @@ class PaperGateway:
             "initial_margin": float(getattr(account, "initial_margin", 0) or 0),
             "maintenance_margin": float(getattr(account, "maintenance_margin", 0) or 0),
             "daytrade_count": int(getattr(account, "daytrade_count", 0) or 0),
+            "shorting_enabled": bool(getattr(account, "shorting_enabled", False)),
+            "short_market_value": float(getattr(account, "short_market_value", 0) or 0),
+            "regt_buying_power": float(getattr(account, "regt_buying_power", 0) or 0),
             "currency": str(getattr(account, "currency", "USD") or "USD"),
             "account_status": str(getattr(getattr(account, "status", None), "value", getattr(account, "status", "")) or ""),
             "blocked": bool(account.trading_blocked or account.account_blocked),
@@ -301,6 +307,19 @@ class PaperGateway:
             asset = self.api.get_asset(symbol)
             if not asset.tradable or str(asset.status.value) != "active" or asset.asset_class.value != "us_equity":
                 raise ValueError("Watchlist contains unavailable US equity: " + symbol)
+
+    def asset_status(self, symbol):
+        """Read-only shortability facts used by the AI plan and preflight."""
+        asset = self.api.get_asset(symbol)
+        return {
+            "symbol": symbol,
+            "tradable": bool(asset.tradable),
+            "shortable": bool(getattr(asset, "shortable", False)),
+            "easy_to_borrow": bool(getattr(asset, "easy_to_borrow", False)),
+            "marginable": bool(getattr(asset, "marginable", False)),
+            "status": str(getattr(getattr(asset, "status", None), "value", getattr(asset, "status", "")) or ""),
+            "asset_class": str(getattr(getattr(asset, "asset_class", None), "value", getattr(asset, "asset_class", "")) or ""),
+        }
 
     def lookup(self, cid):
         from alpaca.common.exceptions import APIError
@@ -359,19 +378,57 @@ class PaperGateway:
         asset = self.api.get_asset(symbol)
         if not asset.tradable or asset.status.value != "active" or asset.asset_class.value != "us_equity":
             raise PreDispatchRejected("Unavailable US equity")
+        from .risk_manager import intent_position_intent
+
+        position_intent = intent_position_intent(intent)
+        fresh = self.snapshot()
+        if position_intent == "sell_to_open":
+            checks = {
+                "allow_shorting": bool(self.execution.allow_shorting),
+                "account_shorting_enabled": bool(fresh.get("shorting_enabled")),
+                "shortable": bool(getattr(asset, "shortable", False)),
+                "easy_to_borrow": bool(getattr(asset, "easy_to_borrow", False)),
+                "marginable": bool(getattr(asset, "marginable", False)),
+                "buying_power": fresh.get("buying_power"),
+                "requested_notional": int(intent["qty"]) * float(intent["limit_price"]),
+                "outcome": "allowed",
+            }
+            if not checks["allow_shorting"]:
+                checks["outcome"] = "SHORTING_DISABLED"
+            elif not checks["account_shorting_enabled"]:
+                checks["outcome"] = "SHORTING_NOT_ENABLED"
+            elif not checks["shortable"]:
+                checks["outcome"] = "ASSET_NOT_SHORTABLE"
+            elif not checks["easy_to_borrow"]:
+                checks["outcome"] = "BORROW_NOT_AVAILABLE"
+            elif not checks["marginable"]:
+                checks["outcome"] = "ASSET_NOT_MARGINABLE"
+            if self.store:
+                self.store.event("short_check", {
+                    "symbol": symbol, "position_intent": position_intent, **checks,
+                })
+            if checks["outcome"] != "allowed":
+                raise PreDispatchRejected(checks["outcome"])
         if str(intent.get("stop_policy") or "NONE").upper() == "BROKER_STOP":
             if not (self.execution.allow_broker_stop and self.execution.broker_stop_verified):
                 raise BrokerStopUnsupported("BROKER_STOP is not verified for this Paper account")
-            if str(intent.get("side")).lower() != "buy":
-                raise BrokerStopUnsupported("BROKER_STOP is only supported for BUY intents in this build")
-        fresh = self.snapshot()
-        if str(intent.get("side")).lower() == "sell":
+            if position_intent not in {"buy_to_open", "sell_to_open"}:
+                raise BrokerStopUnsupported("BROKER_STOP is only supported for opening intents")
+        if position_intent == "sell_to_close":
             from .risk_manager import sellable_qty
 
             available = sellable_qty(fresh, symbol)
             if int(intent["qty"]) > available:
                 raise PreDispatchRejected(
                     f"Fresh available whole shares insufficient: need {intent['qty']}, have {available}"
+                )
+        elif position_intent == "buy_to_close":
+            from .risk_manager import coverable_qty
+
+            available = coverable_qty(fresh, symbol)
+            if int(intent["qty"]) > available:
+                raise PreDispatchRejected(
+                    f"Fresh coverable short shares insufficient: need {intent['qty']}, have {available}"
                 )
         return fresh
 
@@ -380,7 +437,7 @@ class PaperGateway:
         """Recorded-boundary POST.  No slow checks are allowed here."""
         from decimal import Decimal
         from alpaca.trading.requests import LimitOrderRequest, StopLossRequest
-        from alpaca.trading.enums import OrderClass
+        from alpaca.trading.enums import OrderClass, PositionIntent
 
         validate_intent(intent, allow_stop=self.execution.allow_broker_stop and self.execution.broker_stop_verified)
         row = self.store.order_row(cid) if self.store else None
@@ -391,9 +448,20 @@ class PaperGateway:
         if row["state"] != OrderState.DISPATCH_INTENT_RECORDED.value or not self.store.dispatched(cid):
             raise RuntimeError("Dispatch boundary was not durably recorded")
         stored_intent = json.loads(row["intent"] or "{}")
+        normalized_intent = str(
+            intent.get("position_intent")
+            or ("buy_to_open" if str(intent.get("side")).lower() == "buy" else "sell_to_close")
+        )
+        normalized_stored = str(
+            stored_intent.get("position_intent")
+            or ("buy_to_open" if str(stored_intent.get("side")).lower() == "buy" else "sell_to_close")
+        )
         for key in ("symbol", "side", "qty", "limit_price", "stop_policy"):
             if str(stored_intent.get(key)) != str(intent.get(key)):
                 raise RuntimeError("Wire order differs from durable risk-approved intent")
+        if normalized_stored != normalized_intent:
+            raise RuntimeError("Wire order differs from durable risk-approved intent")
+        position_intent = PositionIntent(normalized_intent)
         stop_policy = str(intent.get("stop_policy") or "NONE").upper()
         order_class = OrderClass.OTO if stop_policy == "BROKER_STOP" else OrderClass.SIMPLE
         stop_loss = None
@@ -409,6 +477,7 @@ class PaperGateway:
             time_in_force="day",
             order_class=order_class,
             stop_loss=stop_loss,
+            position_intent=position_intent,
             client_order_id=cid,
             extended_hours=False,
         )
@@ -426,6 +495,13 @@ class PaperGateway:
                 getattr(wire.get("side"), "value", wire.get("side"))
             ).lower() != str(expected["side"]).lower():
                 raise RuntimeError("Wire symbol/side mismatch")
+            wire_intent = str(getattr(wire.get("position_intent"), "value", wire.get("position_intent")) or "")
+            expected_intent = str(
+                expected.get("position_intent")
+                or ("buy_to_open" if str(expected.get("side")).lower() == "buy" else "sell_to_close")
+            )
+            if wire_intent != expected_intent:
+                raise RuntimeError("Wire position_intent mismatch")
             if Decimal(str(wire["qty"])) != Decimal(str(expected["qty"])):
                 raise RuntimeError("Wire qty mismatch")
             if Decimal(str(wire["limit_price"])) != Decimal(str(expected["limit_price"])):

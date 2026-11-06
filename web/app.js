@@ -106,6 +106,7 @@ const STATUS = {
   ACTIVE: "等待条件", WATCHING: "观察中", TRIGGERED: "已触发", EXECUTED: "已执行",
   SUPERSEDED: "已更新", INVALIDATED: "已失效", NO_ORDER: "暂不下单", NO_TRADE: "暂不交易",
   BUY: "买入", SELL: "卖出", HOLD: "持有", REDUCE: "减仓", WAIT: "继续观察",
+  OPEN_LONG: "做多开仓", CLOSE_LONG: "平多", OPEN_SHORT: "做空开仓", COVER_SHORT: "买入平空",
   BUY_IF_TRIGGER: "等待买入条件", WATCH: "继续观察",
   OK: "已更新", STALE: "待更新", UNKNOWN: "待核实", SOURCE_UNAVAILABLE: "来源暂不可用",
   AVAILABLE: "可用", UNAVAILABLE: "暂不可用", VERIFIED: "已验证", UNVERIFIED: "未验证"
@@ -319,7 +320,8 @@ function planDetailHtml(candidate, plan, statusLabel) {
 
 function renderBrief(s) {
   const brief = s.brief || {};
-  const alias = {BUY: "买入", SELL: "卖出", HOLD: "持有", WAIT: "观察", BUY_IF_TRIGGER: "等待触发", NO_TRADE: "不交易"};
+  const alias = {BUY: "买入", SELL: "卖出", HOLD: "持有", WAIT: "观察", BUY_IF_TRIGGER: "等待触发", NO_TRADE: "不交易",
+    OPEN_LONG: "做多", CLOSE_LONG: "平多", OPEN_SHORT: "做空", COVER_SHORT: "平空"};
   const focus = (brief.focus || []).slice(0, 4);
   setHTML("brief-focus", focus.length ? focus.map((item) =>
     '<div class="brief-focus-item"><b>' + esc(item.symbol) + '</b><span>' +
@@ -630,6 +632,8 @@ function renderRobotLog() {
     const detail = event.detail || {};
     const decisions = event.decision ? '<dt>AI 决策</dt><dd>' + esc(event.decision) + '</dd>' : "";
     const cid = event.cid ? '<dt>订单编号</dt><dd>' + esc(event.cid) + '</dd>' : "";
+    const positionIntent = event.detail?.position_intent
+      ? '<dt>持仓意图</dt><dd>' + esc(event.detail.position_intent) + '</dd>' : "";
     return '<article class="robot-event ' + esc(event.category) + ' ' + esc(event.severity) +
       (open ? " open" : "") + (robotNewIds.has(event.id) ? " new" : "") +
       '" data-event-id="' + event.id + '" role="button" tabindex="0" aria-expanded="' + String(open) + '">' +
@@ -642,7 +646,7 @@ function renderRobotLog() {
       '<div class="robot-event-summary">' + esc(event.summary || "") + '</div>' +
       '<div class="robot-event-detail"><div><div class="robot-event-detail-inner"><dl>' +
       '<dt>来源</dt><dd>' + esc(event.source) + '</dd><dt>事件类型</dt><dd>' + esc(event.kind) + '</dd>' +
-      decisions + cid + '</dl><pre>' + esc(JSON.stringify(detail, null, 2)) + '</pre></div></div></div>' +
+      decisions + cid + positionIntent + '</dl><pre>' + esc(JSON.stringify(detail, null, 2)) + '</pre></div></div></div>' +
       '</div></article>';
   }).join("");
   if (!nearTop) box.scrollTop += box.scrollHeight - oldHeight;
@@ -731,17 +735,25 @@ function render(s) {
 
   const positions = Object.entries(s.account?.positions || {});
   setText("position-count", positions.length ? positions.length + " 只" : "");
-  setHTML("position-table", table(["股票", "持有股数", "市值 / USD", "平均成本", "浮动盈亏", "止损"], positions.map(([symbol, value]) => {
+  setHTML("position-table", table(["方向", "股票", "持有股数", "市值 / USD", "平均成本", "浮动盈亏", "止损"], positions.map(([symbol, value]) => {
     const d = s.account.position_details?.[symbol] || {};
-    return [symbol, s.account.quantities?.[symbol], money(value), money(d.avg_entry_price), money(d.unrealized_pl),
-      STOP[d.stop_status] || "待核实"];
+    const short = Number(s.account.quantities?.[symbol] || 0) < 0;
+    return [short ? "空" : "多", symbol, Math.abs(Number(s.account.quantities?.[symbol] || 0)), money(value),
+      money(d.avg_entry_price), money(d.unrealized_pl), STOP[d.stop_status] || "待核实"];
   }), s.account ? "当前没有持仓" : "等待账户数据"));
+  const shorting = s.shorting || {};
+  setText("short-status", "做空：" + (shorting.configured ? "已配置" : "未启用") +
+    " · Alpaca " + (shorting.account_enabled ? "允许" : "不允许") +
+    " · 空头市值 $" + money(shorting.short_market_value) +
+    " · 购买力 $" + money(shorting.buying_power) +
+    (shorting.latest_check ? " · 最近检查 " + (shorting.latest_check.payload?.outcome || "") : ""));
   const orderRows = (s.orders || []).slice(0, 8).map((o) => [
     o.symbol, ({buy: "买入", sell: "卖出", BUY: "买入", SELL: "卖出"})[o.side || o.action] || "—",
+    ({buy_to_open: "买入开多", sell_to_close: "卖出平多", sell_to_open: "卖空开仓", buy_to_close: "买入平空"})[o.position_intent] || o.position_intent || "—",
     (o.qty ?? o.quantity ?? "—") + " / " + (o.filled_qty ?? "—"), money(o.limit_price),
     label(o.status, label(o.state))
   ]);
-  setHTML("order-table", table(["股票", "方向", "股数 / 已成交", "限价", "状态"], orderRows, "暂时没有订单"));
+  setHTML("order-table", table(["股票", "方向", "持仓意图", "股数 / 已成交", "限价", "状态"], orderRows, "暂时没有订单"));
   setText("pending", s.unresolved?.length ? s.unresolved.length + " 笔待核对" : "最近 8 笔");
   renderPlans(s);
   setHTML("ai-list", (s.ai_calls || []).slice(0, 6).map((a) =>

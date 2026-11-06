@@ -17,7 +17,7 @@
 - **Paper only**：固定 `https://paper-api.alpaca.markets`，不存在实盘开关或实盘回退。
 - **固定股票池**：`config/watchlist.yaml`（与工作区 `stockpool.txt` 一致），AI 不得越池下单。
 - **启动时点**：worker 应在美东 09:00 前启动（LumiBot 的 `before_market_opens` 在开盘前 30 分钟触发盘前研究）。若在 09:30 后才启动，当天不会补做盘前计划，也不会为了“赶上开盘”使用过期数据下单；这是有意的 fail-closed。
-- **只做美股/ETF 多头、整数股、DAY LIMIT、regular hours**；禁止 notional、碎股、融资/杠杆、卖空、期权、加密货币、盘前盘后订单。
+- **美股/ETF 多空双向**：整数股、DAY LIMIT、regular hours；做空默认关闭，开启后仍必须通过 Alpaca 账户 `shorting_enabled`、asset `shortable`/`easy_to_borrow`、保证金/购买力和持仓检查。禁止 notional、碎股、融资做多、期权、加密货币、盘前盘后订单，禁止一笔订单跨越零仓位。
 - **AI 决定具体 `qty` 和限价**；Python 不缩小、不放大、不自动改为目标权重。资金不足、股数不合法、卖出超过可卖整股时**拒绝**，并记录原因。
 - **取消人为仓位限制**：不再有单股 10%、总仓位 50%、固定持股数量等策略限制。仍保留真实非杠杆现金、未成交买单占用资金、已有卖单/止损占用、整数股、无卖空/超卖、防重复、当日亏损/下单尝试熔断、人工暂停、未知订单冻结。
 - **AI 自主止损**：
@@ -69,7 +69,7 @@ RECONCILIATION_REQUIRED  # 本地/券商事实冲突，冻结新风险
 - `POSITION_REVIEW`：Schema 已定义（HOLD/REDUCE/SELL/ADJUST_STOP/REMOVE_STOP/NO_STOP），当前引擎将持仓复审合并在 `PREMARKET_PLAN` 的账户上下文和候选决策中；独立调用尚未接入。
 - `RESEARCH_REFRESH`：事实/解释/假设/未知/关键价位/证据/过期时间；来源不可用时明确降级。
 
-严格校验包括：整数正股、DAY LIMIT、两码价格精度、禁止 notional/IOC/市价/扩展时段/额外字段、`NONE` 不得带止损、`BROKER_STOP` 必须有低于买单限价的止损且只允许 BUY、计划必须未过期、股票必须在固定池。非法 JSON 只允许一次有边界、有审计的修复重试，不能借修复绕过 schema 或风控。
+严格校验包括：整数正股、DAY LIMIT、两码价格精度、禁止 notional/IOC/市价/扩展时段/额外字段、`NONE` 不得带止损、`BROKER_STOP` 必须有方向正确的止损且只允许开仓、计划必须未过期、股票必须在固定池。多头止损在买单限价下方；空头止损在卖单限价上方，触发时是买入平空。非法 JSON 只允许一次有边界、有审计的修复重试，不能借修复绕过 schema 或风控。
 
 Prompt 文件：
 - `prompts/premarket_plan.txt`
@@ -88,7 +88,7 @@ Prompt 文件：
 
 ## 5. 配置与安全重启
 
-- `config/execution.yaml`：时段、截止缓冲、DAY/limit 契约、`submission_grace_seconds`、触发轮询、复核冷却/预算、看门狗间隔、数据并发、AI token/温度、`allow_broker_stop`/`broker_stop_verified`。
+- `config/execution.yaml`：时段、截止缓冲、DAY/limit 契约、`submission_grace_seconds`、触发轮询、复核冷却/预算、看门狗间隔、数据并发、AI token/温度、`allow_broker_stop`/`broker_stop_verified`、`allow_shorting`（默认 false）。
 - `config/risk.yaml`：保留的非仓位型保护（当日亏损 2%、每日下单尝试 10、K 线/报价新鲜度、价差/偏离保护）。
 - `config/strategy.yaml`：当前运行策略文本；`config/user_strategy.md` 与工作区 `策略.txt` 仅作历史资料。
 - **运行中配置不可热改**：worker 启动时把配置哈希写入 `active_config`；磁盘文件变化时只设置 `config_pending_restart=true` 并冻结新风险，不会部分模块生效或显示未采用的配置。使用看板“安全重启”按钮（要求没有未知/冲突订单；重启后保持暂停，再单独 resume），或先 `pause` 再停止/启动进程。
@@ -103,6 +103,14 @@ Prompt 文件：
 - 备份在 **`D:\alpaca-ai\ai-paper-trader-backups`**；`latest.json` 记录 SHA256、UTC 时间和核心表计数；SQLite backup API 一致性复制，先写 `.partial`，完整性检查通过才发布。
 - Windows 任务 `AlpacaAIPaperDatabaseBackup` 每 15 分钟运行；同一电脑/磁盘备份，不防整盘损坏，也没有异地备份。
 - `main.py paper` 启动前会先做一次验证备份；备份失败则不启动策略线程。
+
+### 做空开启步骤（默认关闭）
+
+1. 先确认当前连接的是 Alpaca Paper，且账户 `shorting_enabled=true`；目标 asset 的 `shortable=true`、`easy_to_borrow=true`、`marginable=true`。这些必须来自实时 API，不能用静态假设。
+2. 修改 `config/execution.yaml` 的 `allow_shorting: false` 为 `true`；这一步会改变配置哈希。
+3. 保持暂停，安全重启 worker 和 dashboard，使新配置生效；再次运行离线测试。
+4. 只有在你明确授权后，才用 1 股小规模 Paper 测试验证 OPEN_SHORT 生命周期。未经授权，系统不会自动做空、不会下单。
+5. AI 仍可输出 HOLD/WAIT/NO_TRADE；Python 只做权限、借券、保证金、持仓、冲突和订单合法性检查，不预测方向。
 
 ### 自动启动与交易日调度
 
@@ -126,7 +134,7 @@ Prompt 文件：
 - `ORDER_UNKNOWN`、券商不一致、数据库恢复冻结等状态保留给人工；恢复脚本只观察和对账，不提交、不撤销、不平仓。
 - 网络恢复后最多约 2 分钟恢复 worker；电脑重启后由登录启动项触发，再按同一安全门槛恢复。
 
-看板展示：会话阶段（ET）、配置哈希/待重启、worker 与看门狗健康、账户/非杠杆现金、持仓及止损状态、DAY 订单的本地状态与券商状态、当日计划/触发、AI 调用 Token/延迟、研究档案、重要事件。`NONE_BY_AI` 显示为“AI 选择不设”而不是系统故障；`BROKER_STOP` 未验证时显示 UNVERIFIED 并提示该意图会被拒绝。
+看板展示：会话阶段（ET）、配置哈希/待重启、worker 与看门狗健康、账户/非杠杆现金、持仓方向/数量/成本/浮动盈亏、空头权限和借券检查、DAY 订单的本地状态与券商状态、AI 方向判断、当日计划/触发、AI 调用 Token/延迟、研究档案、重要事件。`NONE_BY_AI` 显示为“AI 选择不设”而不是系统故障；`BROKER_STOP` 未验证时显示 UNVERIFIED 并提示该意图会被拒绝。
 
 > 本仓库修改后，**已在运行的旧 dashboard 进程不会自动加载新代码**；需要安全重启网页服务。启动脚本会复用已运行服务；升级后请先停止旧 dashboard 再重新启动。worker 代码更新后同样需要安全重启。
 

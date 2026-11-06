@@ -36,7 +36,7 @@ EVENT_KINDS = (
     "order_imported", "order_recovery", "config_pending", "watchdog_loop",
     "premarket_data", "quote_errors", "research_profile", "recheck_suppressed",
     "intent_rejected", "plan_invalidated", "startup_reconciliation",
-    "source_call", "source_fetch_error", "research_news",
+    "source_call", "source_fetch_error", "research_news", "short_check", "short_data",
 )
 
 
@@ -595,6 +595,13 @@ def snapshot(store, account_feed=None):
             "VERIFIED" if execution.allow_broker_stop and execution.broker_stop_verified
             else "UNVERIFIED"
         ),
+        "shorting": {
+            "configured": bool(getattr(execution, "allow_shorting", False)),
+            "account_enabled": bool((account or {}).get("shorting_enabled")),
+            "short_market_value": float((account or {}).get("short_market_value") or 0),
+            "buying_power": float((account or {}).get("buying_power") or 0),
+            "latest_check": next(iter(store.recent_events(("short_check",), 1)), None),
+        },
         "health": health,
         "decision": next(iter(store.recent_events(("premarket_plan", "intraday_recheck", "decision"), 1)), None),
         "events": list(reversed(store.recent_events(EVENT_KINDS, 50))),

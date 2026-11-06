@@ -31,7 +31,8 @@ from .settings import load_config
 
 
 class FakeBroker:
-    def __init__(self, *, fill=True, prepare_error=None, dispatch_timeout=False):
+    def __init__(self, *, fill=True, prepare_error=None, dispatch_timeout=False,
+                 shorting_enabled=False, shortable=True):
         self.orders = {}
         self.submissions = 0
         self.lookup_calls = 0
@@ -42,6 +43,8 @@ class FakeBroker:
         self.cash = 100000.0
         self.positions = {}
         self.open = True
+        self.shorting_enabled = shorting_enabled
+        self.shortable = shortable
 
     def snapshot(self):
         open_orders = [
@@ -52,23 +55,37 @@ class FakeBroker:
         for symbol, qty in self.positions.items():
             market_value = qty * 100.0
             position_details[symbol] = {
-                "symbol": symbol, "qty": qty, "market_value": market_value,
-                "avg_entry_price": 100.0, "unrealized_pl": 0.0, "current_price": 100.0,
+                "symbol": symbol, "qty": qty,
+                "direction": "long" if qty > 0 else "short" if qty < 0 else "flat",
+                "long_qty": max(0.0, qty), "short_qty": max(0.0, -qty),
+                "market_value": market_value,
+                "avg_entry_price": 100.0, "unrealized_pl": 0.0,
+                "unrealized_plpc": 0.0, "current_price": 100.0,
+                "qty_available": abs(qty),
             }
         return {
             "account_id_hash": "offline-fixture",
             "equity": self.cash + sum(q * 100.0 for q in self.positions.values()),
             "last_equity": 100000.0,
             "cash": self.cash,
-            "buying_power": self.cash,
+            "buying_power": max(0.0, self.cash),
             "non_margin_cash": max(0.0, self.cash),
+            "shorting_enabled": self.shorting_enabled,
+            "short_market_value": sum(q * 100.0 for q in self.positions.values() if q < 0),
             "blocked": False,
             "positions": {s: q * 100.0 for s, q in self.positions.items()},
             "position_details": position_details,
             "quantities": dict(self.positions),
-            "available_quantities": dict(self.positions),
+            "available_quantities": {s: abs(q) for s, q in self.positions.items()},
             "open_orders": open_orders,
             "asof": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def asset_status(self, symbol):
+        return {
+            "symbol": symbol, "tradable": True, "shortable": self.shortable,
+            "easy_to_borrow": self.shortable, "marginable": self.shortable,
+            "status": "active", "asset_class": "us_equity",
         }
 
     def is_open(self):
@@ -95,6 +112,7 @@ class FakeBroker:
             "client_order_id": cid,
             "symbol": intent["symbol"],
             "side": intent["side"],
+            "position_intent": intent.get("position_intent"),
             "qty": str(qty),
             "filled_qty": str(fill_qty),
             "filled_avg_price": str(intent["limit_price"]) if fill_qty else None,

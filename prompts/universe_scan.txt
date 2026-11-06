@@ -12,12 +12,15 @@ Return one JSON object:
   "account_snapshot_id": "<from input>",
   "candidates": [
     {"symbol": "<watchlist symbol>", "setup_type": "PULLBACK_RECLAIM|EVENT_MISPRICING",
-     "opportunity_grade": "A|B|C", "trade_decision": "BUY|SELL|REDUCE|HOLD|WAIT|NO_TRADE",
-     "thesis": "<short evidence-based thesis>", "evidence_ids": [], "priority": 1}
+     "opportunity_grade": "A|B|C",
+     "trade_decision": "OPEN_LONG|CLOSE_LONG|OPEN_SHORT|COVER_SHORT|HOLD|WAIT|NO_TRADE",
+     "thesis": "<short evidence-based thesis including direction>",
+     "evidence_ids": [], "priority": 1}
   ],
   "skipped_symbols": ["<symbol if data unavailable>"]
 }
 
 Select a small set of truly worth deeper work (roughly 3-8, not a fixed quota). Existing
-positions and unresolved DAY orders take priority. Do not fabricate missing facts; a
-candidate may be omitted instead. NO_TRADE is an acceptable answer.
+positions and unresolved DAY orders take priority. Include shorts only when the supplied
+shorting capability/asset facts support them; do not infer a short from market weakness.
+Do not fabricate missing facts; a candidate may be omitted instead. NO_TRADE is acceptable.
