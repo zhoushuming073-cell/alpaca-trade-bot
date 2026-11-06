@@ -1,5 +1,26 @@
 # Frozen exam replay (3-day smoke + 10-day backtest)
 
+## Important current limitation: premarket-only replay
+
+The current replay is **not a full intraday management backtest**.
+
+- `_replay_orders` loops from 09:30 to 09:59:30 ET, but only evaluates
+  `EXECUTE_ORDER` triggers for initial fills.
+- `REQUEST_AI_RECHECK` and `INVALIDATE_PLAN` triggers are not evaluated.
+- No intraday AI recheck is called.
+- Stops are not simulated; `BROKER_STOP` is rejected and `NONE` is used.
+- The AI account packet contains cash/equity/position quantities, but not
+  average entry, unrealized P&L, stop distance or intraday current price.
+- After 09:59:30 the position is carried, marked at the daily close, and
+  processed again only on the next selected day's 09:00 premarket snapshot.
+
+Therefore the 3-day and 10-day results below are valid for
+"premarket decision + initial order + end-of-day mark", but not for
+"continuous intraday trigger monitoring and AI position review".
+The production `engine.py`/`multi_agent.py` already has a recheck path; the
+exam replay does not call it. Re-running as a full intraday replay is required
+before calling these complete strategy backtests.
+
 ## Isolation contract
 
 The replay is implemented in [src/exam_replay/runner.py](src/exam_replay/runner.py).
