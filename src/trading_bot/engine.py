@@ -102,6 +102,11 @@ class Engine:
         self._last_active_research = None
         self._active_research_day = None
         self._active_research_tokens = 0
+        self._last_patrol = None
+        self._patrol_day = None
+        self._patrol_seen = set()
+        self._expert_running = False
+        self._last_expert = None
         self._research_marks = {}
         self._profit_reviewed = set()
         self._last_config_error = None
@@ -953,6 +958,118 @@ class Engine:
     def _active_end_utc(session):
         return session.active_end.astimezone(timezone.utc) if session.active_end else None
 
+    def _patrol_due(self, now):
+        day = now.astimezone(timezone.utc).date().isoformat()
+        if self._patrol_day != day:
+            self._patrol_day = day
+            self._last_patrol = None
+            self._patrol_seen = set()
+            self._last_expert = None
+        return self._last_patrol is None or (
+            now - self._last_patrol
+        ).total_seconds() >= self.execution.patrol_interval_seconds
+
+    def _run_patrol(self, session, now, account_ctx, held, plans):
+        """Low-cost silent patrol. It cannot emit or execute an order."""
+        if self._expert_running or not self.ai or not self.multi_agent.enabled:
+            return []
+        self._last_patrol = now
+        run_id = "patrol-" + now.strftime("%Y%m%d-%H%M%S") + "-" + str(abs(hash(str(now))) % 9999)
+        try:
+            history, failures, unavailable = self._collect_universe(session)
+            if not history:
+                self.store.event("patrol", {"run_id": run_id, "status": "NO_DATA", "signals": []})
+                return []
+            symbols = list(dict.fromkeys(list(held) + [
+                ((plan.get("payload") or {}).get("candidate") or {}).get("symbol")
+                for plan in plans
+                if ((plan.get("payload") or {}).get("candidate") or {}).get("symbol")
+            ]))
+            quotes = self._quote_map(symbols)
+            positions = {p.get("symbol"): p for p in account_ctx.get("positions", [])}
+            universe = []
+            for symbol, daily in history.items():
+                universe.append({
+                    "symbol": symbol, "summary": self._scan_summary(daily),
+                    "held": symbol in held, "position": positions.get(symbol),
+                    "quote": quotes.get(symbol), "data_status": "OK",
+                })
+            payload = {
+                "run_id": run_id, "as_of_utc": _iso(now),
+                "session": self._base_payload(session, account_ctx).get("session"),
+                "universe": universe, "account": account_ctx,
+                "positions": account_ctx.get("positions", []),
+                "open_orders": account_ctx.get("open_orders", []),
+                "plans": [
+                    {"plan_id": plan.get("plan_id"), "status": plan.get("status"),
+                     "valid_until": plan.get("valid_until"),
+                     "candidate": (plan.get("payload") or {}).get("candidate")}
+                    for plan in plans[:24]
+                ],
+                "research": self._trim_research(), "news": self._trim_news(),
+                "research_memory": self.store.agent_memory(self.symbols, per_symbol=1),
+                "unavailable": unavailable,
+            }
+            from .agent_schemas import parse_patrol
+            parsed, meta = self.ai.complete(
+                "PATROL", payload,
+                parser=lambda raw: parse_patrol(raw, run_id=run_id, symbols=self.symbols, now=now),
+                model=self.execution.patrol_model,
+                max_tokens=self.execution.patrol_max_tokens,
+                timeout=self.execution.patrol_timeout_seconds,
+                role="patrol", run_id=run_id,
+            )
+            signals = []
+            for signal in parsed.signals:
+                key = "|".join([signal.category, signal.symbol, signal.severity,
+                                str(hash(signal.summary))])
+                if key in self._patrol_seen:
+                    continue
+                self._patrol_seen.add(key)
+                signals.append(signal.model_dump(mode="json"))
+            self.store.event("patrol", {
+                "run_id": run_id, "status": "OK", "signal_count": len(signals),
+                "signals": signals, "notes": parsed.notes,
+                "model": self.execution.patrol_model,
+                "tokens": meta.get("prompt_tokens", 0) + meta.get("completion_tokens", 0),
+            })
+            return signals
+        except Exception as exc:  # noqa: BLE001
+            self.store.event("patrol", {
+                "run_id": run_id, "status": "ERROR",
+                "reason": type(exc).__name__ + ": " + str(exc)[:300], "signals": [],
+                "model": self.execution.patrol_model,
+            })
+            return []
+
+    def _python_event_reason(self, now, account_ctx, plans):
+        if not plans:
+            return "plan_missing"
+        for position in account_ctx.get("positions", []):
+            symbol = position.get("symbol")
+            pnl = float(position.get("unrealized_plpc") or 0)
+            level = 0.10 if pnl >= 0.10 else 0.05 if pnl >= 0.05 else 0
+            if level and (symbol, level) not in self._profit_reviewed:
+                return f"profit_review:{symbol}:{int(level*100)}"
+        for symbol, old in self._research_marks.items():
+            position = next((p for p in account_ctx.get("positions", []) if p.get("symbol") == symbol), None)
+            if position:
+                current = float(position.get("current_price") or 0)
+                if old and current and abs(current / old - 1) >= 0.02:
+                    return f"price_structure:{symbol}"
+        return None
+
+    def _run_expert(self, session, now, account_ctx, held, plans, reason):
+        if self._expert_running:
+            self.store.event("expert_skipped", {"reason": "already_running", "trigger": reason})
+            return None
+        self._expert_running = True
+        self._last_expert = now
+        try:
+            return self._run_active_research(session, now, account_ctx, held, plans, reason)
+        finally:
+            self._expert_running = False
+
     def _active_research_due(self, now, account_ctx, held, plans):
         """Return a reason when an intraday three-agent refresh is due."""
         if not self.multi_agent.enabled or not self.ai:
@@ -1067,10 +1184,35 @@ class Engine:
             return "active_snapshot_failed"
         account_ctx, held = self._account_context(account)
         plans = self.store.active_plans(session.trading_day)
-        research_reason = self._active_research_due(now, account_ctx, held, plans)
-        if research_reason:
-            self._run_active_research(session, now, account_ctx, held, plans, research_reason)
+        expert_cooldown = self.multi_agent.enabled and (
+            self._last_expert is None
+            or (now - self._last_expert).total_seconds()
+            >= self.execution.active_research_min_cooldown_seconds
+        )
+        # Fallback research when premarket is missing/failed/expired.
+        if not plans and expert_cooldown:
+            self._run_expert(session, now, account_ctx, held, plans, "plan_missing")
+            self._last_patrol = now
             plans = self.store.active_plans(session.trading_day)
+        # Deterministic Python event fast-path (profit, price structure, plan gap).
+        if expert_cooldown:
+            event_reason = self._python_event_reason(now, account_ctx, plans)
+            if event_reason and event_reason != "plan_missing":
+                self._run_expert(session, now, account_ctx, held, plans, event_reason)
+                plans = self.store.active_plans(session.trading_day)
+        # Ten-minute low-cost patrol; escalate only material signals.
+        if self.multi_agent.enabled and self._patrol_due(now):
+            signals = self._run_patrol(session, now, account_ctx, held, plans)
+            material = [
+                signal for signal in signals
+                if signal.get("severity") in {"MEDIUM", "HIGH"}
+            ]
+            if material:
+                reason = "patrol:" + ",".join(
+                    f"{s.get('category')}:{s.get('symbol')}" for s in material[:3]
+                )
+                self._run_expert(session, now, account_ctx, held, plans, reason)
+                plans = self.store.active_plans(session.trading_day)
         if not plans:
             return "active_no_plan"
         if self._last_scan is not None and (now - self._last_scan).total_seconds() < self.execution.trigger_poll_seconds:

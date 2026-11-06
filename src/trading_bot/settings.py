@@ -111,6 +111,10 @@ class Execution(Strict):
     # shortable/easy_to_borrow checks from Alpaca.
     allow_shorting: bool = False
     trigger_poll_seconds: int = Field(default=10, ge=2, le=60)
+    patrol_interval_seconds: int = Field(default=600, ge=60, le=3600)
+    patrol_model: str = Field(default="deepseek-flash", min_length=1, max_length=80)
+    patrol_max_tokens: int = Field(default=1200, ge=256, le=8000)
+    patrol_timeout_seconds: int = Field(default=25, ge=5, le=120)
     active_research_interval_seconds: int = Field(default=900, ge=60, le=3600)
     active_research_min_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
     active_research_max_tokens: int | None = Field(default=None, ge=1000, le=5_000_000)

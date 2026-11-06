@@ -32,6 +32,7 @@ PROMPT_FILES = {
     "SKEPTIC_REVIEW": "skeptic_review.txt",
     "PORTFOLIO_MANAGER": "portfolio_manager.txt",
     "PORTFOLIO_RECHECK": "portfolio_recheck.txt",
+    "PATROL": "patrol.txt",
 }
 
 

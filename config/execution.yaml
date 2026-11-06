@@ -25,6 +25,10 @@ broker_stop_verified: false
 allow_shorting: false
 
 trigger_poll_seconds: 10
+patrol_interval_seconds: 600
+patrol_model: deepseek-flash
+patrol_max_tokens: 1200
+patrol_timeout_seconds: 25
 active_research_interval_seconds: 900
 active_research_min_cooldown_seconds: 120
 active_research_max_tokens: null

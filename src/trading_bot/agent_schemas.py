@@ -160,3 +160,50 @@ def parse_critique(raw: str, *, run_id: str | None = None, symbol: str | None = 
     if now is not None and abs((critique.as_of_utc - now).total_seconds()) > 900:
         raise ValueError("Critique is stale")
     return critique
+
+class PatrolSignal(Strict):
+    symbol: str = Field(min_length=1, max_length=12)
+    category: Literal[
+        "NEW_LONG", "NEW_SHORT", "BREAKOUT", "BREAKDOWN", "STABILIZATION",
+        "REVERSAL", "NEWS_EVENT", "POSITION_RISK", "PLAN_INVALID",
+        "BETTER_OPPORTUNITY",
+    ]
+    direction: Literal["LONG", "SHORT", "NEUTRAL"] = "NEUTRAL"
+    severity: Literal["LOW", "MEDIUM", "HIGH"] = "LOW"
+    summary: str = Field(min_length=1, max_length=1800)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("evidence_ids", mode="before")
+    @classmethod
+    def _ids(cls, value):
+        if value is None:
+            return []
+        return [str(item) for item in value if item is not None]
+
+
+class PatrolReport(Strict):
+    schema_version: Literal["1.0"] = "1.0"
+    mode: Literal["PATROL"] = "PATROL"
+    run_id: str = Field(min_length=1, max_length=120)
+    as_of_utc: datetime
+    signals: list[PatrolSignal] = Field(default_factory=list, max_length=8)
+    notes: str = Field(default="", max_length=1200)
+
+    @field_validator("as_of_utc")
+    @classmethod
+    def _utc(cls, value: datetime) -> datetime:
+        return _utc(value)
+
+
+def parse_patrol(raw: str, *, run_id: str | None = None, symbols=None,
+                 now: datetime | None = None) -> PatrolReport:
+    report = PatrolReport.model_validate_json(raw)
+    if run_id is not None and report.run_id != run_id:
+        raise ValueError("Patrol run_id mismatch")
+    if now is not None and abs((report.as_of_utc - now).total_seconds()) > 180:
+        raise ValueError("Patrol report is stale")
+    if symbols is not None:
+        for signal in report.signals:
+            if signal.symbol not in symbols:
+                raise ValueError("Patrol signal outside fixed watchlist: " + signal.symbol)
+    return report
