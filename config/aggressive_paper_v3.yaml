@@ -1,0 +1,20 @@
+version: aggressive-paper-v3-proposal-2026-11-06
+enabled: false
+approved: false
+
+# This profile is an independent, opt-in paper strategy. It is NOT production
+# configuration and must stay disabled until the user approves explicit numbers.
+minimum_exposure: 0
+allow_leverage: false
+allow_shorting: true
+
+limits:
+  # Proposed ranges are intentionally null. No numerical limit is active.
+  max_single_trade_loss_fraction: null   # proposal 0.005-0.01 of equity
+  max_symbol_exposure_fraction: null     # proposal 0.15-0.25 of equity
+  max_gross_exposure_fraction: null      # proposal 0.60-1.00; >1 requires separate permission
+  max_daily_loss_fraction: null          # proposal 0.02-0.03
+  max_drawdown_fraction: null            # proposal 0.06-0.10
+  max_volume_participation: null         # proposal 0.01-0.05 of observed IEX volume
+
+profit_review_levels: [0.05, 0.10]
