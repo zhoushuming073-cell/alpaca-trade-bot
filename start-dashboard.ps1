@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$pythonPath = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
+$pythonPath = Join-Path $PSScriptRoot '.venv/Scripts/pythonw.exe'
 $url = 'http://127.0.0.1:4200'
 if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'Python environment missing. See README.md.' }
 $launchMutex = New-Object System.Threading.Mutex($false, 'Local\AlpacaDashboardLauncher4200')

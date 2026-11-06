@@ -96,5 +96,6 @@
 - 2026-11-06 实际发生网络中断：Alpaca 连接被重置，watchdog 连续对账失败并写入 `WATCHDOG_UNHEALTHY`；用户随后手动停止。
 - 新增 `tools/paper_recovery.py`；在真实网络恢复后实际执行成功：读取 Alpaca、启动 worker、完成干净对账、清除 `WATCHDOG_UNHEALTHY`、恢复 `paused=false`，**没有提交任何订单**。
 - 再次执行恢复为幂等 no-op：`worker healthy and autopilot already live; no action`。
-- Windows 任务 `AlpacaAIPaperRecovery` 每 2 分钟运行；登录启动目录已放置 `AlpacaAIRecovery.cmd`。`ONLOGON` 计划任务因权限拒绝未创建，已用启动目录替代。
+- Windows 任务 `AlpacaAIPaperRecovery` 每 2 分钟运行；登录启动目录已放置 `AlpacaAIRecovery.vbs`。`ONLOGON` 计划任务因权限拒绝未创建，已用启动目录替代。
+- 三个后台任务均已从 `powershell.exe`/`python.exe` 改为 `pythonw.exe`；启动目录为 `.vbs`；dashboard、worker、supervisor、recovery 子进程均使用无窗口启动。实际运行恢复和备份任务均返回 0，未出现可见 Python 窗口。
 - 人工 `stop` 会关闭 `autopilot`，恢复脚本不会覆盖；未知订单、数据库恢复冻结等不会自动清除。

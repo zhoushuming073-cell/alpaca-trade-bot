@@ -60,7 +60,8 @@ def ensure_dashboard() -> bool:
     subprocess.Popen(
         [str(ROOT / ".venv/Scripts/python.exe"), "-m", "trading_bot.dashboard"],
         cwd=ROOT, env=worker_environment(), stdout=out, stderr=err,
-        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     for _ in range(30):
         if port_open():

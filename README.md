@@ -118,7 +118,8 @@ Prompt 文件：
 
 ### 网络中断/关机后的自动恢复
 
-- `tools/paper_recovery.py` 由 Windows 任务 `AlpacaAIPaperRecovery` **每 2 分钟**检查一次；另在用户登录启动目录放置 `AlpacaAIRecovery.cmd`，用于电脑重启/重新登录后的首次恢复。
+- `tools/paper_recovery.py` 由 Windows 任务 `AlpacaAIPaperRecovery` **每 2 分钟**检查一次；另在用户登录启动目录放置 `AlpacaAIRecovery.vbs`，用于电脑重启/重新登录后的首次恢复。
+- 所有后台任务都通过 `pythonw.exe` 启动，子进程带 `CREATE_NO_WINDOW`；不弹 cmd/PowerShell 黑窗。`paper_supervisor`、`paper_recovery` 和 dashboard 自身也使用无窗口启动方式。
 - 只有在持久化 `autopilot=true` 时才动作；手动 `pause/stop` 会写入 `autopilot=false`，恢复任务不会覆盖人工停止。
 - 访问 Alpaca Paper 失败时只记录并退出，等下一次网络恢复后重试；不会在断网时猜测订单状态。
 - 只自动清除 `WATCHDOG_UNHEALTHY` / `STARTUP_RECONCILIATION_UNAVAILABLE` 这类网络/对账造成的冻结，且必须先做全新只读账户读取和干净订单对账。

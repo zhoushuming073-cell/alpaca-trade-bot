@@ -16,6 +16,7 @@ def test_launcher_waits_before_browser_and_never_starts_worker(tmp_path, mode, e
     python = tmp_path / ".venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
     python.touch()
+    (tmp_path / ".venv/Scripts/pythonw.exe").touch()
     harness = tmp_path / "test.ps1"
     harness.write_text(r'''
 $ErrorActionPreference = 'Stop'
