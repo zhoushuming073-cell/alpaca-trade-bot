@@ -223,9 +223,12 @@ def _order_lookup(store: Store) -> dict[str, dict]:
 def build_feed(store: Store, *, after_id: int = 0, limit: int = 200) -> dict:
     rows = store.robot_events(ROBOT_KINDS, after_id=after_id, limit=limit)
     plans = {}
+    plans_by_day = {}
     for plan in store.recent_plans(300):
         candidate = (plan.get("payload") or {}).get("candidate") or {}
         plans[plan["plan_id"]] = {"plan": plan, "candidate": candidate}
+        if candidate.get("symbol"):
+            plans_by_day.setdefault(plan["trading_day"], []).append(candidate["symbol"])
     orders = _order_lookup(store)
     events = []
     for row in rows:
@@ -243,12 +246,12 @@ def build_feed(store: Store, *, after_id: int = 0, limit: int = 200) -> dict:
         )
         if row["kind"] == "premarket_plan":
             symbols = payload.get("candidates") or []
-            if isinstance(symbols, list):
-                symbol = "、".join(symbols[:8]) + (f" 等 {len(symbols)} 只" if len(symbols) > 8 else "") if symbols else None
-            else:
-                symbol = None
+            if not isinstance(symbols, list):
+                symbols = plans_by_day.get(str(payload.get("trading_day") or ""), [])
+            symbol = "、".join(symbols[:8]) + (f" 等 {len(symbols)} 只" if len(symbols) > 8 else "") if symbols else None
         if row["kind"] == "universe_scan":
-            symbol = None
+            symbols = payload.get("candidates") or []
+            symbol = "、".join(symbols[:8]) + (f" 等 {len(symbols)} 只" if len(symbols) > 8 else "") if isinstance(symbols, list) and symbols else None
         events.append({
             "id": int(row["id"]),
             "ts": row["ts"],
