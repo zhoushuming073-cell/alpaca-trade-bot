@@ -75,7 +75,7 @@ def build_broker(keys, start_orders_thread=None, read_only=False):
             cache_key = (path, json.dumps(data, sort_keys=True, default=str))
             if cacheable and not getattr(self.permits, "fresh", False):
                 idle = getattr(self, "idle", lambda: False)()
-                ttl = 30 if not idle and execution_open(datetime.now(timezone.utc), self.execution) else 300
+                ttl = 30 if not idle and execution_open(datetime.now(timezone.utc)) else 300
                 with self.cache_lock:
                     cached = self.read_cache.get(cache_key)
                 if cached and time.monotonic() - cached[0] < ttl:
