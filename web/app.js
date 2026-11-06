@@ -8,6 +8,65 @@ let lastUpdate = 0;
 let pendingAction = null;
 let toastTimer;
 
+const PAGE_META = {
+  overview: {title: "交易概览", subtitle: "账户、持仓与 AI 的最新进展。", crumb: "账户概览"},
+  positions: {title: "持仓与订单", subtitle: "Alpaca Paper 实际持仓、委托与成交状态。", crumb: "持仓与订单"},
+  plans: {title: "AI 计划", subtitle: "今日 AI 判断、触发条件与复核记录。", crumb: "AI 计划"},
+  research: {title: "研究档案", subtitle: "48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
+  activity: {title: "运行记录", subtitle: "机器人、订单同步和系统事件。", crumb: "运行记录"},
+  watchlist: {title: "关注股票", subtitle: "固定股票池；研究、扫描和下单均受此约束。", crumb: "关注股票"},
+};
+const PAGE_ALIASES = {system: "activity"};
+let activePage = "overview";
+
+function pageFromHash() {
+  const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+  const name = PAGE_ALIASES[raw] || raw;
+  return PAGE_META[name] ? name : "overview";
+}
+
+function setPage(name, {scroll = true} = {}) {
+  const page = PAGE_META[name] ? name : "overview";
+  activePage = page;
+  document.querySelectorAll(".page-view").forEach((view) => {
+    const visible = view.dataset.page === page;
+    view.classList.toggle("active", visible);
+    view.hidden = !visible;
+  });
+  document.querySelectorAll("nav a[data-page]").forEach((link) => {
+    const active = link.dataset.page === page;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  const meta = PAGE_META[page];
+  $("page-title").textContent = meta.title;
+  $("page-subtitle").textContent = meta.subtitle;
+  $("crumb-current").textContent = meta.crumb;
+  document.title = meta.title + " · Paper 交易工作台";
+  if (location.hash !== "#" + page) history.replaceState(null, "", "#" + page);
+  setMobileSidebar(false);
+  if (scroll) window.scrollTo({top: 0, behavior: "auto"});
+}
+
+function setSidebar(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const button = $("sidebar-toggle");
+  const icon = $("sidebar-toggle-icon");
+  if (button) {
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.title = collapsed ? "展开侧边栏" : "收起侧边栏";
+  }
+  if (icon) icon.textContent = collapsed ? "›" : "‹";
+  try { localStorage.setItem("paper-sidebar-collapsed", collapsed ? "1" : "0"); } catch {}
+}
+
+function setMobileSidebar(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  $("sidebar-backdrop").hidden = !open;
+  $("mobile-nav").setAttribute("aria-expanded", String(open));
+}
+
 const esc = (x) => String(x ?? "—").replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[c]));
@@ -161,7 +220,9 @@ function render(s) {
   }
   $("session-title").textContent = heading;
   $("session-copy").textContent = copy;
-  $("overview-subtitle").textContent = accountFresh ? "账户、持仓与 AI 的最新进展。" : "账户信息等待更新，当前显示最近记录。";
+  if (activePage === "overview") {
+    $("page-subtitle").textContent = accountFresh ? "账户、持仓与 AI 的最新进展。" : "账户信息等待更新，当前显示最近记录。";
+  }
   ["research", "trade", "rest"].forEach((part) => $("stage-" + part).classList.remove("current"));
   if (s.phase === "PREMARKET") $("stage-research").classList.add("current");
   else if (s.phase === "ACTIVE") $("stage-trade").classList.add("current");
@@ -181,7 +242,7 @@ function render(s) {
   if (s.recent_orders_error) alerts.push("历史订单暂未同步，当前记录可能不完整。");
   if ((s.orders || []).some((o) => o.state_mismatch)) alerts.push("部分订单记录待核对，当前展示券商返回的状态。");
   $("notice").hidden = alerts.length === 0;
-  $("notice").innerHTML = esc(alerts.join(" ")) + (alerts.length ? ' <a href="#system">查看详情</a>' : "");
+  $("notice").innerHTML = esc(alerts.join(" ")) + (alerts.length ? ' <a href="#activity">查看详情</a>' : "");
   const positions = Object.entries(s.account?.positions || {});
   $("position-count").textContent = positions.length ? positions.length + " 只" : "";
   $("position-table").innerHTML = table(["股票", "持有股数", "市值 / USD", "平均成本", "浮动盈亏", "止损"], positions.map(([symbol, value]) => {
@@ -359,11 +420,19 @@ $("confirm-action").onclick = () => {
 };
 $("confirm").addEventListener("close", () => { pendingAction = null; });
 $("search").oninput = renderSymbols;
-document.querySelectorAll('a[href^="#"]').forEach((a) => a.addEventListener("click", () => {
-  const target = document.querySelector(a.getAttribute("href"));
-  if (target?.tagName === "DETAILS") target.open = true;
-  document.querySelectorAll("nav a").forEach((link) => link.classList.toggle("active", link === a));
-}));
+$("sidebar-toggle").onclick = () => setSidebar(!document.body.classList.contains("sidebar-collapsed"));
+$("mobile-nav").onclick = () => setMobileSidebar(!document.body.classList.contains("sidebar-open"));
+$("sidebar-close").onclick = () => setMobileSidebar(false);
+$("sidebar-backdrop").onclick = () => setMobileSidebar(false);
+document.querySelectorAll("nav a[data-page]").forEach((link) => {
+  link.addEventListener("click", () => setMobileSidebar(false));
+});
+window.addEventListener("hashchange", () => setPage(pageFromHash(), {scroll: false}));
+window.addEventListener("resize", () => {
+  if (window.innerWidth > 800) setMobileSidebar(false);
+});
+setSidebar((() => { try { return localStorage.getItem("paper-sidebar-collapsed") === "1"; } catch { return false; } })());
+setPage(pageFromHash(), {scroll: false});
 refresh();
 setInterval(refresh, 5000);
 

@@ -21,27 +21,86 @@ main{margin-left:216px;max-width:1660px;padding:28px 42px 42px}.topline{display:
 @media(max-width:800px){.chat-panel{width:min(430px,100%);display:flex}.chat-backdrop{display:block;position:fixed;inset:0;background:#302a2240;z-index:59}.assistant-launch{right:18px;bottom:18px}.chat-head{padding-top:20px}.chat-body{padding-inline:18px}.chat-compose{padding-bottom:max(18px,env(safe-area-inset-bottom))}}
 @media(max-width:360px){.pagehead{flex-wrap:wrap}.controls{margin-left:auto}.balance{padding:20px}.balance-value{font-size:36px}.metric .value{font-size:15px}}
 </style>
-<script src="/app.js" defer></script>
+<style>
+
+/* ============================================================
+   Page shell, collapsible sidebar, and per-directory views
+   ============================================================ */
+.brand-text{white-space:nowrap}.sidebar-toggle{display:flex;align-items:center;gap:11px;margin-top:18px;border:1px solid #dbd6cb;background:transparent;color:#77736b;padding:9px 12px;min-height:36px;font-size:12px;text-align:left}.sidebar-toggle:hover{background:#e3dfd5;color:#302e29}.sidebar-toggle .nav-label{white-space:nowrap}
+.page-views{min-height:calc(100vh - 245px)}
+.page-view{display:none}
+.page-view.active{display:block;animation:page-in .18s ease}
+.page-view[hidden]{display:none!important}
+.page-view>.panel:last-child,.page-view>.grid:last-child{margin-bottom:0}
+@keyframes page-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.quick-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.quick-link{display:block;padding:15px 17px;border:1px solid var(--line);border-radius:10px;background:#faf8f2;text-decoration:none;transition:background .15s,border-color .15s}.quick-link:hover{background:#f1eee6;border-color:#d8d0c2}.quick-link b{display:block;font-size:13px;font-weight:500;margin-bottom:5px}.quick-link small{display:block;color:var(--muted);font-size:11px;line-height:1.6}
+.page-view #research-table .table-wrap{max-height:calc(100vh - 350px);overflow:auto;overscroll-behavior:contain;border:1px solid #eeeae2;border-radius:8px}.page-view #research-table thead th{position:sticky;top:0;background:var(--paper);z-index:1}.page-view #research-table table{margin:0}
+@media(max-width:800px){.page-view #research-table .table-wrap{max-height:calc(100vh - 390px)}}
+.mobile-nav{display:none;border:1px solid var(--line);background:var(--paper);border-radius:8px;min-height:38px;padding:7px 11px;font-size:18px;line-height:1;color:#504c44}.sidebar-close{display:none}
+.sidebar-backdrop{display:none}
+
+body.sidebar-collapsed aside{width:78px;padding-inline:12px}
+body.sidebar-collapsed main{margin-left:78px}
+body.sidebar-collapsed .brand{justify-content:center}
+body.sidebar-collapsed .brand-text,body.sidebar-collapsed .workspace,body.sidebar-collapsed .side-foot,body.sidebar-collapsed .nav-label{display:none}
+body.sidebar-collapsed nav a{justify-content:center;padding:12px 0}
+body.sidebar-collapsed nav svg{width:18px;height:18px}
+body.sidebar-collapsed .sidebar-toggle{margin-top:0;margin-bottom:14px;justify-content:center;width:100%;padding-inline:0}
+
+@media(max-width:1150px){
+  body.sidebar-collapsed aside{width:78px;padding-inline:12px}
+  body.sidebar-collapsed main{margin-left:78px}
+}
+@media(max-width:800px){
+  aside{display:flex;width:216px;padding:24px 18px;transform:translateX(-100%);transition:transform .2s ease;box-shadow:18px 0 45px #302e2920}
+  body.sidebar-open aside{transform:none}
+  body.sidebar-collapsed aside{width:216px;padding:24px 18px}
+  body.sidebar-collapsed main{margin:0}
+  body.sidebar-collapsed .brand{justify-content:flex-start}
+  body.sidebar-collapsed .brand-text,body.sidebar-collapsed .workspace,body.sidebar-collapsed .side-foot,body.sidebar-collapsed .nav-label{display:initial}
+  body.sidebar-collapsed nav a{justify-content:flex-start;padding:11px 13px}
+  body.sidebar-collapsed .sidebar-toggle{margin-top:18px;justify-content:flex-start;width:auto;padding-inline:12px}
+  body.sidebar-open{overflow:hidden}
+  body.sidebar-open .sidebar-backdrop{display:block;position:fixed;inset:0;background:#302a2240;z-index:9}
+  main{margin:0}
+  .mobile-nav{display:inline-flex;align-items:center;justify-content:center}
+  .sidebar-close{display:flex;align-items:center;justify-content:center;position:absolute;right:12px;top:21px;width:32px;height:32px;border:1px solid #dbd6cb;border-radius:50%;background:transparent;color:#77736b;font-size:22px;line-height:1;padding:0;z-index:2}
+  .sidebar-toggle{display:none}
+  .quick-links{grid-template-columns:1fr}
+  .page-views{min-height:0}
+}
+
+</style>
+<script src="/app.js?v=20261106-ui" defer></script>
 </head>
 <body>
+
 <a class="skip" href="#overview">跳转到交易概览</a>
-<aside>
-  <a class="brand" href="#overview"><span class="brand-mark" aria-hidden="true">✳</span> Paper</a>
+<aside id="sidebar" aria-label="主导航">
+  <a class="brand" href="#overview" aria-label="Paper 交易工作台"><span class="brand-mark" aria-hidden="true">✳</span><span class="brand-text"> Paper</span></a>
+  <button id="sidebar-close" class="sidebar-close" type="button" aria-label="关闭导航">×</button>
   <div class="workspace">交易工作台</div>
+  <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="收起侧边栏" aria-expanded="true" title="收起侧边栏"><span id="sidebar-toggle-icon" aria-hidden="true">‹</span><span class="nav-label">收起导航</span></button>
   <nav aria-label="页面导航">
-    <a href="#overview" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>账户概览</a>
-    <a href="#positions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg>持仓与订单</a>
-    <a href="#plans"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg>AI 计划</a>
-    <a href="#research"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7l2 2h7v14H4Z M8 10h8m-8 4h6"/></svg>研究档案</a>
-    <a href="#activity"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>运行记录</a>
-    <a href="#watchlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg>关注股票</a>
+    <a href="#overview" data-page="overview" class="active" title="账户概览"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-label">账户概览</span></a>
+    <a href="#positions" data-page="positions" title="持仓与订单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span class="nav-label">持仓与订单</span></a>
+    <a href="#plans" data-page="plans" title="AI 计划"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 计划</span></a>
+    <a href="#research" data-page="research" title="研究档案"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7l2 2h7v14H4Z M8 10h8m-8 4h6"/></svg><span class="nav-label">研究档案</span></a>
+    <a href="#activity" data-page="activity" title="运行记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="nav-label">运行记录</span></a>
+    <a href="#watchlist" data-page="watchlist" title="关注股票"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg><span class="nav-label">关注股票</span></a>
   </nav>
   <div class="side-foot"><div class="paper-label"><span class="dot"></span>Alpaca 模拟账户</div><div class="side-note">仅模拟交易 · 本地运行</div></div>
 </aside>
+<div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 <main>
-  <div class="topline"><span class="crumb">工作空间 / <strong>账户概览</strong></span><span class="mobile-brand">✳ Paper</span><span id="today">正在连接…</span></div>
-  <header class="pagehead" id="overview">
-    <div><h1>交易概览</h1><p class="subtitle" id="overview-subtitle">账户、持仓与 AI 的最新进展。</p></div>
+  <div class="topline">
+    <button id="mobile-nav" class="mobile-nav" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <span class="crumb">工作空间 / <strong id="crumb-current">账户概览</strong></span>
+    <span class="mobile-brand">✳ Paper</span><span id="today">正在连接…</span>
+  </div>
+  <header class="pagehead">
+    <div><h1 id="page-title">交易概览</h1><p class="subtitle" id="page-subtitle">账户、持仓与 AI 的最新进展。</p></div>
     <div class="controls" aria-label="机器人控制">
       <button id="toggle-trading" class="primary" disabled>正在连接</button>
       <button id="more" class="more-button" aria-expanded="false" aria-controls="control-menu">更多 <span aria-hidden="true">⌄</span></button>
@@ -49,37 +108,65 @@ main{margin-left:216px;max-width:1660px;padding:28px 42px 42px}.topline{display:
     </div>
   </header>
   <div id="notice" class="notice" role="alert" hidden></div>
-  <section class="overview" aria-label="账户与运行状态">
-    <div class="balance">
-      <div class="eyebrow">账户总资产 <span class="unit">USD</span></div>
-      <div class="balance-value"><span class="currency">$</span><span id="equity">—</span></div>
-      <p class="balance-meta" id="cash">账户现金 —</p>
-      <div class="metrics"><div class="metric"><label>今日盈亏</label><div class="value" id="pnl">—</div></div><div class="metric"><label>累计收益率</label><div class="value" id="return">—</div></div><div class="metric"><label>观测最大回撤</label><div class="value" id="drawdown">—</div></div></div>
-    </div>
-    <div class="session">
-      <div><div class="session-top"><span class="eyebrow">机器人状态</span><span id="process" class="badge">连接中</span></div><h2 id="session-title">正在获取运行状态</h2><p id="session-copy">稍候，正在同步账户信息。</p></div>
-      <div class="timeline" aria-label="美东交易时段"><div class="stage" id="stage-research">盘前研究<span>09:00 — 09:30 ET</span></div><div class="stage" id="stage-trade">主动交易<span>09:30 — 10:00 ET</span></div><div class="stage" id="stage-rest">等待下个交易日<span>10:00 ET 之后</span></div></div>
-    </div>
-  </section>
-  <div class="connection-strip"><span id="broker-connection">Alpaca · 等待同步</span><span id="ai-connection">AI · 等待同步</span><span class="refresh" id="refresh">每 5 秒更新</span></div>
-  <section class="panel" id="positions"><div class="section-head"><h2>当前持仓 <span class="count" id="position-count"></span></h2><span class="hint" id="account-time">—</span></div><div id="position-table"></div></section>
-  <div class="grid">
-    <section class="panel" id="plans"><div class="section-head"><h2>最近 AI 计划</h2><span class="hint" id="plan-count">—</span></div><div id="plan-list" class="plan-list"></div></section>
-    <section class="panel"><div class="section-head"><h2>最近订单</h2><span class="hint" id="pending"></span></div><div id="order-table"></div><p class="panel-foot">已提交的当日有效订单可在交易窗口结束后继续成交。</p></section>
+
+  <div class="page-views">
+    <section class="page-view active" id="view-overview" data-page="overview">
+      <section class="overview" aria-label="账户与运行状态">
+        <div class="balance">
+          <div class="eyebrow">账户总资产 <span class="unit">USD</span></div>
+          <div class="balance-value"><span class="currency">$</span><span id="equity">—</span></div>
+          <p class="balance-meta" id="cash">账户现金 —</p>
+          <div class="metrics"><div class="metric"><label>今日盈亏</label><div class="value" id="pnl">—</div></div><div class="metric"><label>累计收益率</label><div class="value" id="return">—</div></div><div class="metric"><label>观测最大回撤</label><div class="value" id="drawdown">—</div></div></div>
+        </div>
+        <div class="session">
+          <div><div class="session-top"><span class="eyebrow">机器人状态</span><span id="process" class="badge">连接中</span></div><h2 id="session-title">正在获取运行状态</h2><p id="session-copy">稍候，正在同步账户信息。</p></div>
+          <div class="timeline" aria-label="美东交易时段"><div class="stage" id="stage-research">盘前研究<span>09:00 — 09:30 ET</span></div><div class="stage" id="stage-trade">主动交易<span>09:30 — 10:00 ET</span></div><div class="stage" id="stage-rest">等待下个交易日<span>10:00 ET 之后</span></div></div>
+        </div>
+      </section>
+      <div class="connection-strip"><span id="broker-connection">Alpaca · 等待同步</span><span id="ai-connection">AI · 等待同步</span><span class="refresh" id="refresh">每 5 秒更新</span></div>
+      <section class="panel">
+        <div class="section-head"><h2>快速查看</h2><span class="hint">每个入口都打开独立页面</span></div>
+        <div class="quick-links">
+          <a class="quick-link" href="#positions"><b>持仓与订单</b><small>查看 Alpaca 实际持仓、委托和成交状态。</small></a>
+          <a class="quick-link" href="#plans"><b>AI 计划</b><small>查看今日 AI 判断、触发条件和复核记录。</small></a>
+          <a class="quick-link" href="#research"><b>研究档案</b><small>48 只固定池标的的来源、证据和核验时间。</small></a>
+        </div>
+      </section>
+    </section>
+
+    <section class="page-view" id="view-positions" data-page="positions" hidden>
+      <section class="panel" id="positions"><div class="section-head"><h2>当前持仓 <span class="count" id="position-count"></span></h2><span class="hint" id="account-time">—</span></div><div id="position-table"></div></section>
+      <section class="panel"><div class="section-head"><h2>最近订单</h2><span class="hint" id="pending"></span></div><div id="order-table"></div><p class="panel-foot">已提交的当日有效订单可在交易窗口结束后继续成交。券商状态优先于本地账本状态。</p></section>
+    </section>
+
+    <section class="page-view" id="view-plans" data-page="plans" hidden>
+      <div class="grid">
+        <section class="panel" id="plans"><div class="section-head"><h2>最近 AI 计划</h2><span class="hint" id="plan-count">—</span></div><div id="plan-list" class="plan-list"></div></section>
+        <section class="panel"><div class="section-head"><h2>AI 动态</h2><span class="hint">最近 6 次分析</span></div><div id="ai-list"></div></section>
+      </div>
+    </section>
+
+    <section class="page-view" id="view-research" data-page="research" hidden>
+      <section class="panel" id="research"><div class="section-head"><h2>研究档案 <span class="count" id="research-count">正在同步</span></h2><span class="hint">来源、证据与核验时间</span></div><div id="research-table"></div></section>
+    </section>
+
+    <section class="page-view" id="view-activity" data-page="activity" hidden>
+      <section class="panel" id="activity"><div class="section-head"><h2>运行记录</h2><span class="hint">最近的重要事件</span></div><div id="events" class="events"></div></section>
+      <details class="panel disclosure" id="system"><summary><span class="summary-text"><b>运行详情</b><small id="system-summary">连接与账户设置</small></span></summary><div class="disclosure-body">
+        <div class="system-grid"><p>订单同步<strong id="watchdog">—</strong></p><p>券商止损<strong id="broker-stop">—</strong></p><p>可用现金<strong id="available">—</strong></p><p>配置状态<strong id="config">—</strong></p><p>账户数据<strong id="source">—</strong></p><p>美东时间<strong id="now-et">—</strong></p></div>
+        <p class="panel-foot">累计收益与回撤按已记录的账户净值计算，未调整入金和出金。</p>
+        <details class="diagnostics"><summary>查看技术记录</summary><pre id="diagnostic-data"></pre></details>
+      </div></details>
+    </section>
+
+    <section class="page-view" id="view-watchlist" data-page="watchlist" hidden>
+      <section class="panel" id="watchlist"><div class="section-head"><h2>关注股票 <span class="count" id="symbol-count">固定股票池</span></h2><span class="hint">固定池 · 搜索代码</span></div><input id="search" class="search" type="search" placeholder="搜索股票代码…" aria-label="搜索股票代码"><div id="symbols" class="symbols"></div><p class="panel-foot">固定股票池用于限制 AI 研究、扫描和 Paper 下单的标的范围。</p></section>
+    </section>
   </div>
-  <div class="grid">
-    <section class="panel"><div class="section-head"><h2>AI 动态</h2><span class="hint">最近 6 次分析</span></div><div id="ai-list"></div></section>
-    <section class="panel" id="activity"><div class="section-head"><h2>运行记录</h2><span class="hint">最近的重要事件</span></div><div id="events" class="events"></div></section>
-  </div>
-  <details class="panel disclosure" id="research"><summary><span class="summary-text"><b>研究档案</b><small id="research-count">正在同步</small></span></summary><div class="disclosure-body" id="research-table"></div></details>
-  <details class="panel disclosure" id="watchlist"><summary><span class="summary-text"><b>关注股票</b><small id="symbol-count">固定股票池</small></span></summary><div class="disclosure-body"><input id="search" class="search" type="search" placeholder="搜索股票代码…" aria-label="搜索股票代码"><div id="symbols" class="symbols"></div></div></details>
-  <details class="panel disclosure" id="system"><summary><span class="summary-text"><b>运行详情</b><small id="system-summary">连接与账户设置</small></span></summary><div class="disclosure-body">
-    <div class="system-grid"><p>订单同步<strong id="watchdog">—</strong></p><p>券商止损<strong id="broker-stop">—</strong></p><p>可用现金<strong id="available">—</strong></p><p>配置状态<strong id="config">—</strong></p><p>账户数据<strong id="source">—</strong></p><p>美东时间<strong id="now-et">—</strong></p></div>
-    <p class="panel-foot">累计收益与回撤按已记录的账户净值计算，未调整入金和出金。</p>
-    <details class="diagnostics"><summary>查看技术记录</summary><pre id="diagnostic-data"></pre></details>
-  </div></details>
+
   <footer class="bottomline"><span>Paper · 你的 AI 模拟交易工作台</span><span id="version"></span></footer>
 </main>
+
 <button id="assistant-open" class="assistant-launch" aria-controls="assistant-panel" aria-expanded="false"><span aria-hidden="true">✳</span> 交易助手 <span id="assistant-unread" class="unread" hidden></span></button>
 <div id="chat-backdrop" class="chat-backdrop" hidden></div>
 <aside id="assistant-panel" class="chat-panel" role="dialog" aria-labelledby="chat-title" aria-modal="false" tabindex="-1" hidden>
