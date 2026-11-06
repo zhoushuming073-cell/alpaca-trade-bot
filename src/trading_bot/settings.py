@@ -111,13 +111,6 @@ class Execution(Strict):
     # shortable/easy_to_borrow checks from Alpaca.
     allow_shorting: bool = False
     trigger_poll_seconds: int = Field(default=10, ge=2, le=60)
-    patrol_interval_seconds: int = Field(default=600, ge=60, le=3600)
-    patrol_model: str = Field(default="deepseek-flash", min_length=1, max_length=80)
-    patrol_max_tokens: int = Field(default=1200, ge=256, le=8000)
-    patrol_timeout_seconds: int = Field(default=25, ge=5, le=120)
-    active_research_interval_seconds: int = Field(default=900, ge=60, le=3600)
-    active_research_min_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
-    active_research_max_tokens: int | None = Field(default=None, ge=1000, le=5_000_000)
     submission_grace_seconds: int = Field(default=30, ge=5, le=300)
     recheck_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
     max_rechecks_per_day: int = Field(default=20, ge=1, le=200)
@@ -164,7 +157,7 @@ class MultiAgentExecution(Strict):
 
 
 class AgentBudget(Strict):
-    # null is not unlimited: effective_* falls back to explicit finite defaults.
+    # null means unlimited during the current test phase.
     max_session_tokens: int | None = Field(default=None, ge=1000)
     max_session_cost_usd: float | None = Field(default=None, ge=0)
     default_session_tokens: int = Field(default=120000, ge=1000, le=2_000_000)
@@ -191,18 +184,46 @@ class AgentComparison(Strict):
     baseline_can_trade: Literal[False] = False
 
 
+class PatrolConfig(Strict):
+    interval_seconds: int = Field(default=600, ge=60, le=3600)
+    model: str = Field(default="deepseek-flash", min_length=1, max_length=80)
+    max_tokens: int = Field(default=1200, ge=256, le=8000)
+    timeout_seconds: int = Field(default=25, ge=5, le=120)
+
+
+class ActiveResearchConfig(Strict):
+    interval_seconds: int = Field(default=900, ge=60, le=3600)
+    min_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
+    max_tokens: int | None = Field(default=None, ge=1000, le=5_000_000)
+
+
 class MultiAgent(Strict):
     enabled: bool = False
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     execution: MultiAgentExecution = Field(default_factory=MultiAgentExecution)
     budget: AgentBudget = Field(default_factory=AgentBudget)
     comparison: AgentComparison = Field(default_factory=AgentComparison)
+    patrol: PatrolConfig = Field(default_factory=PatrolConfig)
+    active_research: ActiveResearchConfig = Field(default_factory=ActiveResearchConfig)
 
     @model_validator(mode="after")
     def _baseline_is_shadow_only(self):
         if self.comparison.baseline_can_trade:
             raise ValueError("The single-agent baseline cannot trade")
         return self
+
+
+class ConfigError(ValueError):
+    """Validated configuration failure with exact file/field provenance."""
+
+    def __init__(self, file: str, field: str, reason: str):
+        self.file = file
+        self.field = field
+        self.reason = reason
+        super().__init__(f"{file}: {field}: {reason}")
+
+    def as_dict(self) -> dict:
+        return {"file": self.file, "field": self.field, "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -238,10 +259,13 @@ class ConfigBundle:
         return (self.symbols, self.policy, self.risk, self.execution)[index]
 
 def _read(root: Path, name: str) -> dict:
-    raw = (root / "config" / name).read_text(encoding="utf-8")
-    data = yaml.safe_load(raw)
+    try:
+        raw = (root / "config" / name).read_text(encoding="utf-8")
+        data = yaml.safe_load(raw)
+    except Exception as exc:
+        raise ConfigError("config/" + name, "<yaml>", str(exc)) from exc
     if not isinstance(data, dict):
-        raise ValueError(f"config/{name} must be a mapping")
+        raise ConfigError("config/" + name, "<root>", "must be a mapping")
     return data
 
 
@@ -310,15 +334,29 @@ def _validate_groups(groups, symbols) -> tuple[dict, ...]:
     return tuple(cleaned)
 
 
+def _model(file: str, cls, data):
+    from pydantic import ValidationError
+
+    try:
+        return cls(**data)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        loc = ".".join(str(x) for x in first.get("loc", ())) or "<root>"
+        raise ConfigError("config/" + file, loc, str(first.get("msg") or "invalid")) from exc
+
+
 def load_config(root: Path | str = ROOT) -> ConfigBundle:
     root = Path(root)
     watchlist = _read(root, "watchlist.yaml")
-    symbols = _validate_symbols(watchlist.get("symbols"))
-    groups = _validate_groups(watchlist.get("groups"), symbols)
-    policy = Policy(**_read(root, "strategy.yaml"))
-    risk = Risk(**_read(root, "risk.yaml"))
-    execution = Execution(**_read(root, "execution.yaml"))
-    multi_agent = MultiAgent(**_read(root, "multi_agent.yaml"))
+    try:
+        symbols = _validate_symbols(watchlist.get("symbols"))
+        groups = _validate_groups(watchlist.get("groups"), symbols)
+    except Exception as exc:
+        raise ConfigError("config/watchlist.yaml", "symbols/groups", str(exc)) from exc
+    policy = _model("strategy.yaml", Policy, _read(root, "strategy.yaml"))
+    risk = _model("risk.yaml", Risk, _read(root, "risk.yaml"))
+    execution = _model("execution.yaml", Execution, _read(root, "execution.yaml"))
+    multi_agent = _model("multi_agent.yaml", MultiAgent, _read(root, "multi_agent.yaml"))
     raw = {
         "watchlist": watchlist,
         "strategy": _read(root, "strategy.yaml"),

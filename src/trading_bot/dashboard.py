@@ -266,6 +266,7 @@ def _execution_for(active: dict | None):
 def snapshot(store, account_feed=None):
     active = store.active_config() or {}
     disk = None
+    config_error = None
     try:
         disk = load_config()
         disk_hash = disk.hash
@@ -276,6 +277,10 @@ def snapshot(store, account_feed=None):
         ]
         disk_version = disk.policy.version
     except Exception as exc:  # noqa: BLE001
+        config_error = (
+            exc.as_dict() if hasattr(exc, "as_dict")
+            else {"file": "config", "field": "<load>", "reason": type(exc).__name__ + ": " + str(exc)}
+        )
         disk_hash = None
         disk_symbols = []
         disk_groups = (active.get("groups") or [])
@@ -448,7 +453,7 @@ def snapshot(store, account_feed=None):
     frozen = bool(store.freeze_reason())
     phase = "FROZEN" if frozen else session.phase.value
     active_hash = (active.get("hashes") or {}).get("combined")
-    pending = bool(store.config_pending() or (disk_hash and active_hash and disk_hash != active_hash))
+    pending = bool(config_error or store.config_pending() or (disk_hash and active_hash and disk_hash != active_hash))
     symbols = active.get("symbols") if active.get("symbols") else disk_symbols
     version = (active.get("policy") or {}).get("version") or disk_version
     profiles = []
@@ -561,7 +566,11 @@ def snapshot(store, account_feed=None):
         "next": next_step,
         "as_of": now.isoformat(),
     }
-    multi_agent_config = disk.multi_agent if disk is not None else MultiAgent()
+    multi_agent_config = (
+        MultiAgent(**active["multi_agent"])
+        if isinstance(active.get("multi_agent"), dict)
+        else (disk.multi_agent if disk is not None else MultiAgent())
+    )
     agent_runs = store.recent_agent_runs(8)
     latest_agent_run = agent_runs[0] if agent_runs else None
     latest_agent_reports = (
@@ -616,6 +625,7 @@ def snapshot(store, account_feed=None):
         "safety_reason": store.safety_reason(),
         "freeze_reason": store.freeze_reason(),
         "config_pending_restart": pending,
+        "config_error": config_error,
         "active_config_hash": active_hash,
         "disk_config_hash": disk_hash,
         "account": account,

@@ -264,3 +264,19 @@ def test_unverified_stop_never_reaches_transport(tmp_path, monkeypatch):
     with pytest.raises(Exception):
         gateway.dispatch(value, cid)
     assert calls == []
+
+
+def test_prepare_rejects_exactly_at_noon_cutoff(tmp_path, monkeypatch):
+    from trading_bot.market_data import session_info
+    gateway, _, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    bundle = load_config()
+    cid = "cid-noon"
+    store.reserve_order(cid, "2026-11-05", intent(), owner="owner")
+    assert store.claim_order(cid, "owner")
+    cutoff = session_info(
+        __import__("datetime").datetime.fromisoformat("2026-11-05T16:59:30+00:00"),
+        bundle.execution,
+    )
+    assert cutoff.can_submit is False
+    with pytest.raises(PreDispatchRejected):
+        gateway.prepare(intent(), cid, session=cutoff)

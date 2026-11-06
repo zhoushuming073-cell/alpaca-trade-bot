@@ -196,9 +196,13 @@ class Engine:
         try:
             disk = load_config()
         except Exception as exc:  # noqa: BLE001
+            detail = exc.as_dict() if hasattr(exc, "as_dict") else {
+                "file": "config", "field": "<load>",
+                "reason": type(exc).__name__ + ": " + str(exc),
+            }
             if self._last_config_error != str(exc):
                 self._last_config_error = str(exc)
-                self.store.error("config_load", exc, outcome="config_pending")
+                self.store.event("config_load", {**detail, "outcome": "config_pending"})
             self.store.set_config_pending(True)
             return True
         active = self.store.active_config() or {}
@@ -215,6 +219,7 @@ class Engine:
             if not self.store.config_pending():
                 self.store.event("config_pending", {
                     "active": active_hash, "disk": disk.hash,
+                    "reason": "config_hash_mismatch",
                     "outcome": "new risk frozen until safe restart",
                 })
             self.store.set_config_pending(True)
@@ -549,6 +554,7 @@ class Engine:
         news = self._trim_news()
         return {
             "as_of_utc": _iso(self.clock()),
+            "config_hash": self.config.hash,
             "model_id": getattr(self.ai, "model", "unknown"),
             "account_snapshot_id": account_ctx["account_snapshot_id"],
             "session": {
@@ -870,7 +876,7 @@ class Engine:
                 "symbols": missing_positions,
                 "outcome": "treated as HOLD; no automatic exit",
             })
-        self.store.supersede_plans(session.trading_day, reason="new premarket plan")
+        self.store.supersede_plans(session.trading_day, reason="new premarket plan" if session.premarket else "new intraday plan")
         for candidate in plan.candidates:
             if candidate.veto:
                 continue
@@ -914,7 +920,7 @@ class Engine:
             candidate_dict["plan_id"] = scoped_plan_id
             plan_payload = {
                 "plan_id": scoped_plan_id,
-                "mode": "PREMARKET_PLAN",
+                "mode": "PREMARKET_PLAN" if session.premarket else "INTRADAY_PLAN",
                 "trading_day": session.trading_day,
                 "plan_valid_until_utc": candidate.plan_valid_until_utc.isoformat(),
                 "candidate": candidate_dict,
@@ -967,7 +973,7 @@ class Engine:
             self._last_expert = None
         return self._last_patrol is None or (
             now - self._last_patrol
-        ).total_seconds() >= self.execution.patrol_interval_seconds
+        ).total_seconds() >= self.multi_agent.patrol.interval_seconds
 
     def _run_patrol(self, session, now, account_ctx, held, plans):
         """Low-cost silent patrol. It cannot emit or execute an order."""
@@ -1014,9 +1020,9 @@ class Engine:
             parsed, meta = self.ai.complete(
                 "PATROL", payload,
                 parser=lambda raw: parse_patrol(raw, run_id=run_id, symbols=self.symbols, now=now),
-                model=self.execution.patrol_model,
-                max_tokens=self.execution.patrol_max_tokens,
-                timeout=self.execution.patrol_timeout_seconds,
+                model=self.multi_agent.patrol.model,
+                max_tokens=self.multi_agent.patrol.max_tokens,
+                timeout=self.multi_agent.patrol.timeout_seconds,
                 role="patrol", run_id=run_id,
             )
             signals = []
@@ -1030,7 +1036,7 @@ class Engine:
             self.store.event("patrol", {
                 "run_id": run_id, "status": "OK", "signal_count": len(signals),
                 "signals": signals, "notes": parsed.notes,
-                "model": self.execution.patrol_model,
+                "model": self.multi_agent.patrol.model,
                 "tokens": meta.get("prompt_tokens", 0) + meta.get("completion_tokens", 0),
             })
             return signals
@@ -1038,7 +1044,7 @@ class Engine:
             self.store.event("patrol", {
                 "run_id": run_id, "status": "ERROR",
                 "reason": type(exc).__name__ + ": " + str(exc)[:300], "signals": [],
-                "model": self.execution.patrol_model,
+                "model": self.multi_agent.patrol.model,
             })
             return []
 
@@ -1081,7 +1087,7 @@ class Engine:
             self._active_research_tokens = 0
             self._research_marks = {}
             self._profit_reviewed = set()
-        research_cap = getattr(self.execution, "active_research_max_tokens", None)
+        research_cap = self.multi_agent.active_research.max_tokens
         if research_cap is not None and self._active_research_tokens >= research_cap:
             return None
         if self._last_active_research is None:
@@ -1090,11 +1096,11 @@ class Engine:
                 return None
             return "plan_missing_or_premarket_failed"
         age = (now - self._last_active_research).total_seconds()
-        if not plans and age >= self.execution.active_research_min_cooldown_seconds:
+        if not plans and age >= self.multi_agent.active_research.min_cooldown_seconds:
             return "plan_gap"
-        if age >= self.execution.active_research_interval_seconds:
+        if age >= self.multi_agent.active_research.interval_seconds:
             return "fifteen_minute_refresh"
-        if age < self.execution.active_research_min_cooldown_seconds:
+        if age < self.multi_agent.active_research.min_cooldown_seconds:
             return None
         for position in account_ctx.get("positions", []):
             symbol = position.get("symbol")
@@ -1187,7 +1193,7 @@ class Engine:
         expert_cooldown = self.multi_agent.enabled and (
             self._last_expert is None
             or (now - self._last_expert).total_seconds()
-            >= self.execution.active_research_min_cooldown_seconds
+            >= self.multi_agent.active_research.min_cooldown_seconds
         )
         # Fallback research when premarket is missing/failed/expired.
         if not plans and expert_cooldown:

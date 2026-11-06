@@ -6,12 +6,10 @@ from trading_bot.engine import Engine
 
 def due_engine(*, last=None, plans=(), positions=(), tokens=0, marks=None):
     engine = SimpleNamespace(
-        multi_agent=SimpleNamespace(enabled=True), ai=object(),
-        execution=SimpleNamespace(
-            active_research_interval_seconds=900,
-            active_research_min_cooldown_seconds=120,
-            active_research_max_tokens=None,
-        ),
+        multi_agent=SimpleNamespace(enabled=True, active_research=SimpleNamespace(
+            interval_seconds=900, min_cooldown_seconds=120, max_tokens=None)),
+        ai=object(),
+        execution=SimpleNamespace(),
         _active_research_day="2026-11-06",
         _last_active_research=last,
         _active_research_tokens=tokens,
@@ -30,12 +28,10 @@ def test_missing_premarket_plan_starts_research_immediately():
 
 def test_valid_premarket_plan_starts_fifteen_minute_cadence():
     engine = SimpleNamespace(
-        multi_agent=SimpleNamespace(enabled=True), ai=object(),
-        execution=SimpleNamespace(
-            active_research_interval_seconds=900,
-            active_research_min_cooldown_seconds=120,
-            active_research_max_tokens=None,
-        ),
+        multi_agent=SimpleNamespace(enabled=True, active_research=SimpleNamespace(
+            interval_seconds=900, min_cooldown_seconds=120, max_tokens=None)),
+        ai=object(),
+        execution=SimpleNamespace(),
         _active_research_day="2026-11-06",
         _last_active_research=None,
         _active_research_tokens=0,

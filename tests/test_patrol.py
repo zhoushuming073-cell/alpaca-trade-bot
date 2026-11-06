@@ -23,7 +23,8 @@ def test_patrol_rejects_order_fields():
 
 def test_patrol_schedule_is_ten_minutes_and_resets_daily():
     engine = SimpleNamespace(
-        execution=SimpleNamespace(patrol_interval_seconds=600),
+        execution=SimpleNamespace(),
+        multi_agent=SimpleNamespace(enabled=True, patrol=SimpleNamespace(interval_seconds=600)),
         _patrol_day="2026-11-06", _last_patrol=datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc),
         _patrol_seen=set(), _last_expert=None,
     )
@@ -55,13 +56,12 @@ def _patrol_engine(ai):
         agent_memory=lambda *a, **k: {},
     )
     execution = SimpleNamespace(
-        patrol_interval_seconds=600, patrol_model="deepseek-flash",
-        patrol_max_tokens=1200, patrol_timeout_seconds=25,
-        active_research_min_cooldown_seconds=120,
     )
+    patrol = SimpleNamespace(interval_seconds=600, model="deepseek-flash",
+                             max_tokens=1200, timeout_seconds=25)
     return SimpleNamespace(
         ai=ai, store=store, execution=execution, symbols=["AAPL"],
-        multi_agent=SimpleNamespace(enabled=True),
+        multi_agent=SimpleNamespace(enabled=True, patrol=patrol),
         _expert_running=False, _last_patrol=None, _patrol_seen=set(),
         _collect_universe=lambda session: ({"AAPL": object()}, [], []),
         _scan_summary=lambda daily: "summary",

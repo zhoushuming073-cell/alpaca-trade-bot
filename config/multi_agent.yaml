@@ -41,13 +41,24 @@ execution:
   deadline_buffer_seconds: 45
 
 budget:
-  # null is NOT unlimited.  Effective limits fall back to the finite defaults.
+  # null means unlimited during the current test phase.
   max_session_tokens: null
   max_session_cost_usd: null
   default_session_tokens: 120000
   default_session_cost_usd: 1.0
   cost_per_1m_input_usd: 0.0
   cost_per_1m_output_usd: 0.0
+
+patrol:
+  interval_seconds: 600
+  model: deepseek-flash
+  max_tokens: 1200
+  timeout_seconds: 25
+
+active_research:
+  interval_seconds: 900
+  min_cooldown_seconds: 120
+  max_tokens: null
 
 comparison:
   enable_single_agent_baseline: true
