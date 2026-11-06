@@ -687,7 +687,7 @@ class Engine:
         return plan, meta
 
     def _multi_agent_premarket(self, session, account_ctx, history, held, unavailable,
-                               *, run_mode="THREE_AGENT"):
+                               *, run_mode="THREE_AGENT", deadline_utc=None):
         """Run the three in-process agents and return a fail-closed result."""
         from .multi_agent import MultiAgentOrchestrator
 
@@ -741,7 +741,7 @@ class Engine:
                 })
             return rows
 
-        deadline = (
+        deadline = deadline_utc or (
             session.market_open - timedelta(seconds=int(self.multi_agent.execution.deadline_buffer_seconds))
             if session.market_open else None
         )

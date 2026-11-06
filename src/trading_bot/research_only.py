@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
 from .broker import PaperGateway, build_broker
@@ -80,6 +80,7 @@ def run_research_only(
     daily_data=None,
     clock=None,
     close_store=False,
+    deadline_utc=None,
 ):
     """Run one real/synthetic shadow research cycle.
 
@@ -151,8 +152,12 @@ def run_research_only(
             raise ResearchOnlyError("No valid history; refusing to fabricate a research snapshot")
         before_plans = _plan_count(store)
         before_orders = _order_count(store)
+        run_deadline = deadline_utc
+        if run_deadline is None and not session.premarket:
+            run_deadline = now + timedelta(seconds=300)
         result = engine._multi_agent_premarket(
             session, account_ctx, history, held, unavailable, run_mode="RESEARCH_ONLY",
+            deadline_utc=run_deadline,
         )
         after_plans = _plan_count(store)
         after_orders = _order_count(store)
