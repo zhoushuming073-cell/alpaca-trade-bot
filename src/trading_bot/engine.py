@@ -964,7 +964,8 @@ class Engine:
             self._active_research_tokens = 0
             self._research_marks = {}
             self._profit_reviewed = set()
-        if self._active_research_tokens >= self.execution.active_research_max_tokens:
+        research_cap = getattr(self.execution, "active_research_max_tokens", None)
+        if research_cap is not None and self._active_research_tokens >= research_cap:
             return None
         if self._last_active_research is None:
             if plans:

@@ -106,7 +106,7 @@ class _Budget:
 
     def check(self, role: str, estimated_tokens: int) -> None:
         with self.lock:
-            if self.usage.tokens + max(0, int(estimated_tokens)) > self.max_tokens:
+            if self.max_tokens is not None and self.usage.tokens + max(0, int(estimated_tokens)) > self.max_tokens:
                 raise BudgetExceeded(
                     "TOKEN_BUDGET",
                     f"{role} estimated input+output would exceed {self.max_tokens} session tokens; "
@@ -133,7 +133,7 @@ class _Budget:
             if cost is not None:
                 self.usage.cost_usd += cost
                 self.usage.cost_known = True
-            if self.usage.tokens > self.max_tokens:
+            if self.max_tokens is not None and self.usage.tokens > self.max_tokens:
                 raise BudgetExceeded(
                     "TOKEN_BUDGET", f"session tokens {self.usage.tokens} exceeded {self.max_tokens}"
                 )

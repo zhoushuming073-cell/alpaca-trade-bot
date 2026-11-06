@@ -10,7 +10,7 @@ def due_engine(*, last=None, plans=(), positions=(), tokens=0, marks=None):
         execution=SimpleNamespace(
             active_research_interval_seconds=900,
             active_research_min_cooldown_seconds=120,
-            active_research_max_tokens=600000,
+            active_research_max_tokens=None,
         ),
         _active_research_day="2026-11-06",
         _last_active_research=last,
@@ -34,7 +34,7 @@ def test_valid_premarket_plan_starts_fifteen_minute_cadence():
         execution=SimpleNamespace(
             active_research_interval_seconds=900,
             active_research_min_cooldown_seconds=120,
-            active_research_max_tokens=600000,
+            active_research_max_tokens=None,
         ),
         _active_research_day="2026-11-06",
         _last_active_research=None,
@@ -59,5 +59,5 @@ def test_plan_gap_and_profit_and_price_trigger_early_refresh():
     assert due_engine(last=now - timedelta(seconds=901), plans=[{"plan_id": "x"}]) == "fifteen_minute_refresh"
 
 
-def test_token_budget_stops_new_research():
-    assert due_engine(tokens=600000, plans=(), last=None) is None
+def test_unlimited_token_budget_does_not_stop_research():
+    assert due_engine(tokens=10_000_000, plans=(), last=None) == "plan_missing_or_premarket_failed"

@@ -306,7 +306,7 @@ def test_shorting_is_not_a_default_agent_permission(bundle=None):
     current = load_config()
     assert current.multi_agent.enabled is True
     assert current.multi_agent.comparison.baseline_can_trade is False
-    assert current.multi_agent.budget.effective_max_tokens > 0
+    assert current.multi_agent.budget.effective_max_tokens is None
     assert current.multi_agent.budget.effective_max_cost > 0
 
 
