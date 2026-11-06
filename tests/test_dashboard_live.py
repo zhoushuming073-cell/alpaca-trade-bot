@@ -144,6 +144,29 @@ def test_recent_closed_order_is_visible_with_broker_status(tmp_path, monkeypatch
     assert rows[0]["status"] == "filled"
     assert rows[0]["state"] == "FILLED"
     assert rows[0]["qty"] == "100"
+    assert "brief" in data and "plan_history" in data
+
+
+def test_research_detail_endpoint_reads_real_profile(tmp_path, monkeypatch):
+    store = Store(tmp_path / "web.sqlite")
+    store.save_research_profile({
+        "symbol": "CRWV", "status": "OK", "source_status": "AVAILABLE",
+        "verified_at_utc": "2026-11-05T00:00:00+00:00",
+        "facts": ["real fact"],
+    }, evidence=[{
+        "kind": "news", "source_url": "https://example.invalid/article",
+        "title": "real source", "published_at": "2026-11-04T00:00:00+00:00",
+        "retrieved_at": "2026-11-05T00:00:00+00:00", "verified": 1,
+        "content_hash": "hash", "summary": "real summary",
+    }], revision=None)
+    store.close()
+    c = client(tmp_path, monkeypatch, FakeFeed(account_snapshot()))
+    response = c.get("/api/research/CRWV", base_url=ORIGIN)
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["profile"]["facts"] == ["real fact"]
+    assert data["evidence"][0]["title"] == "real source"
+    assert data["symbol"] == "CRWV"
 
 
 def test_optional_closed_order_failure_does_not_break_account_snapshot(bundle):

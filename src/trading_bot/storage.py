@@ -1149,6 +1149,21 @@ class Store:
         result["payload"] = _loads(row["payload"])
         return result
 
+    def recent_plans(self, limit: int = 100) -> list[dict]:
+        """All plans, including superseded/invalidated history."""
+        limit = max(1, min(int(limit), 500))
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT * FROM plans ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["payload"] = _loads(row["payload"])
+            result.append(item)
+        return result
+
     def active_plan(self, trading_day: str) -> dict | None:
         with self.lock:
             row = self.db.execute(

@@ -72,7 +72,24 @@ body.sidebar-collapsed .sidebar-toggle{margin-top:0;margin-bottom:14px;justify-c
 }
 
 </style>
-<script src="/app.js?v=20261106-ui" defer></script>
+<style>
+/* Motion tokens: productive, standard, expressive. */
+:root{--m-fast:140ms;--m-standard:240ms;--m-expressive:380ms;--ease-out:cubic-bezier(.2,.8,.2,1);--ease-spring:cubic-bezier(.16,1,.3,1);--ease-soft:cubic-bezier(.22,.61,.36,1);--shadow-1:0 1px 2px #302e290a;--shadow-2:0 12px 34px #302e2914;--shadow-3:0 22px 60px #302e2920}
+nav{position:relative}.nav-pill{position:absolute;left:0;right:0;top:0;height:42px;border-radius:8px;background:#e3dfd5;z-index:0;transform:translateY(0);transition:transform var(--m-standard) var(--ease-spring),height var(--m-standard) var(--ease-spring),opacity var(--m-fast);pointer-events:none}nav a{position:relative;z-index:1;background:transparent!important}.nav-pill[hidden]{display:none}
+.badge.danger{color:#8f3128;background:#f3ded9}.badge.idle{color:#6f6a60;background:#ece9e1}
+.brief-panel{margin-top:20px}.brief-card .empty{padding:10px 0;text-align:left;font-size:12px}
+.brief-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.brief-card{border:1px solid var(--line);border-radius:11px;background:#faf8f2;padding:17px 18px;min-width:0}.brief-card h3{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:12px}.brief-card p{font-size:12px;line-height:1.7;color:#5f5a51}.brief-focus-item{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #eeeae2}.brief-focus-item:last-child{border:0;padding-bottom:0}.brief-focus-item b{font-size:13px;min-width:54px}.brief-focus-item span{font-size:11px;color:var(--muted);line-height:1.55}.brief-focus-item em{font-style:normal;font-size:10px;padding:2px 6px;border-radius:8px;background:#eee9df;color:#6e665b;margin-left:auto;white-space:nowrap}.brief-position{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eeeae2;font-size:12px}.brief-position:last-child{border:0}.brief-position small{color:var(--muted);font-size:11px}.brief-event{padding:7px 0;border-bottom:1px solid #eeeae2}.brief-event:last-child{border:0}.brief-event b{font-size:12px;font-weight:500;display:block;margin-bottom:3px}.brief-event small{font-size:11px;color:var(--muted);line-height:1.6}.brief-next{background:#f3f0e8;border-color:#e3dccd}
+.plan-list{display:grid;gap:10px}.plan-card{width:100%;text-align:left;border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:16px 17px;cursor:pointer;transition:border-color var(--m-fast) var(--ease-out),box-shadow var(--m-fast) var(--ease-out),transform var(--m-fast) var(--ease-out),background var(--m-fast)}.plan-card:hover{border-color:#d8d0c2;box-shadow:var(--shadow-1);transform:translateY(-1px)}.plan-card:active{transform:translateY(0) scale(.996)}.plan-card:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.plan-card.open{box-shadow:var(--shadow-2);border-color:#d4c8b8;background:#fffefa}.plan-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.plan-symbol{font-size:17px;font-weight:600;letter-spacing:.3px}.plan-tag{font-size:10px;padding:4px 8px;border-radius:9px;background:#eee9df;color:#6e665b;white-space:nowrap}.plan-tag.active{background:#e6ece3;color:#48654d}.plan-tag.expired,.plan-tag.invalid{background:#f3ded9;color:#8f3128}.plan-tag.executed{background:#e8e4f0;color:#5c5373}.plan-decision{font-size:12px;margin-top:7px;color:#4f4a42}.plan-thesis{font-size:12px;line-height:1.7;color:#6d685f;margin-top:7px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.plan-meta{display:flex;gap:13px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-top:10px}.plan-detail{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--m-standard) var(--ease-spring),opacity var(--m-standard)}.plan-detail>div{overflow:hidden}.plan-card.open .plan-detail{grid-template-rows:1fr}.plan-detail-inner{padding-top:14px;margin-top:13px;border-top:1px solid #eeeae2}.plan-detail h4{font-size:11px;color:var(--muted);font-weight:500;margin:12px 0 5px;letter-spacing:.4px}.plan-detail p,.plan-detail li{font-size:12px;line-height:1.75;color:#655f56}.plan-detail ul{margin:4px 0 0;padding-left:17px}.plan-detail li{margin:3px 0}.plan-history-label{font-size:11px;color:var(--muted);margin:14px 0 2px;letter-spacing:.5px}
+.research-toolbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:15px}.research-toolbar .search{margin:0;max-width:270px}.select{border:1px solid var(--line);background:var(--paper);color:#5b554b;border-radius:8px;min-height:38px;padding:7px 10px;font-size:12px}.filter-chips{display:flex;gap:5px;overflow:auto;max-width:100%;padding:2px 0;scrollbar-width:none}.filter-chips::-webkit-scrollbar{display:none}.filter-chip{border:1px solid var(--line);background:var(--paper);color:#6b655b;border-radius:20px;min-height:32px;padding:5px 10px;font-size:11px;white-space:nowrap}.filter-chip.active{background:#e6ece3;border-color:#cbd9c6;color:#48654d}.filter-chip:hover{background:#f1eee6}.research-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-height:calc(100vh - 350px);overflow:auto;overscroll-behavior:contain;padding:2px}.research-card{text-align:left;border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:14px 15px;cursor:pointer;transition:border-color var(--m-fast) var(--ease-out),box-shadow var(--m-fast),transform var(--m-fast)}.research-card:hover{border-color:#d8d0c2;box-shadow:var(--shadow-1);transform:translateY(-1px)}.research-card:active{transform:scale(.995)}.research-card-top{display:flex;justify-content:space-between;gap:8px;align-items:center}.research-card-symbol{font-size:16px;font-weight:600}.research-card-sector{font-size:10px;color:var(--muted);margin-top:5px}.research-card-meta{display:flex;justify-content:space-between;gap:8px;margin-top:14px;font-size:10px;color:var(--muted)}.research-detail{max-width:900px}.research-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;margin-bottom:18px}.research-detail-title{display:flex;align-items:baseline;gap:12px}.research-detail-title h2{font:31px Georgia,"SimSun",serif;font-weight:500}.research-detail-actions{display:flex;gap:8px;flex-wrap:wrap}.research-back{font-size:12px;padding:8px 11px;min-height:34px}.research-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.research-section{border:1px solid var(--line);border-radius:10px;padding:15px 16px;background:#faf8f2;min-width:0}.research-section h4{font-size:11px;color:var(--muted);letter-spacing:.6px;margin-bottom:9px;font-weight:500}.research-section p,.research-section li{font-size:12px;line-height:1.75;color:#625c53;overflow-wrap:anywhere}.research-section ul{padding-left:17px;margin:0}.research-section li{margin:4px 0}.research-evidence{padding:8px 0;border-bottom:1px solid #eeeae2}.research-evidence:last-child{border:0;padding-bottom:0}.research-evidence a{font-size:12px;font-weight:500; text-decoration:none;border-bottom:1px solid #d8cabb}.research-evidence small{display:block;font-size:10px;color:var(--muted);margin-top:4px;line-height:1.55}.research-note{font-size:11px;color:#8a7b69;background:#f6ecdf;border:1px solid #ead8c2;border-radius:8px;padding:10px 12px;line-height:1.65;margin-bottom:13px}.research-detail .table-wrap{max-height:none}
+@media(max-width:800px){.brief-grid{grid-template-columns:1fr}.research-detail-grid{grid-template-columns:1fr}.research-grid{max-height:calc(100vh - 380px)}.research-toolbar .search{max-width:none;flex:1 1 100%}.research-detail-title h2{font-size:27px}}
+button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-fast),box-shadow var(--m-fast),transform var(--m-fast) var(--ease-out)}button:hover:not(:disabled){box-shadow:var(--shadow-1)}button:active:not(:disabled){transform:translateY(1px) scale(.995)}
+.flash{animation:field-flash 680ms var(--ease-out)}@keyframes field-flash{0%{color:var(--accent)}100%{color:inherit}}
+.chat-message.new{animation:message-in 360ms var(--ease-spring)}@keyframes message-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.assistant-launch{transition:transform var(--m-standard) var(--ease-spring),box-shadow var(--m-standard),background var(--m-fast)}.assistant-launch:hover{transform:translateY(-2px);box-shadow:var(--shadow-2)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}.nav-pill{display:none!important}nav a.active{background:#e3dfd5!important}}
+::view-transition-old(root),::view-transition-new(root){animation-duration:var(--m-standard);animation-timing-function:var(--ease-soft)}
+</style>
+<script src="/app.js?v=20261106-ux4" defer></script>
 </head>
 <body>
 
@@ -83,6 +100,7 @@ body.sidebar-collapsed .sidebar-toggle{margin-top:0;margin-bottom:14px;justify-c
   <div class="workspace">交易工作台</div>
   <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="收起侧边栏" aria-expanded="true" title="收起侧边栏"><span id="sidebar-toggle-icon" aria-hidden="true">‹</span><span class="nav-label">收起导航</span></button>
   <nav aria-label="页面导航">
+    <i id="nav-pill" class="nav-pill" aria-hidden="true"></i>
     <a href="#overview" data-page="overview" class="active" title="账户概览"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-label">账户概览</span></a>
     <a href="#positions" data-page="positions" title="持仓与订单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span class="nav-label">持仓与订单</span></a>
     <a href="#plans" data-page="plans" title="AI 计划"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 计划</span></a>
@@ -123,13 +141,13 @@ body.sidebar-collapsed .sidebar-toggle{margin-top:0;margin-bottom:14px;justify-c
           <div class="timeline" aria-label="美东交易时段"><div class="stage" id="stage-research">盘前研究<span>09:00 — 09:30 ET</span></div><div class="stage" id="stage-trade">主动交易<span>09:30 — 10:00 ET</span></div><div class="stage" id="stage-rest">等待下个交易日<span>10:00 ET 之后</span></div></div>
         </div>
       </section>
-      <div class="connection-strip"><span id="broker-connection">Alpaca · 等待同步</span><span id="ai-connection">AI · 等待同步</span><span class="refresh" id="refresh">每 5 秒更新</span></div>
-      <section class="panel">
-        <div class="section-head"><h2>快速查看</h2><span class="hint">每个入口都打开独立页面</span></div>
-        <div class="quick-links">
-          <a class="quick-link" href="#positions"><b>持仓与订单</b><small>查看 Alpaca 实际持仓、委托和成交状态。</small></a>
-          <a class="quick-link" href="#plans"><b>AI 计划</b><small>查看今日 AI 判断、触发条件和复核记录。</small></a>
-          <a class="quick-link" href="#research"><b>研究档案</b><small>48 只固定池标的的来源、证据和核验时间。</small></a>
+      <section class="panel brief-panel" aria-label="AI 交易简报">
+        <div class="section-head"><h2>AI 交易简报</h2><span class="hint" id="brief-asof">等待同步</span></div>
+        <div class="brief-grid">
+          <article class="brief-card"><h3>今晚关注</h3><div id="brief-focus"></div></article>
+          <article class="brief-card"><h3>持仓判断</h3><div id="brief-positions"></div></article>
+          <article class="brief-card"><h3>重要事件</h3><div id="brief-events"></div></article>
+          <article class="brief-card brief-next"><h3>AI 下一步</h3><p id="brief-next">等待同步</p></article>
         </div>
       </section>
     </section>
@@ -147,10 +165,20 @@ body.sidebar-collapsed .sidebar-toggle{margin-top:0;margin-bottom:14px;justify-c
     </section>
 
     <section class="page-view" id="view-research" data-page="research" hidden>
-      <section class="panel" id="research"><div class="section-head"><h2>研究档案 <span class="count" id="research-count">正在同步</span></h2><span class="hint">来源、证据与核验时间</span></div><div id="research-table"></div></section>
+      <section class="panel" id="research"><div class="section-head"><h2>研究档案 <span class="count" id="research-count">正在同步</span></h2><span class="hint">真实档案 · 来源与证据</span></div>
+        <div class="research-toolbar">
+          <input id="research-search" class="search" type="search" placeholder="搜索股票代码或关键词…" aria-label="搜索研究档案">
+          <div id="research-sector-chips" class="filter-chips" aria-label="按行业筛选"></div>
+          <select id="research-status" class="select" aria-label="按档案状态筛选"><option value="">全部状态</option><option value="OK">已更新</option><option value="STALE">待更新</option><option value="SOURCE_UNAVAILABLE">来源不可用</option></select>
+        </div>
+        <div id="research-grid" class="research-grid"></div>
+        <div id="research-empty" class="empty" hidden></div>
+        <section id="research-detail" class="research-detail" aria-live="polite" hidden></section>
+      </section>
     </section>
 
     <section class="page-view" id="view-activity" data-page="activity" hidden>
+      <div class="connection-strip"><span id="broker-connection">Alpaca · 等待同步</span><span id="ai-connection">AI · 等待同步</span><span class="refresh" id="refresh">每 5 秒更新</span></div>
       <section class="panel" id="activity"><div class="section-head"><h2>运行记录</h2><span class="hint">最近的重要事件</span></div><div id="events" class="events"></div></section>
       <details class="panel disclosure" id="system"><summary><span class="summary-text"><b>运行详情</b><small id="system-summary">连接与账户设置</small></span></summary><div class="disclosure-body">
         <div class="system-grid"><p>订单同步<strong id="watchdog">—</strong></p><p>券商止损<strong id="broker-stop">—</strong></p><p>可用现金<strong id="available">—</strong></p><p>配置状态<strong id="config">—</strong></p><p>账户数据<strong id="source">—</strong></p><p>美东时间<strong id="now-et">—</strong></p></div>

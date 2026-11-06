@@ -47,6 +47,7 @@ function setPage(name, {scroll = true} = {}) {
   if (location.hash !== "#" + page) history.replaceState(null, "", "#" + page);
   setMobileSidebar(false);
   if (scroll) window.scrollTo({top: 0, behavior: "auto"});
+  requestAnimationFrame(moveNavPill);
 }
 
 function setSidebar(collapsed) {
@@ -59,6 +60,7 @@ function setSidebar(collapsed) {
   }
   if (icon) icon.textContent = collapsed ? "›" : "‹";
   try { localStorage.setItem("paper-sidebar-collapsed", collapsed ? "1" : "0"); } catch {}
+  requestAnimationFrame(moveNavPill);
 }
 
 function setMobileSidebar(open) {
@@ -167,121 +169,448 @@ function eventMessage(e) {
   }
   return [titles[e.kind] || "运行状态更新", detail];
 }
+
+const SECTORS = {
+  CRWV: "AI 云基础设施", NBIS: "AI 云基础设施", IREN: "AI 云 / 能源",
+  APLD: "AI 数据中心", WULF: "AI 数据中心", CIFR: "AI 数据中心",
+  SMCI: "AI 服务器", DELL: "AI 服务器",
+  MU: "存储 / 半导体", SNDK: "存储 / 半导体", WDC: "存储 / 半导体", STX: "存储 / 半导体",
+  SKHY: "半导体", ALAB: "半导体", AMD: "半导体", POET: "光通信",
+  COHR: "光通信", LITE: "光通信", TSM: "半导体制造", AVGO: "半导体",
+  NVDA: "半导体", MRVL: "半导体",
+  RKLB: "太空", LUNR: "太空", ASTS: "太空", SPCX: "太空",
+  IONQ: "量子计算", QBTS: "量子计算", RGTI: "量子计算", QUBT: "量子计算",
+  SOUN: "AI 软件", PLTR: "AI 软件", GOOGL: "互联网 / AI", META: "互联网 / AI",
+  AAPL: "消费电子", RDDT: "互联网 / 社交",
+  RIOT: "加密矿业", MARA: "加密矿业", CLSK: "加密矿业", HUT: "加密矿业", COIN: "加密交易",
+  OKLO: "核能", SMR: "核能", NNE: "核能",
+  MRNA: "生物科技", SMMT: "生物科技", VKTX: "生物科技",
+  SOFI: "金融科技",
+};
+const sectorOf = (symbol) => SECTORS[symbol] || "其他";
+const htmlCache = new Map();
+let planRenderKey = "";
+const planExpanded = new Set();
+let researchState = {query: "", sector: "", status: "", detail: null, scroll: 0};
+let researchDetailData = null;
+const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+const motionAllowed = () => !motionQuery.matches;
+
+function withViewTransition(update) {
+  if (!motionAllowed() || typeof document.startViewTransition !== "function") {
+    update();
+    return null;
+  }
+  return document.startViewTransition(update);
+}
+
+function setHTML(id, html) {
+  if (htmlCache.get(id) === html) return false;
+  htmlCache.set(id, html);
+  $(id).innerHTML = html;
+  return true;
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (!element || element.textContent === String(value)) return false;
+  element.textContent = String(value);
+  return true;
+}
+
+function setValue(id, value) {
+  const element = $(id);
+  if (!element) return;
+  const next = String(value);
+  if (element.textContent === next) return;
+  element.textContent = next;
+  element.classList.remove("flash");
+  void element.offsetWidth;
+  element.classList.add("flash");
+  setTimeout(() => element.classList.remove("flash"), 700);
+}
+
+function statusSummary(s) {
+  const worker = healthy(s.health?.worker);
+  const watched = healthy(s.health?.watchdog);
+  const locked = Boolean(s.freeze_reason || s.safety_reason || s.unresolved?.length || s.config_pending_restart);
+  if (locked) {
+    return {
+      label: "异常", tone: "danger",
+      heading: s.freeze_reason || s.safety_reason ? "交易受到保护" : "需要人工核对",
+      copy: "存在冻结、未知订单或待重启配置；系统不会按正常交易状态处理。",
+    };
+  }
+  if (!s.running) {
+    return {label: "未运行", tone: "idle", heading: "机器人未运行", copy: "等待本地 supervisor 在交易日启动。"};
+  }
+  if (s.paused) {
+    return {label: "已暂停", tone: "warn", heading: "交易已暂停", copy: "不会提交新订单；已有委托仍按券商规则处理。"};
+  }
+  if (!worker || !watched) {
+    return {label: "异常", tone: "danger", heading: "运行状态待确认", copy: "worker 或订单同步尚未恢复健康，新下单保持冻结。"};
+  }
+  if (s.phase === "ACTIVE") {
+    return {label: "运行中", tone: "ok", heading: "正在监测交易机会", copy: "AI 计划正在等待触发；只在条件满足时提交 Paper 订单。"};
+  }
+  if (s.phase === "PREMARKET") {
+    return {label: "盘前准备", tone: "ok", heading: "正在准备今天的计划", copy: "AI 正在结合账户、研究档案和最新行情生成交易计划。"};
+  }
+  if (s.phase === "NO_SESSION") {
+    return {label: "运行中", tone: "idle", heading: "今天休市", copy: "没有新的交易安排，等待下一个交易日。"};
+  }
+  return {label: "运行中", tone: "idle", heading: "今天的交易窗口已结束", copy: "不再发起新的本地订单；已有委托可能继续成交。"};
+}
+
+function planStatusInfo(plan, now) {
+  const status = String(plan?.status || "").toUpperCase();
+  const active = ["ACTIVE", "WATCHING", "TRIGGERED"].includes(status);
+  if (active && plan.valid_until && new Date(plan.valid_until) <= now) {
+    return {key: "expired", label: "已到期"};
+  }
+  if (active) return {key: "active", label: "正在进行"};
+  if (status === "EXECUTED") return {key: "executed", label: "已执行"};
+  if (status === "SUPERSEDED" || status === "INVALIDATED") return {key: "invalid", label: "已失效"};
+  if (status === "NO_ORDER") return {key: "invalid", label: "未下单"};
+  if (status === "NO_TRADE") return {key: "invalid", label: "不交易"};
+  if (status === "EXPIRED") return {key: "expired", label: "已到期"};
+  return {key: "invalid", label: status || "状态待确认"};
+}
+
+function conditionText(condition) {
+  const names = {last: "价格", price: "价格", volume: "成交量", change_pct: "涨跌幅"};
+  return `${names[condition.field] || condition.field} ${condition.op} ${condition.value}`;
+}
+
+function purposeText(purpose) {
+  return {REQUEST_AI_RECHECK: "AI 复核", INVALIDATE_PLAN: "失效条件", EXECUTE_ORDER: "执行订单"}[purpose] || purpose;
+}
+
+function planDetailHtml(candidate, plan, statusLabel) {
+  const triggers = candidate.triggers || [];
+  const triggerHtml = triggers.length ? '<h4>触发条件</h4><ul>' + triggers.map((t) =>
+    '<li><b>' + esc(purposeText(t.purpose)) + '</b>：' +
+    (t.all_of || []).map(conditionText).map(esc).join(" 且 ") + '</li>').join("") + '</ul>' : "";
+  const risks = (candidate.risk_flags || []).length ? '<h4>风险因素</h4><ul>' +
+    candidate.risk_flags.map((r) => '<li>' + esc(r.replaceAll("_", " ")) + '</li>').join("") + '</ul>' : "";
+  const intent = candidate.order_intent;
+  const order = intent ? '<h4>订单意图</h4><p>' + esc(
+    `${intent.action || intent.side || "BUY"} ${intent.qty || "—"} 股 · ${intent.order_type || "LIMIT"} · ` +
+    `${intent.limit_price || "—"} · ${intent.time_in_force || "DAY"} · 止损 ${intent.stop_policy || "NONE"}`
+  ) + '</p>' : "";
+  return '<div class="plan-detail-inner">' +
+    '<h4>完整分析</h4><p>' + esc(candidate.analysis || candidate.thesis || "档案中没有完整分析。") + '</p>' +
+    triggerHtml + risks + order +
+    '<h4>计划记录</h4><p>' + esc(`${statusLabel || plan.status} · 有效期 ${plan.valid_until || "—"}${plan.reason ? " · " + plan.reason : ""}`) + '</p>' +
+    '</div>';
+}
+
+function renderBrief(s) {
+  const brief = s.brief || {};
+  const alias = {BUY: "买入", SELL: "卖出", HOLD: "持有", WAIT: "观察", BUY_IF_TRIGGER: "等待触发", NO_TRADE: "不交易"};
+  const focus = (brief.focus || []).slice(0, 4);
+  setHTML("brief-focus", focus.length ? focus.map((item) =>
+    '<div class="brief-focus-item"><b>' + esc(item.symbol) + '</b><span>' +
+    esc(alias[item.decision] || item.decision || "等待判断") + ' · ' + esc(item.analysis || "等待 AI 分析") +
+    '</span><em>' + esc(planStatusInfo({status: item.status, valid_until: item.valid_until}, new Date(s.now || Date.now())).label) +
+    '</em></div>').join("") : '<p class="empty">今天暂时没有有效计划。</p>');
+  const positions = (brief.positions || []);
+  setHTML("brief-positions", positions.length ? positions.map((item) =>
+    '<div class="brief-position"><span><b>' + esc(item.symbol) + '</b> ' + esc(item.qty) + ' 股<br><small>' +
+    esc(item.analysis || "等待评估") + '</small></span><strong>' + esc(alias[item.judgment] || item.judgment || "观察") +
+    '</strong></div>').join("") : '<p class="empty">当前没有持仓。</p>');
+  const events = (brief.events || []).slice(0, 4);
+  setHTML("brief-events", events.length ? events.map((event) =>
+    '<div class="brief-event"><b>' + esc(event.title || event.symbol || "研究事件") + '</b><small>' +
+    esc([event.symbol, event.kind, event.summary].filter(Boolean).join(" · ")) + '</small></div>').join("") :
+    '<p class="empty">暂无新的研究事件。</p>');
+  setText("brief-next", brief.next || "等待系统状态。");
+  setText("brief-asof", brief.as_of ? "更新于 " + time(brief.as_of) : "等待同步");
+}
+
+function renderPlans(s) {
+  const now = new Date(s.now || Date.now());
+  const rows = (s.plan_history && s.plan_history.length ? s.plan_history : s.plans || [])
+    .filter((plan) => plan && plan.candidate);
+  const dataKey = JSON.stringify(rows.map((plan) => [
+    plan.plan_id, plan.status, plan.valid_until, plan.day,
+    plan.candidate?.trade_decision, plan.candidate?.analysis, plan.candidate?.risk_flags,
+    plan.candidate?.order_intent, plan.candidate?.triggers,
+  ]));
+  if (dataKey === planRenderKey) return;
+  planRenderKey = dataKey;
+  const cards = rows.map((plan) => {
+    const candidate = plan.candidate || {};
+    const state = planStatusInfo(plan, now);
+    return {plan, candidate, state};
+  }).sort((a, b) => {
+    const rank = {active: 0, expired: 1, executed: 2, invalid: 3};
+    const d = (rank[a.state.key] ?? 9) - (rank[b.state.key] ?? 9);
+    return d || String(b.plan.created_at || "").localeCompare(String(a.plan.created_at || ""));
+  });
+  const active = cards.filter((item) => item.state.key === "active").length;
+  setText("plan-count", `${active} 个进行中 · 共 ${cards.length} 个计划`);
+  const html = cards.map(({plan, candidate, state}) => {
+    const id = plan.plan_id || candidate.plan_id || "";
+    const open = planExpanded.has(id);
+    const decision = label(candidate.trade_decision, "等待判断");
+    return '<article class="plan-card' + (open ? " open" : "") + '" data-plan-id="' + esc(id) +
+      '" role="button" tabindex="0" aria-expanded="' + String(open) + '">' +
+      '<div class="plan-head"><span class="plan-symbol">' + esc(candidate.symbol || "计划") +
+      '</span><span class="plan-tag ' + state.key + '">' + esc(state.label) + '</span></div>' +
+      '<div class="plan-decision">' + esc(decision) + (candidate.opportunity_grade ? ' · ' + esc(candidate.opportunity_grade) + ' 级机会' : '') + '</div>' +
+      '<p class="plan-thesis">' + esc(candidate.analysis || candidate.thesis || "暂无分析摘要") + '</p>' +
+      '<div class="plan-meta"><span>有效期 ' + esc(date(plan.valid_until)) + '</span>' +
+      (candidate.risk_flags?.length ? '<span>' + esc(candidate.risk_flags.length) + ' 个风险标记</span>' : '') +
+      '<span>' + esc(plan.day || "") + '</span></div>' +
+      '<div class="plan-detail"><div>' + planDetailHtml(candidate, plan, state.label) + '</div></div></article>';
+  }).join("");
+  setHTML("plan-list", html || '<div class="empty">暂时没有交易计划。</div>');
+}
+
+function populateSectors(symbols) {
+  const box = $("research-sector-chips");
+  if (!box || box.dataset.ready === "1") return;
+  const sectors = [...new Set((symbols || []).map(sectorOf))].sort();
+  box.innerHTML = '<button class="filter-chip active" type="button" data-sector="">全部行业</button>' +
+    sectors.map((sector) => '<button class="filter-chip" type="button" data-sector="' + esc(sector) + '">' + esc(sector) + '</button>').join("");
+  box.dataset.ready = "1";
+}
+
+function markSectorChip() {
+  document.querySelectorAll("#research-sector-chips .filter-chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.sector === researchState.sector);
+  });
+}
+
+function renderResearchList(s) {
+  const all = s.research || [];
+  populateSectors(s.symbols || all.map((item) => item.symbol));
+  markSectorChip();
+  const query = researchState.query.trim().toLowerCase();
+  const filtered = all.filter((item) => {
+    if (researchState.sector && sectorOf(item.symbol) !== researchState.sector) return false;
+    if (researchState.status && item.status !== researchState.status) return false;
+    if (!query) return true;
+    const evidenceText = (item.latest_evidence || []).map((e) => e.title || "").join(" ");
+    return `${item.symbol} ${sectorOf(item.symbol)} ${evidenceText}`.toLowerCase().includes(query);
+  });
+  setText("research-count", `${filtered.length}/${all.length} 只股票`);
+  setHTML("research-empty", filtered.length ? "" : "没有匹配的研究档案");
+  $("research-empty").hidden = filtered.length > 0;
+  const html = filtered.map((item) => {
+    const status = label(item.status, "待更新");
+    return '<button class="research-card" type="button" data-symbol="' + esc(item.symbol) + '">' +
+      '<div class="research-card-top"><span class="research-card-symbol">' + esc(item.symbol) +
+      '</span><span class="plan-tag ' + (item.status === "OK" ? "active" : "invalid") + '">' + esc(status) + '</span></div>' +
+      '<div class="research-card-sector">' + esc(sectorOf(item.symbol)) + '</div>' +
+      '<div class="research-card-meta"><span>' + esc(item.evidence_count || 0) + ' 条证据</span><span>' +
+      esc(shortDate(item.verified_at)) + '</span></div></button>';
+  }).join("");
+  setHTML("research-grid", html || '<div class="empty">暂无研究档案</div>');
+  if (researchState.detail) {
+    $("research-grid").hidden = true;
+    $("research-detail").hidden = false;
+  } else {
+    $("research-grid").hidden = false;
+    $("research-detail").hidden = true;
+  }
+}
+
+function researchSection(title, rows, fallback) {
+  const items = asList(rows).filter(Boolean);
+  return '<section class="research-section"><h4>' + esc(title) + '</h4>' +
+    (items.length ? '<ul>' + items.slice(0, 8).map((item) => '<li>' + esc(item) + '</li>').join("") + '</ul>' :
+      '<p>' + esc(fallback || "当前档案没有这一项。") + '</p>') + '</section>';
+}
+
+function renderResearchDetail(data) {
+  researchDetailData = data;
+  const profile = data.profile || {};
+  const sector = sectorOf(data.symbol);
+  const evidence = (data.evidence || []);
+  const news = evidence.filter((item) => ["news", "ir", "filing"].includes(item.kind));
+  const shown = (news.length ? news : evidence).slice(0, 10);
+  const riskFlags = (data.plans || []).flatMap((plan) => plan.candidate?.risk_flags || []);
+  const planRows = data.plans || [];
+  const detail = $("research-detail");
+  detail.innerHTML = '<div class="research-detail-head"><div class="research-detail-title">' +
+    '<h2 id="research-detail-symbol" style="view-transition-name:research-symbol">' + esc(data.symbol) + '</h2>' +
+    '<span class="plan-tag ' + (data.status === "OK" ? "active" : "invalid") + '">' + esc(label(data.status)) + '</span></div>' +
+    '<div class="research-detail-actions"><button id="research-back" class="research-back" type="button">← 返回档案</button></div></div>' +
+    '<div class="research-note">行业分类是本地研究标签；业务、财务、新闻、风险等内容均来自当前数据库档案与已验证证据，没有为缺失字段编造内容。</div>' +
+    '<div class="research-detail-grid">' +
+    '<section class="research-section"><h4>业务与行业线索</h4><p><b>' + esc(sector) + '</b> · ' +
+    esc(data.symbol) + '</p><p>研究档案没有单列“主营业务”字段；以下事实来自档案，可用于判断业务与行业。</p>' +
+    (asList(profile.facts).length ? '<ul>' + asList(profile.facts).slice(0, 6).map((item) => '<li>' + esc(item) + '</li>').join("") + '</ul>' :
+      '<p>当前档案没有业务事实。</p>') + '</section>' +
+    researchSection("AI 解读", profile.interpretations, "当前档案没有额外解读。") +
+    researchSection("催化与风险线索", [
+      ...asList(profile.assumptions), ...asList(profile.unknowns),
+      ...asList(profile.invalidation).map((item) => `失效条件：${conditionText(item)}`),
+      ...riskFlags.map((item) => `风险标记：${String(item).replaceAll("_", " ")}`),
+    ], "当前档案没有催化/风险线索。") +
+    '<section class="research-section"><h4>最新新闻与证据</h4>' +
+    (shown.length ? shown.map((item) => {
+      const title = item.title || item.source_url || "来源";
+      const meta = [item.published_at ? shortDate(item.published_at) : "", item.kind,
+        item.verified ? "已验证" : "未验证"].filter(Boolean).join(" · ");
+      return '<div class="research-evidence">' +
+        '<a href="' + esc(item.source_url || "#") + '" target="_blank" rel="noopener noreferrer">' + esc(title) + '</a>' +
+        '<small>' + esc(meta) + (item.summary ? " · " + esc(String(item.summary).slice(0, 220)) : "") + '</small></div>';
+    }).join("") : '<p>当前档案没有可展示证据。</p>') + '</section>' +
+    researchSection("研究档案信息", [
+      `版本 ${data.version ?? "—"}`,
+      data.verified_at ? `核验 ${date(data.verified_at)}` : "",
+      data.expires_at ? `过期 ${date(data.expires_at)}` : "",
+      `${evidence.length} 条证据`,
+    ], "暂无档案信息。") +
+    '<section class="research-section"><h4>相关交易计划</h4>' +
+    (planRows.length ? planRows.slice(0, 5).map((plan) => {
+      const candidate = plan.candidate || {};
+      return '<div class="research-evidence"><b>' + esc(plan.day || "") + ' · ' + esc(label(candidate.trade_decision, plan.status)) +
+        '</b><small>' + esc((candidate.analysis || "").slice(0, 220)) + '</small></div>';
+    }).join("") : '<p>该股票暂时没有交易计划。</p>') + '</section>' +
+    '</div>';
+  detail.hidden = false;
+  $("research-grid").hidden = true;
+  $("research-empty").hidden = true;
+  const back = $("research-back");
+  if (back) back.onclick = closeResearch;
+}
+
+async function openResearch(symbol, card) {
+  if (!symbol) return;
+  researchState.detail = symbol;
+  researchState.scroll = $("research-grid").scrollTop;
+  if (card) card.style.viewTransitionName = "research-symbol";
+  const update = () => {
+    $("research-detail").hidden = false;
+    $("research-detail").innerHTML = '<div class="research-detail-head"><div class="research-detail-title">' +
+      '<h2 style="view-transition-name:research-symbol">' + esc(symbol) + '</h2></div></div>' +
+      '<div class="research-note">正在读取真实研究档案…</div>';
+    $("research-grid").hidden = true;
+    $("research-empty").hidden = true;
+  };
+  const transition = withViewTransition(update);
+  if (transition) transition.finished.finally(() => { if (card) card.style.viewTransitionName = ""; });
+  try {
+    const response = await fetch("/api/research/" + encodeURIComponent(symbol), {signal: AbortSignal.timeout(12000)});
+    if (!response.ok) throw new Error("研究档案暂时无法读取");
+    renderResearchDetail(await response.json());
+  } catch (error) {
+    $("research-detail").innerHTML = '<div class="research-detail-head"><div class="research-detail-title">' +
+      '<h2>' + esc(symbol) + '</h2></div><div class="research-detail-actions"><button id="research-back" class="research-back" type="button">← 返回档案</button></div></div>' +
+      '<div class="research-note">' + esc(error.message) + '</div>';
+    const back = $("research-back");
+    if (back) back.onclick = closeResearch;
+  }
+}
+
+function closeResearch() {
+  researchState.detail = null;
+  const update = () => {
+    $("research-detail").hidden = true;
+    $("research-grid").hidden = false;
+    $("research-empty").hidden = false;
+  };
+  withViewTransition(update);
+  requestAnimationFrame(() => { $("research-grid").scrollTop = researchState.scroll; });
+}
+
+function moveNavPill() {
+  const nav = document.querySelector("nav");
+  const active = document.querySelector("nav a.active");
+  const pill = $("nav-pill");
+  if (!nav || !active || !pill) return;
+  const navRect = nav.getBoundingClientRect();
+  const activeRect = active.getBoundingClientRect();
+  if (!activeRect.height) { pill.hidden = true; return; }
+  pill.hidden = false;
+  pill.style.height = activeRect.height + "px";
+  pill.style.transform = "translateY(" + (activeRect.top - navRect.top) + "px)";
+}
+
+const asList = (value) => Array.isArray(value) ? value : value ? [value] : [];
+
+function togglePlanCard(card) {
+  if (!card) return;
+  const id = card.dataset.planId || "";
+  const open = !card.classList.contains("open");
+  card.classList.toggle("open", open);
+  card.setAttribute("aria-expanded", String(open));
+  if (open) planExpanded.add(id);
+  else planExpanded.delete(id);
+}
+
 function render(s) {
   state = s;
   token = s.control_token;
   const accountFresh = !!s.account && !s.account_stale && !s.account_error && s.account_age_seconds != null && s.account_age_seconds < 120;
-  const watched = healthy(s.health?.watchdog);
   const worker = healthy(s.health?.worker);
+  const watched = healthy(s.health?.watchdog);
   const lastAI = s.ai_calls?.[0];
-  $("today").textContent = new Date(s.now).toLocaleDateString("zh-CN", {
+  setText("today", new Date(s.now).toLocaleDateString("zh-CN", {
     timeZone: "Asia/Shanghai", month: "long", day: "numeric", weekday: "long"
-  });
-  $("equity").textContent = money(s.account?.equity);
-  $("cash").textContent = "账户现金 $" + money(s.account?.cash);
-  $("pnl").textContent = s.daily_pnl == null ? "—" : (s.daily_pnl > 0 ? "+" : "") + money(s.daily_pnl);
+  }));
+  setValue("equity", money(s.account?.equity));
+  setText("cash", "账户现金 $" + money(s.account?.cash));
+  setValue("pnl", s.daily_pnl == null ? "—" : (s.daily_pnl > 0 ? "+" : "") + money(s.daily_pnl));
   $("pnl").className = "value " + (s.daily_pnl > 0 ? "positive" : s.daily_pnl < 0 ? "negative" : "");
-  $("return").textContent = percent(s.return);
-  $("drawdown").textContent = percent(s.drawdown);
-  $("process").textContent = !s.running ? "未启动" : !worker ? "状态待确认" : s.paused ? "已暂停交易" : "运行中";
-  $("process").className = "badge " + (s.running && worker && !s.paused && !hasBlock(s) ? "ok" : "");
-  let heading, copy;
-  const recovering = (s.freeze_reason || s.safety_reason) === "DATABASE_RESTORED_RECONCILIATION_REQUIRED";
-  if (recovering) {
-    heading = "交易暂停，等待对账";
-    copy = "可以查看持仓、研究档案和使用交易助手。完成对账并经你确认后，才会恢复交易。";
-  } else if (hasBlock(s)) {
-    heading = "需要你确认一下";
-    copy = "交易恢复前有待处理事项，请查看下方运行详情。";
-  } else if (!s.running) {
-    heading = "准备好了，再出发";
-    copy = "启动后，机器人会在设定时段研究股票并执行模拟交易。";
-  } else if (s.paused) {
-    heading = "交易已暂停";
-    copy = "目前不会提交新订单。已有委托仍按券商规则执行。";
-  } else if (!worker || !watched) {
-    heading = "正在确认运行状态";
-    copy = "机器人已启动，等待最新心跳与订单同步。";
-  } else if (s.phase === "PREMARKET") {
-    heading = "盘前研究时段";
-    copy = "机器人正在准备今日计划；最新分析结果会显示在下方。";
-  } else if (s.phase === "ACTIVE") {
-    heading = "留意今天的机会";
-    copy = "机器人正在检查计划条件，仅在条件满足时提交订单。";
-  } else if (s.phase === "NO_SESSION") {
-    heading = "今天休市";
-    copy = "今天没有主动交易安排，等待下一个交易日。";
-  } else if (s.session_reason === "before_premarket") {
-    heading = "等待盘前研究";
-    copy = "美东 09:00 开始分析，09:30 进入主动交易时段。";
-  } else {
-    heading = "今天的交易窗口已结束";
-    copy = "不再发起新的策略订单。已有委托仍可成交，持仓继续保留。";
-  }
-  $("session-title").textContent = heading;
-  $("session-copy").textContent = copy;
+  setValue("return", percent(s.return));
+  setValue("drawdown", percent(s.drawdown));
+  const status = statusSummary(s);
+  setText("process", status.label);
+  $("process").className = "badge " + status.tone;
+  setText("session-title", status.heading);
+  setText("session-copy", status.copy);
   if (activePage === "overview") {
-    $("page-subtitle").textContent = accountFresh ? "账户、持仓与 AI 的最新进展。" : "账户信息等待更新，当前显示最近记录。";
+    setText("page-subtitle", accountFresh ? "账户、持仓与 AI 的最新进展。" : "账户信息等待更新，当前显示最近记录。");
   }
   ["research", "trade", "rest"].forEach((part) => $("stage-" + part).classList.remove("current"));
   if (s.phase === "PREMARKET") $("stage-research").classList.add("current");
   else if (s.phase === "ACTIVE") $("stage-trade").classList.add("current");
   else if (s.phase === "CLOSED" && s.session_reason !== "before_premarket") $("stage-rest").classList.add("current");
   $("broker-connection").innerHTML = dot(accountFresh) + (accountFresh ? "Alpaca · 已同步" : "Alpaca · 等待同步");
-  $("ai-connection").textContent = lastAI ? "AI · 最近分析 " + shortDate(lastAI.ts) + " " + time(lastAI.ts) +
-    (lastAI.outcome === "ok" ? "" : " · 未完成") : "AI · 暂无分析记录";
-  $("refresh").textContent = "更新于 " + time(s.now) + " · 每 5 秒刷新";
-  $("account-time").textContent = s.account_asof ? "账户更新 " + time(s.account_asof) : "等待账户同步";
+  setText("ai-connection", lastAI ? "AI · 最近分析 " + shortDate(lastAI.ts) + " " + time(lastAI.ts) +
+    (lastAI.outcome === "ok" ? "" : " · 未完成") : "AI · 暂无分析记录");
+  setText("refresh", "更新于 " + time(s.now) + " · 每 5 秒刷新");
+  setText("account-time", s.account_asof ? "账户更新 " + time(s.account_asof) : "等待账户同步");
+  renderBrief(s);
 
   const alerts = [];
-  if (recovering) alerts.push("历史资料已从备份恢复。网页查询与聊天可用，自动交易保持暂停，等待对账。");
-  else if (s.freeze_reason || s.safety_reason || s.unresolved?.length) alerts.push("有订单或运行状态需要核对，暂不能恢复交易。");
-  if (s.config_pending_restart) alerts.push("配置已更新，请从「更多」重启机器人后再继续交易。");
-  if (s.running && (!worker || !watched)) alerts.push("机器人或订单同步暂未确认正常，请查看运行详情。");
+  if (s.freeze_reason || s.safety_reason) alerts.push("安全冻结：系统不会提交新订单，需人工核对后恢复。");
+  if (s.unresolved?.length) alerts.push("存在需要核对的订单，暂不能恢复自动交易。");
+  if (s.config_pending_restart) alerts.push("配置已更新，请从「更多」安全重启机器人后再继续交易。");
+  if (s.running && (!worker || !watched)) alerts.push("机器人或订单同步暂未确认健康，请查看运行详情。");
   if (!accountFresh) alerts.push(s.account ? "账户数据尚未更新，金额可能不是最新值。" : "暂时无法读取账户数据。");
-  if (s.recent_orders_error) alerts.push("历史订单暂未同步，当前记录可能不完整。");
-  if ((s.orders || []).some((o) => o.state_mismatch)) alerts.push("部分订单记录待核对，当前展示券商返回的状态。");
+  if (s.recent_orders_error) alerts.push("历史订单同步失败，当前记录可能不完整。");
+  if ((s.orders || []).some((o) => o.state_mismatch)) alerts.push("部分订单本地记录与券商状态不一致，已优先显示券商事实。");
+  setHTML("notice", esc(alerts.join(" ")) + (alerts.length ? ' <a href="#activity">查看详情</a>' : ""));
   $("notice").hidden = alerts.length === 0;
-  $("notice").innerHTML = esc(alerts.join(" ")) + (alerts.length ? ' <a href="#activity">查看详情</a>' : "");
+
   const positions = Object.entries(s.account?.positions || {});
-  $("position-count").textContent = positions.length ? positions.length + " 只" : "";
-  $("position-table").innerHTML = table(["股票", "持有股数", "市值 / USD", "平均成本", "浮动盈亏", "止损"], positions.map(([symbol, value]) => {
+  setText("position-count", positions.length ? positions.length + " 只" : "");
+  setHTML("position-table", table(["股票", "持有股数", "市值 / USD", "平均成本", "浮动盈亏", "止损"], positions.map(([symbol, value]) => {
     const d = s.account.position_details?.[symbol] || {};
     return [symbol, s.account.quantities?.[symbol], money(value), money(d.avg_entry_price), money(d.unrealized_pl),
       STOP[d.stop_status] || "待核实"];
-  }), s.account ? "当前没有持仓" : "等待账户数据");
-  $("order-table").innerHTML = table(["股票", "方向", "股数 / 已成交", "限价", "状态"], (s.orders || []).slice(0, 8).map((o) => [
+  }), s.account ? "当前没有持仓" : "等待账户数据"));
+  const orderRows = (s.orders || []).slice(0, 8).map((o) => [
     o.symbol, ({buy: "买入", sell: "卖出", BUY: "买入", SELL: "卖出"})[o.side || o.action] || "—",
     (o.qty ?? o.quantity ?? "—") + " / " + (o.filled_qty ?? "—"), money(o.limit_price),
     label(o.status, label(o.state))
-  ]), "暂时没有订单");
-  $("pending").textContent = s.unresolved?.length ? s.unresolved.length + " 笔待核对" : "最近 8 笔";
-  const plans = s.plans || [];
-  $("plan-count").textContent = plans.length ? plans.length + " 个计划" : "暂无新计划";
-  $("plan-list").innerHTML = plans.map((p) => {
-    const c = p.candidate || {}, intent = c.order_intent || {};
-    const expired = p.valid_until && new Date(p.valid_until) <= new Date(s.now);
-    const description = String(c.analysis || c.thesis || "暂无详细分析记录。");
-    const decision = label(c.trade_decision, "等待分析");
-    return '<article class="plan"><div class="plan-top"><span class="ticker">' + esc(c.symbol || intent.symbol || "计划") +
-      '</span>' + badge(expired ? "已到期" : label(c.trade_decision, label(p.status))) + '</div><p>' +
-      esc(decision + (intent.qty ? " · 条件满足后按计划执行。" : " · 暂无下单安排。")) + '</p><div class="plan-meta">' +
-      '<span>有效至 ' + esc(time(p.valid_until)) + '</span>' +
-      (intent.qty ? '<span>' + esc(intent.qty) + ' 股 · $' + esc(money(intent.limit_price)) + '</span>' : '<span>暂无下单安排</span>') +
-      (intent.stop_policy ? '<span>止损：' + esc(STOP[intent.stop_policy] || "待核实") + '</span>' : "") +
-      '</div><details class="plan-note"><summary>查看 AI 分析</summary><p>' + esc(description) + '</p></details></article>';
-  }).join("") || '<div class="empty">今日暂无生效计划</div>';
-  $("ai-list").innerHTML = (s.ai_calls || []).slice(0, 6).map((a) =>
+  ]);
+  setHTML("order-table", table(["股票", "方向", "股数 / 已成交", "限价", "状态"], orderRows, "暂时没有订单"));
+  setText("pending", s.unresolved?.length ? s.unresolved.length + " 笔待核对" : "最近 8 笔");
+  renderPlans(s);
+  setHTML("ai-list", (s.ai_calls || []).slice(0, 6).map((a) =>
     '<div class="ai-row"><div><strong>' + esc(MODE[a.mode] || "AI 分析") + '</strong><small>' +
     esc(shortDate(a.ts) + " " + time(a.ts) + " · " + a.model) + '</small></div><div>' +
     badge(a.outcome === "ok" ? "已完成" : "未完成", a.outcome === "ok" ? "" : "warn") +
     '<small>' + (a.latency_ms != null ? esc((a.latency_ms / 1000).toFixed(1)) + " 秒" : "") + '</small></div></div>'
-  ).join("") || '<div class="empty">还没有 AI 分析记录</div>';
-  const research = s.research || [];
-  $("research-count").textContent = research.length + " 只股票已建档";
-  $("research-table").innerHTML = table(["股票", "档案", "资料来源", "记录数", "最近核验"], research.map((r) => [
-    r.symbol, label(r.status), label(r.source_status), r.evidence_count ?? 0, date(r.verified_at)
-  ]), "还没有研究档案");
+  ).join("") || '<div class="empty">还没有 AI 分析记录</div>');
+  renderResearchList(s);
   const seen = new Set();
   const events = [...(s.events || [])].reverse().filter((e) => !["input", "ai_raw"].includes(e.kind)).filter((e) => {
     const key = eventMessage(e).join("|");
@@ -289,31 +618,33 @@ function render(s) {
     seen.add(key);
     return true;
   }).slice(0, 12);
-  $("events").innerHTML = events.map((e) => {
+  setHTML("events", events.map((e) => {
     const [title, detail] = eventMessage(e);
     return '<div class="event"><time datetime="' + esc(e.ts) + '">' + esc(shortDate(e.ts) + " " + time(e.ts)) +
       '</time><div><strong>' + esc(title) + '</strong><p>' + esc(detail) + '</p></div></div>';
-  }).join("") || '<div class="empty">暂无运行记录</div>';
-  $("symbol-count").textContent = (s.symbols || []).length + " 只 · 固定股票池";
+  }).join("") || '<div class="empty">暂无运行记录</div>');
+  setText("symbol-count", (s.symbols || []).length + " 只 · 固定股票池");
   renderSymbols();
-  $("system-summary").textContent = alerts.length ? "有事项需要确认" : "连接与账户设置";
-  $("watchdog").textContent = watched ? "同步正常 · " + time(s.health.watchdog.last_success) : s.running ? "等待成功对账" : "机器人未运行";
-  $("broker-stop").textContent = s.broker_stop === "VERIFIED" ? "已验证" : "未验证 · 暂不可用";
-  $("available").textContent = "$" + money(s.account?.available_non_margin_cash ?? s.account?.non_margin_cash ?? s.account?.cash);
-  $("config").textContent = s.config_pending_restart ? "等待重启生效" : "已生效";
-  $("source").textContent = s.account_source || "暂无数据";
-  $("now-et").textContent = time(s.now, "America/New_York") + " ET";
-  $("version").textContent = "美股 · 模拟交易";
-  $("diagnostic-data").textContent = JSON.stringify({
+  setText("system-summary", alerts.length ? "有事项需要确认" : "连接与账户设置");
+  setText("watchdog", watched ? "同步正常 · " + time(s.health.watchdog.last_success) : s.running ? "等待成功对账" : "机器人未运行");
+  setText("broker-stop", s.broker_stop === "VERIFIED" ? "已验证" : "未验证 · 暂不可用");
+  setText("available", "$" + money(s.account?.available_non_margin_cash ?? s.account?.non_margin_cash ?? s.account?.cash));
+  setText("config", s.config_pending_restart ? "等待重启生效" : "已生效");
+  setText("source", s.account_source || "暂无数据");
+  setText("now-et", time(s.now, "America/New_York") + " ET");
+  setText("version", "美股 · 模拟交易");
+  setText("diagnostic-data", JSON.stringify({
     配置: s.active_config_hash, 冻结原因: s.freeze_reason || s.safety_reason || null,
     账户错误: s.account_error, 历史订单错误: s.recent_orders_error, 心跳: s.health,
     订单: (s.orders || []).map((o) => ({股票: o.symbol, 日期: o.day, 订单编号: o.cid, 券商状态: o.status,
       本地状态: o.local_state || o.state, 止损: o.stop_status})),
     事件: events, 模型调用: (s.ai_calls || []).map((a) => ({时间: a.ts, 类型: a.mode,
       模型: a.model, 输入用量: a.prompt_tokens, 输出用量: a.completion_tokens, 结果: a.outcome, 错误: a.error}))
-  }, null, 2);
+  }, null, 2));
   updateControls();
+  requestAnimationFrame(moveNavPill);
 }
+
 async function refresh() {
   if (refreshing) return refreshing;
   refreshing = (async () => {
@@ -420,6 +751,36 @@ $("confirm-action").onclick = () => {
 };
 $("confirm").addEventListener("close", () => { pendingAction = null; });
 $("search").oninput = renderSymbols;
+$("research-search").oninput = () => {
+  researchState.query = $("research-search").value;
+  renderResearchList(state || {});
+};
+$("research-sector-chips").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-sector]");
+  if (!chip) return;
+  researchState.sector = chip.dataset.sector || "";
+  markSectorChip();
+  renderResearchList(state || {});
+});
+$("research-status").onchange = () => {
+  researchState.status = $("research-status").value;
+  renderResearchList(state || {});
+};
+$("research-grid").addEventListener("click", (event) => {
+  const card = event.target.closest(".research-card");
+  if (card) openResearch(card.dataset.symbol, card);
+});
+$("plan-list").addEventListener("click", (event) => {
+  const card = event.target.closest(".plan-card");
+  if (card) togglePlanCard(card);
+});
+$("plan-list").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const card = event.target.closest(".plan-card");
+  if (!card) return;
+  event.preventDefault();
+  togglePlanCard(card);
+});
 $("sidebar-toggle").onclick = () => setSidebar(!document.body.classList.contains("sidebar-collapsed"));
 $("mobile-nav").onclick = () => setMobileSidebar(!document.body.classList.contains("sidebar-open"));
 $("sidebar-close").onclick = () => setMobileSidebar(false);
@@ -430,6 +791,7 @@ document.querySelectorAll("nav a[data-page]").forEach((link) => {
 window.addEventListener("hashchange", () => setPage(pageFromHash(), {scroll: false}));
 window.addEventListener("resize", () => {
   if (window.innerWidth > 800) setMobileSidebar(false);
+  requestAnimationFrame(moveNavPill);
 });
 setSidebar((() => { try { return localStorage.getItem("paper-sidebar-collapsed") === "1"; } catch { return false; } })());
 setPage(pageFromHash(), {scroll: false});
@@ -455,21 +817,37 @@ function markChatSeen() {
   $("assistant-unread").hidden = true;
 }
 function setChatOpen(open) {
-  $("assistant-panel").hidden = !open;
-  $("assistant-open").setAttribute("aria-expanded", String(open));
-  $("assistant-open").hidden = open;
-  const modal = open && window.innerWidth <= 800;
-  $("assistant-panel").setAttribute("aria-modal", String(modal));
-  $("chat-backdrop").hidden = !modal;
-  document.body.style.overflow = modal ? "hidden" : "";
-  if (open) {
-    markChatSeen();
-    loadChat();
-    $("chat-input").focus();
-    $("chat-body").scrollTop = $("chat-body").scrollHeight;
-  } else {
-    $("assistant-open").focus();
+  const button = $("assistant-open");
+  const panel = $("assistant-panel");
+  const update = () => {
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    button.hidden = open;
+    const modal = open && window.innerWidth <= 800;
+    panel.setAttribute("aria-modal", String(modal));
+    $("chat-backdrop").hidden = !modal;
+    document.body.style.overflow = modal ? "hidden" : "";
+    if (open) {
+      markChatSeen();
+      loadChat();
+      $("chat-body").scrollTop = $("chat-body").scrollHeight;
+    }
+  };
+  button.style.viewTransitionName = "assistant-entry";
+  panel.style.viewTransitionName = "assistant-entry";
+  const transition = withViewTransition(update);
+  if (transition) transition.finished.finally(() => {
+    button.style.viewTransitionName = "";
+    panel.style.viewTransitionName = "";
+  });
+  else {
+    button.style.viewTransitionName = "";
+    panel.style.viewTransitionName = "";
   }
+  requestAnimationFrame(() => {
+    if (open) $("chat-input").focus();
+    else button.focus();
+  });
 }
 function renderChat() {
   const box = $("chat-body");
@@ -486,6 +864,8 @@ function renderChat() {
     const who = m.role === "user" ? "你" : m.role === "system" ? "系统提示" : m.source === "proactive" ? "助手 · 主动消息" : "交易助手";
     el.innerHTML = '<div class="chat-meta"><b>' + esc(who) + '</b><time>' + esc(shortDate(m.ts) + " " + time(m.ts)) +
       '</time></div><div class="chat-text">' + esc(m.body) + '</div>';
+    el.classList.add("new");
+    setTimeout(() => el.classList.remove("new"), 700);
     if (m.role === "assistant") {
       const expand = document.createElement("button");
       expand.className = "chat-expand";

@@ -349,6 +349,18 @@ def snapshot(store, account_feed=None):
                 detail["stop_status"] = "FAILED"
     day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     plans = store.active_plans(day)
+    plan_history = []
+    for plan in store.recent_plans(120):
+        payload = plan.get("payload") or {}
+        plan_history.append({
+            "plan_id": plan["plan_id"],
+            "day": plan["trading_day"],
+            "status": plan["status"],
+            "valid_until": plan["valid_until"],
+            "created_at": plan["created_at"],
+            "reason": plan.get("reason"),
+            "candidate": payload.get("candidate"),
+        })
     local_rows = []
     with store.lock:
         rows = store.db.execute(
@@ -429,6 +441,7 @@ def snapshot(store, account_feed=None):
     symbols = active.get("symbols") if active.get("symbols") else disk_symbols
     version = (active.get("policy") or {}).get("version") or disk_version
     profiles = []
+    news_candidates = []
     for symbol in symbols or []:
         row = store.research_profile(symbol)
         if row:
@@ -445,6 +458,14 @@ def snapshot(store, account_feed=None):
                     )} for item in evidence
                 ],
             })
+            for item in evidence:
+                if item.get("verified") and item.get("kind") in {"news", "ir", "filing"}:
+                    news_candidates.append({
+                        "symbol": symbol, "kind": item.get("kind"),
+                        "title": item.get("title"), "source_url": item.get("source_url"),
+                        "published_at": item.get("published_at"),
+                        "retrieved_at": item.get("retrieved_at"),
+                    })
     verified_profiles = sum(
         1 for item in profiles
         if item.get("source_status") == "AVAILABLE" and item.get("status") in {"OK", "STALE"}
@@ -457,6 +478,77 @@ def snapshot(store, account_feed=None):
         "profiles": len(profiles),
         "verified_profiles": verified_profiles,
         "source_note": "profile.source_status is written by the retrieval layer",
+    }
+    valid_plans = []
+    for plan in plans:
+        try:
+            valid = not plan.get("valid_until") or datetime.fromisoformat(
+                str(plan["valid_until"]).replace("Z", "+00:00")
+            ) > now
+        except ValueError:
+            valid = False
+        if valid:
+            valid_plans.append(plan)
+    focus = []
+    for plan in valid_plans:
+        candidate = (plan.get("payload") or {}).get("candidate") or {}
+        if candidate.get("symbol"):
+            focus.append({
+                "symbol": candidate["symbol"],
+                "decision": candidate.get("trade_decision"),
+                "analysis": (candidate.get("analysis") or "")[:280],
+                "valid_until": plan["valid_until"],
+                "status": plan["status"],
+            })
+    position_brief = []
+    for symbol, qty in (account or {}).get("quantities", {}).items():
+        detail = (account or {}).get("position_details", {}).get(symbol) or {}
+        plan = next(
+            (item for item in valid_plans
+             if ((item.get("payload") or {}).get("candidate") or {}).get("symbol") == symbol),
+            None,
+        )
+        candidate = ((plan or {}).get("payload") or {}).get("candidate") or {}
+        position_brief.append({
+            "symbol": symbol,
+            "qty": qty,
+            "market_value": detail.get("market_value"),
+            "unrealized_pl": detail.get("unrealized_pl"),
+            "judgment": candidate.get("trade_decision") or "WAIT",
+            "analysis": (candidate.get("analysis") or "当前没有针对该持仓的今日 AI 计划；等待下一次盘前评估。")[:240],
+        })
+    market_events = []
+    seen_news_symbols = set()
+    for item in sorted(
+        news_candidates,
+        key=lambda value: str(value.get("retrieved_at") or value.get("published_at") or ""),
+        reverse=True,
+    ):
+        symbol = item.get("symbol")
+        if symbol in seen_news_symbols:
+            continue
+        seen_news_symbols.add(symbol)
+        market_events.append(item)
+        if len(market_events) >= 6:
+            break
+    if frozen:
+        next_step = "安全冻结中：等待对账与人工确认，不会提交新订单。"
+    elif pending:
+        next_step = "配置待重启：新订单暂停，等待安全重启。"
+    elif not bool(worker_processes()):
+        next_step = "机器人未运行：等待本地 supervisor 在交易日启动。"
+    elif store.paused():
+        next_step = "交易已暂停：不会提交新订单。"
+    elif valid_plans:
+        next_step = f"正在监测 {len(valid_plans)} 个有效 AI 计划；10:00 ET 后不再提交新的本地订单。"
+    else:
+        next_step = "当前没有有效 AI 计划；等待下一次盘前研究。"
+    brief = {
+        "focus": focus[:6],
+        "positions": position_brief,
+        "events": market_events,
+        "next": next_step,
+        "as_of": now.isoformat(),
     }
     return {
         "service": "ai-paper-trader",
@@ -515,6 +607,8 @@ def snapshot(store, account_feed=None):
             }
             for plan in plans
         ],
+        "plan_history": plan_history,
+        "brief": brief,
         "ai_calls": store.recent_ai_calls(10),
         "research": profiles,
         "research_capabilities": research_capabilities,
@@ -580,6 +674,46 @@ def create_app(db_path=None, account_feed=None, companion_model=None):
             data = snapshot(store, account_feed)
             data["control_token"] = token
             return jsonify(**data)
+        finally:
+            store.close()
+
+    @app.get("/api/research/<symbol>")
+    def research_detail(symbol):
+        symbol = symbol.upper()
+        if not re.fullmatch(r"[A-Z]{1,6}", symbol):
+            return jsonify(error="Invalid symbol"), 400
+        store = Store(db_path, role="research-detail")
+        try:
+            row = store.research_profile(symbol)
+            if not row:
+                return jsonify(error="Research profile not found"), 404
+            evidence = store.research_evidence(symbol, limit=60)
+            plan_history = []
+            for plan in store.recent_plans(300):
+                candidate = (plan.get("payload") or {}).get("candidate") or {}
+                if candidate.get("symbol") == symbol:
+                    plan_history.append({
+                        "plan_id": plan["plan_id"], "day": plan["trading_day"],
+                        "status": plan["status"], "valid_until": plan["valid_until"],
+                        "created_at": plan["created_at"], "reason": plan.get("reason"),
+                        "candidate": candidate,
+                    })
+                if len(plan_history) >= 12:
+                    break
+            fields = (
+                "id", "kind", "source_url", "title", "published_at", "retrieved_at",
+                "available_at", "verified", "content_hash", "summary",
+            )
+            return jsonify({
+                "symbol": symbol,
+                "status": row["status"],
+                "version": row["version"],
+                "verified_at": row["verified_at"],
+                "expires_at": row["expires_at"],
+                "profile": row.get("profile") or {},
+                "evidence": [{key: item.get(key) for key in fields} for item in evidence],
+                "plans": plan_history,
+            })
         finally:
             store.close()
 
