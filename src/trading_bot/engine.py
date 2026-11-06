@@ -99,6 +99,11 @@ class Engine:
         self.tick_lock = threading.RLock()
         self._last_account_event = None
         self._last_scan = None
+        self._last_active_research = None
+        self._active_research_day = None
+        self._active_research_tokens = 0
+        self._research_marks = {}
+        self._profit_reviewed = set()
         self._last_config_error = None
         if store.active_config() is None:
             from .settings import config_snapshot
@@ -948,6 +953,98 @@ class Engine:
     def _active_end_utc(session):
         return session.active_end.astimezone(timezone.utc) if session.active_end else None
 
+    def _active_research_due(self, now, account_ctx, held, plans):
+        """Return a reason when an intraday three-agent refresh is due."""
+        if not self.multi_agent.enabled or not self.ai:
+            return None
+        day = now.astimezone(timezone.utc).date().isoformat()
+        if self._active_research_day != day:
+            self._active_research_day = day
+            self._last_active_research = None
+            self._active_research_tokens = 0
+            self._research_marks = {}
+            self._profit_reviewed = set()
+        if self._active_research_tokens >= self.execution.active_research_max_tokens:
+            return None
+        if self._last_active_research is None:
+            if plans:
+                self._last_active_research = now
+                return None
+            return "plan_missing_or_premarket_failed"
+        age = (now - self._last_active_research).total_seconds()
+        if not plans and age >= self.execution.active_research_min_cooldown_seconds:
+            return "plan_gap"
+        if age >= self.execution.active_research_interval_seconds:
+            return "fifteen_minute_refresh"
+        if age < self.execution.active_research_min_cooldown_seconds:
+            return None
+        for position in account_ctx.get("positions", []):
+            symbol = position.get("symbol")
+            pnl = float(position.get("unrealized_plpc") or 0)
+            level = 0.10 if pnl >= 0.10 else 0.05 if pnl >= 0.05 else 0
+            if level and (symbol, level) not in self._profit_reviewed:
+                return f"profit_review:{symbol}:{int(level*100)}"
+        for symbol, old in self._research_marks.items():
+            position = next((p for p in account_ctx.get("positions", []) if p.get("symbol") == symbol), None)
+            if position:
+                current = float(position.get("current_price") or 0)
+                if old and current and abs(current / old - 1) >= 0.02:
+                    return f"price_structure:{symbol}"
+        try:
+            news = self._trim_news()
+            for symbol, rows in (news or {}).items():
+                for row in rows:
+                    published = _parse_iso(row.get("published_at_utc") or row.get("published_at"))
+                    if published and published > self._last_active_research:
+                        return f"material_news:{symbol}"
+        except Exception:
+            pass
+        return None
+
+    def _run_active_research(self, session, now, account_ctx, held, plans, reason):
+        if not session.can_submit:
+            return None
+        history, failures, unavailable = self._collect_universe(session)
+        if not history:
+            self.store.event("active_research_failed", {"reason": "no usable history", "trigger": reason})
+            self._last_active_research = now
+            return None
+        deadline = session.active_end - timedelta(seconds=30) if session.active_end else now + timedelta(minutes=3)
+        result = self._multi_agent_premarket(
+            session, account_ctx, history, held, unavailable,
+            run_mode="INTRADAY_RESEARCH", deadline_utc=deadline,
+        )
+        self._last_active_research = now
+        if result is not None:
+            self._active_research_tokens += int(result.usage.tokens)
+        focus = [row.get("symbol") for row in (result.focus if result else []) if row.get("symbol")]
+        if result is None or result.plan is None:
+            self.store.event("active_research_failed", {
+                "trigger": reason, "run_id": getattr(result, "run_id", None),
+                "error": getattr(result, "error", ""),
+            })
+            return None
+        saved, blocked = self._save_plans(
+            session, result.plan, focus, held,
+            agent_run_id=result.run_id, agent_report_id=f"pm-{result.run_id}",
+        )
+        for position in account_ctx.get("positions", []):
+            pnl = float(position.get("unrealized_plpc") or 0)
+            level = 0.10 if pnl >= 0.10 else 0.05 if pnl >= 0.05 else 0
+            if level:
+                self._profit_reviewed.add((position.get("symbol"), level))
+        self._research_marks = {
+            p.get("symbol"): float(p.get("current_price") or 0)
+            for p in account_ctx.get("positions", [])
+            if p.get("symbol") and float(p.get("current_price") or 0)
+        }
+        self.store.event("active_research", {
+            "trigger": reason, "run_id": result.run_id, "status": result.status,
+            "saved": saved, "blocked": blocked,
+            "tokens": result.usage.tokens, "focus": focus[:12],
+        })
+        return result
+
     # ------------------------------------------------------------------ active
     def active(self, session):
         now = self.clock()
@@ -962,7 +1059,17 @@ class Engine:
         freeze = self.store.freeze_reason()
         if freeze:
             return "frozen"
+        try:
+            account = self._account(now)
+        except Exception as exc:  # noqa: BLE001
+            self.store.error("active_snapshot", exc, outcome="active_frozen")
+            return "active_snapshot_failed"
+        account_ctx, held = self._account_context(account)
         plans = self.store.active_plans(session.trading_day)
+        research_reason = self._active_research_due(now, account_ctx, held, plans)
+        if research_reason:
+            self._run_active_research(session, now, account_ctx, held, plans, research_reason)
+            plans = self.store.active_plans(session.trading_day)
         if not plans:
             return "active_no_plan"
         if self._last_scan is not None and (now - self._last_scan).total_seconds() < self.execution.trigger_poll_seconds:
@@ -973,13 +1080,7 @@ class Engine:
             candidate = (plan.get("payload") or {}).get("candidate") or {}
             if candidate and candidate.get("symbol"):
                 symbols.append(candidate["symbol"])
-        try:
-            account = self._account(now)
-        except Exception as exc:  # noqa: BLE001
-            self.store.error("active_snapshot", exc, outcome="active_frozen")
-            return "active_snapshot_failed"
         quotes = self._quote_map(symbols)
-        account_ctx, held = self._account_context(account)
         buy_attempts = self.store.count_order_attempts(session.trading_day)
         triggered = 0
         for plan in plans:

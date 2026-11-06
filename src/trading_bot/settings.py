@@ -111,6 +111,9 @@ class Execution(Strict):
     # shortable/easy_to_borrow checks from Alpaca.
     allow_shorting: bool = False
     trigger_poll_seconds: int = Field(default=10, ge=2, le=60)
+    active_research_interval_seconds: int = Field(default=900, ge=60, le=3600)
+    active_research_min_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
+    active_research_max_tokens: int = Field(default=600000, ge=1000, le=5_000_000)
     submission_grace_seconds: int = Field(default=30, ge=5, le=300)
     recheck_cooldown_seconds: int = Field(default=120, ge=30, le=1800)
     max_rechecks_per_day: int = Field(default=20, ge=1, le=200)
