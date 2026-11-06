@@ -144,6 +144,15 @@ class ConfigBundle:
     def hash(self) -> str:
         return self.hashes["combined"]
 
+    @property
+    def groups(self) -> tuple[dict, ...]:
+        watchlist = self.raw.get("watchlist") or {}
+        normalized = _validate_groups(watchlist.get("groups"), self.symbols)
+        return tuple(
+            {"id": group["id"], "name": group["name"], "symbols": tuple(group["symbols"])}
+            for group in normalized
+        )
+
     def __iter__(self):
         # Old callers unpack ``symbols, policy, risk = config()``.
         yield self.symbols
@@ -183,20 +192,66 @@ def _validate_symbols(symbols) -> tuple[str, ...]:
     return tuple(cleaned)
 
 
+def _validate_groups(groups, symbols) -> tuple[dict, ...]:
+    """Validate that the research groups partition the fixed watchlist exactly."""
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("Invalid watchlist: groups required")
+    seen_ids = set()
+    seen_names = set()
+    members = []
+    cleaned = []
+    for group in groups:
+        if not isinstance(group, dict):
+            raise ValueError("Invalid watchlist group")
+        identifier = group.get("id")
+        name = group.get("name")
+        members_list = group.get("symbols")
+        if isinstance(identifier, bool) or not isinstance(identifier, int) or identifier <= 0:
+            raise ValueError("Invalid group id")
+        if identifier in seen_ids:
+            raise ValueError("Duplicate group id")
+        if not isinstance(name, str) or not name.strip() or name.strip() in seen_names:
+            raise ValueError("Invalid or duplicate group name")
+        if not isinstance(members_list, list) or not members_list:
+            raise ValueError("Invalid group symbols")
+        for symbol in members_list:
+            if symbol not in symbols:
+                raise ValueError("Group symbol outside watchlist: " + str(symbol))
+        if len(set(members_list)) != len(members_list):
+            raise ValueError("Duplicate symbol inside group")
+        seen_ids.add(identifier)
+        seen_names.add(name.strip())
+        members.extend(members_list)
+        cleaned.append({
+            "id": identifier,
+            "name": name.strip(),
+            "symbols": tuple(members_list),
+        })
+    if len(members) != len(set(members)):
+        raise ValueError("A symbol appears in more than one group")
+    if set(members) != set(symbols) or len(members) != len(symbols):
+        missing = sorted(set(symbols) - set(members))
+        extra = sorted(set(members) - set(symbols))
+        raise ValueError(f"Groups do not partition watchlist: missing={missing} extra={extra}")
+    return tuple(cleaned)
+
+
 def load_config(root: Path | str = ROOT) -> ConfigBundle:
     root = Path(root)
-    symbols = _validate_symbols(_read(root, "watchlist.yaml").get("symbols"))
+    watchlist = _read(root, "watchlist.yaml")
+    symbols = _validate_symbols(watchlist.get("symbols"))
+    groups = _validate_groups(watchlist.get("groups"), symbols)
     policy = Policy(**_read(root, "strategy.yaml"))
     risk = Risk(**_read(root, "risk.yaml"))
     execution = Execution(**_read(root, "execution.yaml"))
     raw = {
-        "watchlist": _read(root, "watchlist.yaml"),
+        "watchlist": watchlist,
         "strategy": _read(root, "strategy.yaml"),
         "risk": _read(root, "risk.yaml"),
         "execution": _read(root, "execution.yaml"),
     }
     hashes = {
-        "watchlist": _sha(list(symbols)),
+        "watchlist": _sha({"symbols": list(symbols), "groups": list(groups)}),
         "strategy": _sha(policy.model_dump()),
         "risk": _sha(risk.model_dump()),
         "execution": _sha(execution.model_dump()),
@@ -214,6 +269,10 @@ def config(root: Path | str = ROOT):
 def config_snapshot(bundle: ConfigBundle) -> dict:
     return {
         "symbols": list(bundle.symbols),
+        "groups": [
+            {"id": group["id"], "name": group["name"], "symbols": list(group["symbols"])}
+            for group in bundle.groups
+        ],
         "hashes": dict(bundle.hashes),
         "version": bundle.policy.version,
         "execution": bundle.execution.model_dump(),

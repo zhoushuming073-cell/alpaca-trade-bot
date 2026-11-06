@@ -266,10 +266,15 @@ def snapshot(store, account_feed=None):
         disk = load_config()
         disk_hash = disk.hash
         disk_symbols = list(disk.symbols)
+        disk_groups = [
+            {"id": group["id"], "name": group["name"], "symbols": list(group["symbols"])}
+            for group in disk.groups
+        ]
         disk_version = disk.policy.version
     except Exception as exc:  # noqa: BLE001
         disk_hash = None
         disk_symbols = []
+        disk_groups = (active.get("groups") or [])
         disk_version = None
     execution = _execution_for(active)
     now = datetime.now(timezone.utc)
@@ -622,6 +627,7 @@ def snapshot(store, account_feed=None):
         "research": profiles,
         "research_capabilities": research_capabilities,
         "symbols": symbols,
+        "groups": disk_groups,
         "strategy_version": version,
         "risk": {},
         "control_token": None,  # filled by the route

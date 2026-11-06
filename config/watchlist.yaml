@@ -1,49 +1,128 @@
 symbols:
+- CRWV
+- NBIS
+- IREN
+- APLD
+- WULF
+- CIFR
+- SMCI
+- DELL
+- MU
+- SNDK
+- WDC
+- STX
+- SKHY
+- ALAB
+- AMD
+- POET
+- COHR
+- LITE
+- TSM
+- AVGO
+- NVDA
+- MRVL
+- RKLB
+- LUNR
+- ASTS
+- SPCX
+- IONQ
+- QBTS
+- RGTI
+- QUBT
+- SOUN
+- PLTR
+- GOOGL
+- META
+- AAPL
+- RDDT
+- RIOT
+- MARA
+- CLSK
+- HUT
+- COIN
+- OKLO
+- SMR
+- NNE
+- MRNA
+- SMMT
+- VKTX
+- SOFI
+groups:
+- id: 1
+  name: 算力基建
+  symbols:
   - CRWV
   - NBIS
   - IREN
   - APLD
   - WULF
   - CIFR
+  - HUT
   - SMCI
   - DELL
+- id: 2
+  name: 存储芯片
+  symbols:
   - MU
   - SNDK
   - WDC
   - STX
   - SKHY
-  - ALAB
+- id: 3
+  name: AI芯片
+  symbols:
+  - NVDA
   - AMD
-  - POET
+  - AVGO
+  - TSM
+  - ALAB
+  - MRVL
+- id: 4
+  name: 光通信
+  symbols:
   - COHR
   - LITE
-  - TSM
-  - AVGO
-  - NVDA
-  - MRVL
+  - POET
+- id: 5
+  name: 商业航天
+  symbols:
   - RKLB
   - LUNR
   - ASTS
   - SPCX
+- id: 6
+  name: 量子计算
+  symbols:
   - IONQ
   - QBTS
   - RGTI
   - QUBT
+- id: 7
+  name: AI应用
+  symbols:
   - SOUN
   - PLTR
   - GOOGL
   - META
   - AAPL
   - RDDT
+- id: 8
+  name: 数字金融
+  symbols:
   - RIOT
   - MARA
   - CLSK
-  - HUT
   - COIN
+  - SOFI
+- id: 9
+  name: 核能科技
+  symbols:
   - OKLO
   - SMR
   - NNE
+- id: 10
+  name: 创新医药
+  symbols:
   - MRNA
   - SMMT
   - VKTX
-  - SOFI

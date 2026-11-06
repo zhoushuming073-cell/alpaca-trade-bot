@@ -12,10 +12,10 @@ const PAGE_META = {
   overview: {title: "交易概览", subtitle: "账户、持仓与 AI 的最新进展。", crumb: "账户概览"},
   positions: {title: "持仓与订单", subtitle: "Alpaca Paper 实际持仓、委托与成交状态。", crumb: "持仓与订单"},
   plans: {title: "AI 计划", subtitle: "今日 AI 判断、触发条件与复核记录。", crumb: "AI 计划"},
-  research: {title: "研究档案", subtitle: "48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
+  research: {title: "研究档案", subtitle: "10 个板块 · 48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
   activity: {title: "运行记录", subtitle: "机器人、订单同步和系统事件。", crumb: "运行记录"},
   robot: {title: "机器人状态", subtitle: "实时观察 AI 指令、Python 执行与 Alpaca 回报。", crumb: "机器人状态"},
-  watchlist: {title: "关注股票", subtitle: "固定股票池；研究、扫描和下单均受此约束。", crumb: "关注股票"},
+  watchlist: {title: "关注股票", subtitle: "10 个板块 · 48 只固定股票池；研究、扫描和下单均受此约束。", crumb: "关注股票"},
 };
 const PAGE_ALIASES = {system: "activity"};
 let activePage = "overview";
@@ -131,10 +131,21 @@ function updateControls() {
   if (typeof updateChatControls === "function") updateChatControls();
 }
 function renderSymbols() {
-  const query = $("search").value.trim().toUpperCase();
-  const symbols = (state?.symbols || []).filter((s) => s.includes(query));
-  $("symbols").innerHTML = symbols.map((s) => '<span>' + esc(s) + '</span>').join("") ||
-    '<p class="empty">没有匹配的股票</p>';
+  const query = $("search").value.trim().toLowerCase();
+  const groups = groupsOf(state);
+  const sections = groups.map((group) => {
+    const matchesGroup = !query || String(group.name).toLowerCase().includes(query);
+    const symbols = (group.symbols || []).filter((symbol) =>
+      !query || matchesGroup || symbol.toLowerCase().includes(query));
+    if (!symbols.length) return "";
+    return '<section class="symbol-group">' +
+      '<div class="symbol-group-head"><span class="symbol-group-no">' +
+      String(group.id).padStart(2, "0") + '</span><b>' + esc(group.name) +
+      '</b><span class="symbol-group-count">' + groupCount(group) + ' 只</span></div>' +
+      '<div class="symbols">' + symbols.map((symbol) => '<span>' + esc(symbol) + '</span>').join("") +
+      '</div></section>';
+  }).join("");
+  $("symbols").innerHTML = sections || '<p class="empty">没有匹配的股票</p>';
 }
 function eventMessage(e) {
   const p = e.payload || {};
@@ -173,24 +184,25 @@ function eventMessage(e) {
   return [titles[e.kind] || "运行状态更新", detail];
 }
 
-const SECTORS = {
-  CRWV: "AI 云基础设施", NBIS: "AI 云基础设施", IREN: "AI 云 / 能源",
-  APLD: "AI 数据中心", WULF: "AI 数据中心", CIFR: "AI 数据中心",
-  SMCI: "AI 服务器", DELL: "AI 服务器",
-  MU: "存储 / 半导体", SNDK: "存储 / 半导体", WDC: "存储 / 半导体", STX: "存储 / 半导体",
-  SKHY: "半导体", ALAB: "半导体", AMD: "半导体", POET: "光通信",
-  COHR: "光通信", LITE: "光通信", TSM: "半导体制造", AVGO: "半导体",
-  NVDA: "半导体", MRVL: "半导体",
-  RKLB: "太空", LUNR: "太空", ASTS: "太空", SPCX: "太空",
-  IONQ: "量子计算", QBTS: "量子计算", RGTI: "量子计算", QUBT: "量子计算",
-  SOUN: "AI 软件", PLTR: "AI 软件", GOOGL: "互联网 / AI", META: "互联网 / AI",
-  AAPL: "消费电子", RDDT: "互联网 / 社交",
-  RIOT: "加密矿业", MARA: "加密矿业", CLSK: "加密矿业", HUT: "加密矿业", COIN: "加密交易",
-  OKLO: "核能", SMR: "核能", NNE: "核能",
-  MRNA: "生物科技", SMMT: "生物科技", VKTX: "生物科技",
-  SOFI: "金融科技",
-};
-const sectorOf = (symbol) => SECTORS[symbol] || "其他";
+const FALLBACK_GROUPS = [
+  {id: 1, name: "算力基建", symbols: ["CRWV", "NBIS", "IREN", "APLD", "WULF", "CIFR", "HUT", "SMCI", "DELL"]},
+  {id: 2, name: "存储芯片", symbols: ["MU", "SNDK", "WDC", "STX", "SKHY"]},
+  {id: 3, name: "AI芯片", symbols: ["NVDA", "AMD", "AVGO", "TSM", "ALAB", "MRVL"]},
+  {id: 4, name: "光通信", symbols: ["COHR", "LITE", "POET"]},
+  {id: 5, name: "商业航天", symbols: ["RKLB", "LUNR", "ASTS", "SPCX"]},
+  {id: 6, name: "量子计算", symbols: ["IONQ", "QBTS", "RGTI", "QUBT"]},
+  {id: 7, name: "AI应用", symbols: ["SOUN", "PLTR", "GOOGL", "META", "AAPL", "RDDT"]},
+  {id: 8, name: "数字金融", symbols: ["RIOT", "MARA", "CLSK", "COIN", "SOFI"]},
+  {id: 9, name: "核能科技", symbols: ["OKLO", "SMR", "NNE"]},
+  {id: 10, name: "创新医药", symbols: ["MRNA", "SMMT", "VKTX"]},
+];
+const groupsOf = (source) => Array.isArray(source?.groups) && source.groups.length
+  ? source.groups : FALLBACK_GROUPS;
+const groupLookup = (groups) => new Map(groups.flatMap((group) =>
+  (group.symbols || []).map((symbol) => [symbol, group])));
+const groupOf = (symbol, source) => groupLookup(groupsOf(source)).get(symbol) || null;
+const groupText = (group) => group ? String(group.id).padStart(2, "0") + " · " + group.name : "未分组";
+const groupCount = (group) => (group?.symbols || []).length;
 const htmlCache = new Map();
 let planRenderKey = "";
 const planExpanded = new Set();
@@ -382,13 +394,15 @@ function renderPlans(s) {
   setHTML("plan-list", html || '<div class="empty">暂时没有交易计划。</div>');
 }
 
-function populateSectors(symbols) {
+function populateSectors(groups) {
   const box = $("research-sector-chips");
-  if (!box || box.dataset.ready === "1") return;
-  const sectors = [...new Set((symbols || []).map(sectorOf))].sort();
-  box.innerHTML = '<button class="filter-chip active" type="button" data-sector="">全部行业</button>' +
-    sectors.map((sector) => '<button class="filter-chip" type="button" data-sector="' + esc(sector) + '">' + esc(sector) + '</button>').join("");
-  box.dataset.ready = "1";
+  if (!box) return;
+  const signature = groups.map((group) => group.id + ":" + group.name).join("|");
+  if (box.dataset.ready === signature) return;
+  box.innerHTML = '<button class="filter-chip active" type="button" data-sector="">全部板块</button>' +
+    groups.map((group) => '<button class="filter-chip" type="button" data-sector="' + esc(String(group.id)) + '">' +
+      esc(String(group.id).padStart(2, "0") + " · " + group.name) + '</button>').join("");
+  box.dataset.ready = signature;
 }
 
 function markSectorChip() {
@@ -399,29 +413,41 @@ function markSectorChip() {
 
 function renderResearchList(s) {
   const all = s.research || [];
-  populateSectors(s.symbols || all.map((item) => item.symbol));
+  const groups = groupsOf(s);
+  const lookup = groupLookup(groups);
+  populateSectors(groups);
   markSectorChip();
   const query = researchState.query.trim().toLowerCase();
   const filtered = all.filter((item) => {
-    if (researchState.sector && sectorOf(item.symbol) !== researchState.sector) return false;
+    const group = lookup.get(item.symbol);
+    if (researchState.sector && String(group?.id || "") !== researchState.sector) return false;
     if (researchState.status && item.status !== researchState.status) return false;
     if (!query) return true;
     const evidenceText = (item.latest_evidence || []).map((e) => e.title || "").join(" ");
-    return `${item.symbol} ${sectorOf(item.symbol)} ${evidenceText}`.toLowerCase().includes(query);
+    return `${item.symbol} ${groupText(group)} ${evidenceText}`.toLowerCase().includes(query);
   });
-  setText("research-count", `${filtered.length}/${all.length} 只股票`);
+  setText("research-count", `${filtered.length}/${all.length} 只 · ${groups.length} 个板块`);
   setHTML("research-empty", filtered.length ? "" : "没有匹配的研究档案");
   $("research-empty").hidden = filtered.length > 0;
-  const html = filtered.map((item) => {
-    const status = label(item.status, "待更新");
-    return '<button class="research-card" type="button" data-symbol="' + esc(item.symbol) + '">' +
-      '<div class="research-card-top"><span class="research-card-symbol">' + esc(item.symbol) +
-      '</span><span class="plan-tag ' + (item.status === "OK" ? "active" : "invalid") + '">' + esc(status) + '</span></div>' +
-      '<div class="research-card-sector">' + esc(sectorOf(item.symbol)) + '</div>' +
-      '<div class="research-card-meta"><span>' + esc(item.evidence_count || 0) + ' 条证据</span><span>' +
-      esc(shortDate(item.verified_at)) + '</span></div></button>';
+  const sections = groups.map((group) => {
+    const rows = filtered.filter((item) => String(lookup.get(item.symbol)?.id || "") === String(group.id));
+    if (!rows.length) return "";
+    const cards = rows.map((item) => {
+      const status = label(item.status, "待更新");
+      return '<button class="research-card" type="button" data-symbol="' + esc(item.symbol) + '">' +
+        '<div class="research-card-top"><span class="research-card-symbol">' + esc(item.symbol) +
+        '</span><span class="plan-tag ' + (item.status === "OK" ? "active" : "invalid") + '">' + esc(status) + '</span></div>' +
+        '<div class="research-card-sector">' + esc(groupText(group)) + '</div>' +
+        '<div class="research-card-meta"><span>' + esc(item.evidence_count || 0) + ' 条证据</span><span>' +
+        esc(shortDate(item.verified_at)) + '</span></div></button>';
+    }).join("");
+    return '<section class="research-group">' +
+      '<div class="research-group-head"><span class="research-group-no">' +
+      String(group.id).padStart(2, "0") + '</span><h3>' + esc(group.name) +
+      '</h3><span class="research-group-count">' + rows.length + ' / ' + groupCount(group) +
+      ' 只</span></div><div class="research-group-grid">' + cards + '</div></section>';
   }).join("");
-  setHTML("research-grid", html || '<div class="empty">暂无研究档案</div>');
+  setHTML("research-grid", sections || '<div class="empty">暂无研究档案</div>');
   if (researchState.detail) {
     $("research-grid").hidden = true;
     $("research-detail").hidden = false;
@@ -441,7 +467,8 @@ function researchSection(title, rows, fallback) {
 function renderResearchDetail(data) {
   researchDetailData = data;
   const profile = data.profile || {};
-  const sector = sectorOf(data.symbol);
+  const group = groupOf(data.symbol, state || {});
+  const sector = groupText(group);
   const evidence = (data.evidence || []);
   const news = evidence.filter((item) => ["news", "ir", "filing"].includes(item.kind));
   const shown = (news.length ? news : evidence).slice(0, 10);
@@ -452,7 +479,7 @@ function renderResearchDetail(data) {
     '<h2 id="research-detail-symbol" style="view-transition-name:research-symbol">' + esc(data.symbol) + '</h2>' +
     '<span class="plan-tag ' + (data.status === "OK" ? "active" : "invalid") + '">' + esc(label(data.status)) + '</span></div>' +
     '<div class="research-detail-actions"><button id="research-back" class="research-back" type="button">← 返回档案</button></div></div>' +
-    '<div class="research-note">行业分类是本地研究标签；业务、财务、新闻、风险等内容均来自当前数据库档案与已验证证据，没有为缺失字段编造内容。</div>' +
+    '<div class="research-note">板块分组是本地研究标签；业务、财务、新闻、风险等内容均来自当前数据库档案与已验证证据，没有为缺失字段编造内容。</div>' +
     '<div class="research-detail-grid">' +
     '<section class="research-section"><h4>业务与行业线索</h4><p><b>' + esc(sector) + '</b> · ' +
     esc(data.symbol) + '</p><p>研究档案没有单列“主营业务”字段；以下事实来自档案，可用于判断业务与行业。</p>' +
@@ -776,7 +803,7 @@ function render(s) {
     return '<div class="event"><time datetime="' + esc(e.ts) + '">' + esc(shortDate(e.ts) + " " + time(e.ts)) +
       '</time><div><strong>' + esc(title) + '</strong><p>' + esc(detail) + '</p></div></div>';
   }).join("") || '<div class="empty">暂无运行记录</div>');
-  setText("symbol-count", (s.symbols || []).length + " 只 · 固定股票池");
+  setText("symbol-count", groupsOf(s).length + " 个板块 · " + (s.symbols || []).length + " 只");
   renderSymbols();
   setText("system-summary", alerts.length ? "有事项需要确认" : "连接与账户设置");
   setText("watchdog", watched ? "同步正常 · " + time(s.health.watchdog.last_success) : s.running ? "等待成功对账" : "机器人未运行");
