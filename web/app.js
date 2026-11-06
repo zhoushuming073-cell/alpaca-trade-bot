@@ -156,7 +156,7 @@ function eventMessage(e) {
     intraday_recheck: "AI 已复核计划", plan: "计划状态更新", plan_invalidated: "计划已失效",
     intent_rejected: "本次交易未通过检查", config_pending: "配置等待更新",
     research_profile: "研究档案更新", source_call: "研究来源请求", source_fetch_error: "资料读取失败",
-    research_news: "研究资讯更新", premarket_data: "盘前行情已读取", quote_errors: "行情暂未通过检查",
+    research_news: "研究资讯更新", premarket_data: "盘前行情已读取", quote_errors: "个别标的报价暂不可用",
     recheck_suppressed: "复核稍后重试", startup_reconciliation: "启动时同步订单",
     after_close_reconciliation: "收盘后同步订单", after_close_reconcile: "收盘后同步订单",
     premarket_lifecycle: "盘前分析进度", ai_call: "AI 分析", stopped: "机器人已停止"};

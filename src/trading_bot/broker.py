@@ -184,6 +184,13 @@ def build_broker(keys, start_orders_thread=None, read_only=False):
     return GuardedAlpaca(cfg, trading_client=client, data_source=data, connect_stream=False, start_orders_thread=start_orders_thread)
 
 
+class QuoteUnavailable(ValueError):
+    """One symbol's quote failed quality checks; never a global trading state."""
+    def __init__(self, reason, **details):
+        super().__init__(reason)
+        self.details = {"reason": reason, "scope": "SYMBOL", **details}
+
+
 class PaperGateway:
     """Paper-only, long-only stock gateway with explicit prepare/dispatch."""
 
@@ -562,10 +569,16 @@ class PaperGateway:
             last_timestamp = trade.timestamp.isoformat()
             last_age = (now - trade.timestamp).total_seconds()
         max_age = risk.max_quote_age_seconds if risk is not None else 30
+        max_spread = risk.max_spread if risk is not None else 0.02
+        spread = (ask - bid) / bid if 0 < bid <= ask else None
         if not all(math.isfinite(x) for x in (bid, ask)) or not 0 < bid <= ask or not 0 <= age <= max_age:
-            raise ValueError("Stale or abnormal IEX quote")
-        if (ask - bid) / bid > (risk.max_spread if risk is not None else 0.02):
-            raise ValueError("Stale or abnormal IEX quote: spread")
+            raise QuoteUnavailable("stale_or_crossed", symbol=symbol, bid=bid, ask=ask,
+                                   age_seconds=age, max_age_seconds=max_age,
+                                   spread=spread, max_spread=max_spread)
+        if spread > max_spread:
+            raise QuoteUnavailable("spread_above_max", symbol=symbol, bid=bid, ask=ask,
+                                   age_seconds=age, max_age_seconds=max_age,
+                                   spread=spread, max_spread=max_spread)
         if last is not None and (not math.isfinite(last) or last <= 0):
             raise ValueError("Invalid last trade price")
         if last is not None and last_age is not None and last_age > max_age:

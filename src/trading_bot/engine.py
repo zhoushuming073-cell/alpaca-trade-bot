@@ -476,9 +476,11 @@ class Engine:
                 try:
                     quotes[symbol] = future.result()
                 except Exception as exc:  # noqa: BLE001
-                    errors.append({"symbol": symbol, "type": type(exc).__name__, "reason": str(exc)[:300]})
+                    details = getattr(exc, "details", None) or {}
+                    errors.append({"scope": "SYMBOL", "symbol": symbol,
+                                   "type": type(exc).__name__, "reason": str(exc)[:300], **details})
         if errors:
-            self.store.event("quote_errors", {"errors": errors})
+            self.store.event("quote_errors", {"scope": "SYMBOL_QUOTES", "global_pause": False, "errors": errors})
         return quotes
 
     def _trim_research(self):
