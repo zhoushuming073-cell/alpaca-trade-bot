@@ -55,7 +55,17 @@ def packet(day,asof,symbols,account,*,mode=ExamMode.EXPLORATORY,db_path=None,sta
              'weekly':[b for b in snapshot['weekly_bars'] if b['symbol']==s][-26:],
              'monthly':[b for b in snapshot['monthly_bars'] if b['symbol']==s][-6:],
              'minutes':[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Min'][-20:]}
-        row.update(select_evidence(snapshot,s));rows.append(row)
+        row.update(select_evidence(snapshot,s))
+        quote_bars=[b for b in snapshot['bars'] if b['symbol']==s and b['timeframe']=='1Min' and b['available_at']<=datetime.fromisoformat(snapshot['asof_utc'])]
+        if quote_bars:
+            q=quote_bars[-1]
+            row['quote']={'symbol':s,'ts':q['ts'].isoformat(),'end_at':q['end_at'].isoformat(),
+                          'available_at':q['available_at'].isoformat(),'last':q['close'],
+                          'open':q['open'],'high':q['high'],'low':q['low'],'close':q['close'],
+                          'volume':q['volume'],'bid':None,'ask':None,'spread':None}
+        else:
+            row['quote']=None
+        rows.append(row)
         row['bar_columns']=BAR_COLUMNS
         row['bar_source']={'feed':'iex','adjustment':'raw','historical_version':'UNKNOWN_PROVIDER_RECONSTRUCTION'}
         for key in ['daily','weekly','monthly','minutes']:row[key]=packed(row[key])

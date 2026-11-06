@@ -104,7 +104,7 @@ Its limits remain `null`; the user must approve exact values before activation.
 
 ## C. Regression results
 
-- **332 passed, 1 third-party warning**.
+- **337 passed, 1 third-party warning**.
 - 35 v3 tests cover long/short/wait, confirmation vs limit, same-bar leakage,
   partial stop, linked target, short average/cover, profit hold/giveback,
   overnight protection, capital/duplicate/oversell, future injection, news

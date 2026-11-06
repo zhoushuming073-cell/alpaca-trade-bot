@@ -1,6 +1,6 @@
 """Offline counterexamples. Fake model decisions prove execution, not AI skill."""
 import json
-from datetime import datetime,timedelta,date
+from datetime import datetime,timedelta,date,time
 from decimal import Decimal
 import pytest
 from exam_data.store import ET
@@ -197,3 +197,56 @@ def test_protect_must_be_single_decision_without_qty():
                     'decisions':[hold.model_dump(mode='json'),protect.model_dump(mode='json')]})
     with pytest.raises(ValueError,match='Conflicting'):
         validate_response(raw,symbols=['AMD'],asof=AT,account_id='a',evidence_ids=[],required_symbols=['AMD'])
+
+
+def test_recursive_integrity_accepts_frozen_input_and_rejects_future():
+    from exam_v3.integrity import audit_payload
+    from exam_v3.inputs import packet
+    acct={'source':'ISOLATED_SIMULATOR','asof_utc':AT.isoformat(),'cash':100000,'equity':100000,'positions':{},'open_orders':[]}
+    p=packet('2026-10-01',AT,['AMD'],acct,db_path=ROOT/'data/exam_v2.duckdb')
+    assert audit_payload(p)['ok']
+    p2=json.loads(json.dumps(p,default=str))
+    p2['universe'][0]['daily'].append(['2026-10-01T09:31:00-04:00','2026-10-01T09:32:00-04:00','2026-10-01T09:32:30-04:00',1,1,1,1,1])
+    result=audit_payload(p2)
+    assert not result['ok'] and any('after cutoff' in e['reason'] for e in result['errors'])
+
+
+def test_qqq_benchmark_uses_regular_session_not_premarket():
+    import duckdb
+    from exam_v3.evaluation import qqq_session_prices,exposure_matched
+    conn=duckdb.connect(str(ROOT/'data/exam_v2.duckdb'),read_only=True)
+    p=qqq_session_prices(conn,date(2026,9,28))
+    assert p['first_ts'].astimezone(ET).time()==time(9,30)
+    assert exposure_matched([(AT,100000,10000),(AT+timedelta(minutes=1),100000,20000)],
+                            [(AT,100),(AT+timedelta(minutes=1),110)])==pytest.approx(.01)
+    conn.close()
+
+
+def test_fill_cost_components_are_classified_and_equity_consistent():
+    b=Broker(['AMD']);b.fill('AMD',10,Decimal('99'),AT,'l','LIMIT_FILL',limit_price=100,open_price=98)
+    f=b.fills[-1]
+    assert Decimal(f['price_vs_limit_per_share'])==Decimal('-1')
+    assert Decimal(f['slippage_vs_open_per_share'])==Decimal('1')
+    b.fill('AMD',-10,Decimal('85'),AT,'s','LINKED_STOP',trigger_price=90,open_price=84)
+    f=b.fills[-1]
+    assert Decimal(f['gap_cost'])==Decimal('60')  # 6 adverse gap * 10
+    assert b.cash==b.initial_cash-10*99+10*85- b.fees
+
+
+def test_prompt_contains_historical_guard_and_no_tools():
+    from exam_v3.inputs import messages,packet
+    acct={'source':'ISOLATED_SIMULATOR','asof_utc':AT.isoformat(),'cash':100000,'equity':100000,'positions':{},'open_orders':[]}
+    msg=messages(packet('2026-10-01',AT,['AMD'],acct,db_path=ROOT/'data/exam_v2.duckdb'))
+    system=msg[0]['content']
+    assert 'No web' in system and 'remembered future outcomes' in system and 'No real broker tools' in system
+
+
+def test_source_rows_match_duckdb_and_no_self_declaration():
+    import duckdb
+    from exam_v3.integrity import audit_source
+    from exam_v3.inputs import packet
+    acct={'source':'ISOLATED_SIMULATOR','asof_utc':AT.isoformat(),'cash':100000,'equity':100000,'positions':{},'open_orders':[]}
+    p=packet('2026-10-01',AT,['AMD'],acct,db_path=ROOT/'data/exam_v2.duckdb')
+    conn=duckdb.connect(str(ROOT/'data/exam_v2.duckdb'),read_only=True)
+    result=audit_source(p,conn);conn.close()
+    assert result['ok'] and result['checked']>100

@@ -57,8 +57,17 @@ class Broker:
         if target is not None and ((held>0 and D(target)<=D(stop)) or (held<0 and D(target)>=D(stop))):raise ValueError('Inconsistent linked prices')
         self.groups[s]={'stop':D(stop),'target':D(target) if target else None,'at':at,'tif':tif,'triggered':None}
         self.event('linked_protection',at,symbol=s,qty=abs(held))
-    def fill(self,s,delta,price,at,order_id,reason):
+    def fill(self,s,delta,price,at,order_id,reason,*,limit_price=None,trigger_price=None,open_price=None):
         prior=self.positions.get(s,0);price=D(price);qty=abs(delta);fee=qty*self.fee
+        sign=D(1) if delta>0 else D(-1)
+        limit=D(limit_price) if limit_price is not None else None
+        trigger=D(trigger_price) if trigger_price is not None else None
+        opening=D(open_price) if open_price is not None else None
+        price_vs_limit=(price-limit)*sign if limit is not None else None
+        slippage_vs_open=(price-opening)*sign if opening is not None else None
+        gap_cost=None
+        if trigger is not None and opening is not None:
+            gap_cost=max(D(0),(trigger-opening) if delta<0 else (opening-trigger))*qty
         if prior and (delta>0)!=(prior>0):
             if qty>abs(prior):raise ValueError('Fill crosses zero')
             self.realized+=(price-self.avg[s])*qty*(1 if prior>0 else -1)
@@ -70,7 +79,12 @@ class Broker:
         self.cash-=delta*price+fee;self.fees+=fee;self.positions[s]=prior+delta
         if not self.positions[s]:
             self.positions.pop(s);self.avg.pop(s,None);self.proceeds.pop(s,None);self.groups.pop(s,None);self.entry_at.pop(s,None)
-        self.fills.append({'symbol':s,'delta':delta,'qty':qty,'price':str(price),'fee':str(fee),'at':at.isoformat(),'order_id':order_id,'reason':reason})
+        self.fills.append({'symbol':s,'delta':delta,'qty':qty,'price':str(price),'fee':str(fee),'at':at.isoformat(),'order_id':order_id,'reason':reason,
+                            'limit_price':str(limit) if limit is not None else None,'trigger_price':str(trigger) if trigger is not None else None,
+                            'open_price':str(opening) if opening is not None else None,
+                            'price_vs_limit_per_share':str(price_vs_limit) if price_vs_limit is not None else None,
+                            'slippage_vs_open_per_share':str(slippage_vs_open) if slippage_vs_open is not None else None,
+                            'gap_cost':str(gap_cost) if gap_cost is not None else '0'})
     def process_bar(self,bar):
         if bar['feed']!='iex' or bar['timeframe']!='1Min':raise ValueError('IEX completed minute required')
         s=bar['symbol'];start=bar['ts'];end=bar['end_at']
@@ -95,7 +109,7 @@ class Broker:
                 price=max(D(bar['open']),g['target']) if held>0 else min(D(bar['open']),g['target']);reason='LINKED_TARGET'
             else:price=None
             if price is not None:
-                q=min(protected_qty,capacity);self.fill(s,-q if held>0 else q,price,end,'protection:'+s,reason);capacity-=q
+                q=min(protected_qty,capacity);self.fill(s,-q if held>0 else q,price,end,'protection:'+s,reason,trigger_price=g['stop'],open_price=bar['open']);capacity-=q
         for oid,o in list(self.orders.items()):
             d=o.decision
             if d.symbol!=s or o.status not in {'NEW','PARTIALLY_FILLED'} or start<o.at or capacity<=0:continue
@@ -110,7 +124,7 @@ class Broker:
             qty=min(d.qty-o.filled,capacity)
             if d.action in {'CLOSE_LONG','COVER_SHORT','REDUCE'}:qty=min(qty,abs(held))
             if not qty:o.status='CANCELED';continue
-            self.fill(s,qty if buy else -qty,price,end,oid,'LIMIT_FILL');o.filled+=qty;capacity-=qty
+            self.fill(s,qty if buy else -qty,price,end,oid,'LIMIT_FILL',limit_price=d.limit_price,open_price=bar['open']);o.filled+=qty;capacity-=qty
             o.status='FILLED' if o.filled==d.qty else 'PARTIALLY_FILLED'
             if o.status=='FILLED' and d.action in {'OPEN_LONG','OPEN_SHORT'} and d.stop_price:
                 self.protect(s,d.stop_price,d.take_profit,end,d.protection_tif)
