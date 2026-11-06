@@ -30,8 +30,8 @@ Schema 位于 `src/trading_bot/agent_schemas.py`，均使用 `extra=forbid`。�
 
 字段覆盖：
 
-- `ResearchReport`：`run_id`、`as_of_utc`、`universe_version`、`symbol`、setup/grade、技术结构、基本面、事件证据、支持/反证 evidence IDs、入场/失效条件、上行/下行情景、数据质量、未知项、研究结论。
-- `CritiqueReport`：`run_id`、`research_report_id`、验证/未支持/矛盾声明、替代解释、数据缺口、重大风险、失效情景、严重度、总体评估、evidence IDs。
+- `ResearchReport`：`run_id`、`as_of_utc`、`universe_version`、`symbol`、setup/grade、`direction`（LONG/SHORT/NEUTRAL/INSUFFICIENT）、技术结构、基本面、事件证据、支持/反证 evidence IDs、入场/失效条件、上行/下行情景、数据质量、未知项、研究结论。
+- `CritiqueReport`：`run_id`、`research_report_id`、`direction_reviewed`、验证/未支持/矛盾声明、替代解释、数据缺口、重大风险、`squeeze_risks`、失效情景、严重度、总体评估、evidence IDs。
 - `PremarketPlan` 扩展了可选 `run_id`、`decision_mode`、`research_report_ids`、`critique_report_ids`；`Candidate` 扩展了报告关联和 `counterevidence`。旧调用保持默认值兼容。
 
 ## 3. 执行顺序
@@ -73,7 +73,7 @@ agents:
 execution:
   paper_only: true
   require_complete_decision: true
-  max_deep_candidates: 6
+  max_deep_candidates: 3
   max_parallel_requests: 2
   deadline_buffer_seconds: 45
 budget:
@@ -132,10 +132,10 @@ comparison:
 1. 先保持 `paused=true`，确认无未知/冲突订单。
 2. 明确配置角色模型、Token/成本上限和费率。
 3. 将 `enabled: true`，安全重启 worker/dashboard（不自动 resume）。
-4. 只做离线/影子验证；真实 DeepSeek 与 Paper 订单需要用户另行授权。
+4. 真实 DeepSeek 与 Paper 订单需要用户另行授权；本轮已按授权完成一次 RESEARCH_ONLY，真实 Paper 订单未执行。
 5. 任何真实 Paper 订单仍需原有触发、风控、窗口和授权链。
 
-本仓库的离线测试覆盖三角色顺序、0 候选、反方同意/反对、反方超时、经理拒绝、池外股票、非法 JSON、Schema 额外字段、缺失证据、截止时间、预算、Token 记录、记忆持久化、次日恢复和 Fake Alpaca 成交。**未执行真实 DeepSeek 付费调用，也未向真实 Paper 账户提交订单。**
+本仓库的离线测试覆盖三角色顺序、0 候选、反方同意/反对、反方超时、经理拒绝、池外股票、非法 JSON、Schema 额外字段、缺失证据、截止时间、预算、Token 记录、记忆持久化、次日恢复和 Fake Alpaca 成交。**已实际调用真实 DeepSeek 完成一次 RESEARCH_ONLY（详见 VALIDATION.md 2.2）；未向真实 Paper 账户提交订单。**
 
 ## 9. 文件
 

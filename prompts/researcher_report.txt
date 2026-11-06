@@ -19,6 +19,7 @@ Return ONLY this JSON object:
   "symbol": "<symbol from input>",
   "setup_type": "PULLBACK_RECLAIM|EVENT_MISPRICING",
   "opportunity_grade": "A|B|C",
+  "direction": "LONG|SHORT|NEUTRAL|INSUFFICIENT",
   "technical_structure": "<levels, trend, volume caveats, invalidation>",
   "fundamental_context": "<only sourced facts and explicitly labelled interpretation>",
   "event_evidence": ["<event/fact plus source/evidence id>"],
@@ -34,3 +35,5 @@ Return ONLY this JSON object:
 }
 
 Do not output any text outside the JSON object. Do not create an executable plan.
+
+State the direction explicitly. A short report must include borrow/shortability context, squeeze risk, and a clear invalidation above resistance; a long report must include the invalidation below support. Do not call a falling price automatically a short opportunity.

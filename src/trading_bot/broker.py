@@ -43,7 +43,7 @@ from .safety import (
 from .settings import PAPER_URL, load_config
 
 
-def build_broker(keys, start_orders_thread=None):
+def build_broker(keys, start_orders_thread=None, read_only=False):
     from alpaca.trading.client import TradingClient
     from lumibot.brokers import Alpaca
     from lumibot.data_sources import AlpacaData
@@ -69,6 +69,8 @@ def build_broker(keys, start_orders_thread=None):
             from .market_data import execution_open
 
             verb = str(method).upper()
+            if getattr(self, "read_only", False) and verb in {"POST", "PATCH", "PUT", "DELETE"}:
+                raise RuntimeError("RESEARCH_ONLY: broker write requests are forbidden")
             cacheable = verb == "GET" and path in {"/account", "/positions", "/orders", "/clock"}
             cache_key = (path, json.dumps(data, sort_keys=True, default=str))
             if cacheable and not getattr(self.permits, "fresh", False):
@@ -104,6 +106,7 @@ def build_broker(keys, start_orders_thread=None):
             return result
 
     client = PaperClient(keys["ALPACA_API_KEY"], keys["ALPACA_API_SECRET"], paper=True, url_override=PAPER_URL)
+    client.read_only = bool(read_only)
     client._retry = 0
     client.permits = threading.local()
     client.read_cache = {}
@@ -184,10 +187,13 @@ def build_broker(keys, start_orders_thread=None):
 class PaperGateway:
     """Paper-only, long-only stock gateway with explicit prepare/dispatch."""
 
-    def __init__(self, strategy, store=None, symbols=None, execution=None):
+    def __init__(self, strategy, store=None, symbols=None, execution=None, *, read_only=False):
         self.strategy = strategy
         self.api = strategy.broker.api
         self.store = store
+        self.read_only = bool(read_only)
+        if self.read_only:
+            self.api.read_only = True
         bundle = None if symbols is not None and execution is not None else load_config()
         self.symbols = set(symbols if symbols is not None else bundle.symbols)
         self.execution = execution if execution is not None else bundle.execution
@@ -435,6 +441,8 @@ class PaperGateway:
     # ---------------------------------------------------------------- dispatch
     def dispatch(self, intent, cid):
         """Recorded-boundary POST.  No slow checks are allowed here."""
+        if self.read_only or getattr(self.api, "read_only", False):
+            raise RuntimeError("RESEARCH_ONLY: order dispatch is forbidden")
         from decimal import Decimal
         from alpaca.trading.requests import LimitOrderRequest, StopLossRequest
         from alpaca.trading.enums import OrderClass, PositionIntent
@@ -577,6 +585,8 @@ class PaperGateway:
         }
 
     def cancel(self, cid):
+        if self.read_only or getattr(self.api, "read_only", False):
+            raise RuntimeError("RESEARCH_ONLY: order cancellation is forbidden")
         order = self.lookup(cid)
         if order:
             self.api.cancel_order_by_id(order["id"])

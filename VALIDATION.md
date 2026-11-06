@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`283 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`288 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询、10 个板块/48 只股票分组完整性；新增多空方向、空头权限/借券、保证金购买力、空头拒单、平空与平多区分、禁止跨零、空头止损方向和空头 P&L 方向保持。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -27,7 +27,21 @@
 - 测试覆盖：三角色完成、0 候选、反方同意/反对、反方超时、经理拒绝、池外股票、缺少研究/质疑关联、非法 JSON、额外字段、截止时间、有限 Token 预算、影子基准、研究记忆持久化、次日恢复和 Fake Alpaca 成交。
 - 测试中的 `FakeBroker` 只在 `active_triggered` 后模拟 1 次 Paper 成交；研究与计划阶段 0 次券商提交。
 - 基准只写 `agent_reports(role='baseline')` 和对照实验，不创建可执行计划。
-- **未调用真实 DeepSeek API，未提交真实/Paper 订单**；真实模型质量、费用和成交行为仍未验证。
+- 真实 DeepSeek：已实际调用（3 次受控尝试，17 次 provider 调用，模型 `deepseek-flash`）；详见 2.2。
+- **未提交真实/Paper 订单**；所有运行均为 `paused=true` 下的 RESEARCH_ONLY。
+- 真实模型质量已获得一次完整输出，但费用未知（费率未配置）；策略有效性和成交行为仍未验证。
+
+### 2.2 真实 DeepSeek / RESEARCH_ONLY（2026-11-06 04:2x ET）
+
+- Alpaca 实时时钟确认：`04:25 ET`，市场未开盘；**不在 09:00–09:30 ET 研究窗口**，因此结果标记为非可执行影子快照，没有伪装成及时盘前计划。
+- 真实只读：46/48 只有效历史；SKHY、SPCX 日线不足被排除；账户 AAPL 1 股、IREN 100 股，开放订单 0；账户 `shorting_enabled=true`，但 `allow_shorting=false`。
+- 第 1 次尝试：1 次 scan 调用，145,914 输入 + 1,346 输出 = 147,260 tokens；调用成功但超出 120k 总预算，计划未使用。**这是预算预检缺陷。**
+- 第 2 次尝试：9 次调用，73,593 + 13,606 = 87,199 tokens；生成了研究报告/反方报告，但 PM 预检按剩余预算拒绝，未产生最终计划。
+- 第 3 次尝试：7 次调用，57,295 + 9,492 = **66,787 tokens**，总耗时 **50.9 秒**；完整三角色 + 基准成功，状态 `NO_TRADE`。
+- 三次累计 17 次调用、**301,246 tokens**；真实费用未知（`cost_per_1m_*` 未配置）。这是实际用量，不能报成 0 美元或 120k 内。
+- 修复：全池扫描改为摘要（不再发送 48 只原始 K 线）、PM 去重压缩、预算预检按输入估算 + 最大输出，超预算在调用前拒绝。
+- 结果：研究员仅保留 AAPL（WATCH）与 IREN（UNFAVORABLE）；反方两者均 QUALIFIED/MEDIUM；PM 输出 WATCH，AAPL/IREN HOLD，无订单；单智能体基准 NO_TRADE/HOLD。**没有任何多头/空头计划。**
+- `orders_written=0`、`plans_written=0`；ReadOnlyBroker + PaperClient 写保护测试通过。
 
 ## 3. 真实 API 只读验证（已执行，无订单）
 

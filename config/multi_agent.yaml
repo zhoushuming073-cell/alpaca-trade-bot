@@ -36,7 +36,7 @@ agents:
 execution:
   paper_only: true
   require_complete_decision: true
-  max_deep_candidates: 6
+  max_deep_candidates: 3
   max_parallel_requests: 2
   deadline_buffer_seconds: 45
 

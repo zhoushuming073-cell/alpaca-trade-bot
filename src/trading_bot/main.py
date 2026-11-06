@@ -60,7 +60,7 @@ def main():
         choices=[
             "dry-run", "paper", "preflight", "check", "status", "pause",
             "resume", "acknowledge-safety", "config", "resolve-order",
-            "research-bootstrap",
+            "research-bootstrap", "research-only",
         ],
     )
     parser.add_argument("--mode", choices=["paper", "dry-run"], default="paper")
@@ -117,8 +117,14 @@ def main():
         run()
         return
 
-    if args.command == "research-bootstrap":
-        # Explicit, bounded local research batch.  It uses the DeepSeek API and
+    if args.command == "research-only":
+        from .research_only import run_research_only
+
+        summary = run_research_only(close_store=True)
+        print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+        return
+
+    if args.command == "research-bootstrap":        # Explicit, bounded local research batch.  It uses the DeepSeek API and
         # therefore is never started automatically by the trading worker.
         from lumibot.entities import Asset
 

@@ -403,11 +403,14 @@ function renderAgents(s) {
   const costKnown = Number(budget.cost_per_1m_input_usd || 0) > 0 ||
     Number(budget.cost_per_1m_output_usd || 0) > 0;
   const run = ma.latest_run;
+  const researchOnly = run?.mode === "RESEARCH_ONLY";
   const reports = ma.reports || [];
   const banner = $("agent-banner");
   if (banner) {
     banner.hidden = !!ma.enabled;
-    banner.textContent = "多智能体当前未启用；以下为只读历史或等待状态。启用需要显式配置并安全重启，不会自动下单。";
+    banner.textContent = researchOnly
+      ? "当前为 RESEARCH_ONLY 影子研究：真实只读行情/账户 + DeepSeek，已禁止全部券商写请求；不会生成可执行计划。"
+      : "多智能体当前未启用；以下为只读历史或等待状态。启用需要显式配置并安全重启，不会自动下单。";
   }
   const byRole = (role) => reports.filter((item) => item.role === role);
   const latestFor = (role) => byRole(role).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
@@ -418,11 +421,11 @@ function renderAgents(s) {
     ["baseline", "单智能体基准", agents.baseline],
   ];
   const roleHtml = roleRows.map(([role, label, roleCfg]) => {
-    const enabled = roleCfg?.enabled !== false && cfg.enabled;
+    const enabled = roleCfg?.enabled !== false && (cfg.enabled || researchOnly);
     const item = latestFor(role === "researcher" ? "researcher" : role);
     const failed = run?.status === "FAILED" && role !== "baseline" && !item;
     let status = "等待运行";
-    if (!cfg.enabled) status = "未启用";
+    if (!cfg.enabled && !researchOnly) status = "未启用";
     else if (!enabled) status = "已关闭";
     else if (failed) status = "失败";
     else if (item?.status === "OK") status = "已完成";
@@ -446,6 +449,7 @@ function renderAgents(s) {
     const cost = usage.reduce((sum, item) => sum + Number(item.cost_usd || 0), 0);
     const items = [
       ["运行编号", run.run_id], ["状态", run.status],
+      ["运行模式", run.mode || "THREE_AGENT"],
       ["交易日", run.trading_day], ["配置版本", run.universe_version],
       ["研究 / 质疑", byRole("researcher").length + " / " + byRole("skeptic").length],
       ["预算内调用", usage.reduce((sum, item) => sum + Number(item.calls || 0), 0) + " 次"],
@@ -473,14 +477,14 @@ function renderAgents(s) {
     const report = item.parsed || {};
     const critique = byRole("skeptic").find((row) => row.symbol === item.symbol)?.parsed || {};
     return [
-      esc(item.symbol), esc(report.research_conclusion || "—"),
+      esc(item.symbol), esc(report.direction || "—"), esc(report.research_conclusion || "—"),
       esc(String(report.technical_structure || "").slice(0, 150)),
       esc(critique.overall_assessment || "未审查"),
       esc(critique.critique_severity || "—"),
       esc(String((report.supporting_evidence_ids || []).length) + " / " + String((report.counterevidence_ids || []).length)),
     ];
   });
-  setHTML("agent-research", table(["股票", "研究员结论", "技术结构摘要", "反方评估", "严重度", "支持 / 反证"], researchRows,
+  setHTML("agent-research", table(["股票", "方向", "研究员结论", "技术结构摘要", "反方评估", "严重度", "支持 / 反证"], researchRows,
     "本轮没有深度研究报告"));
 
   const plan = ma.latest_decision;
@@ -527,7 +531,7 @@ function renderAgents(s) {
   const safety = [
     ["研究", run ? (run.status === "COMPLETE" ? "已完成" : run.status === "FAILED" ? "失败/已放弃" : "进行中或未完成") : "未运行"],
     ["最终计划", plan ? (plan.market_decision === "NO_TRADE" ? "NO_TRADE" : "已形成，等待触发") : "无计划"],
-    ["交易执行", (s.unresolved || []).length ? "存在未知订单，已冻结" : (s.paused ? "已暂停" : "由 Python 监测/风控")],
+    ["交易执行", researchOnly ? "RESEARCH_ONLY：禁止券商写请求" : ((s.unresolved || []).length ? "存在未知订单，已冻结" : (s.paused ? "已暂停" : "由 Python 监测/风控"))],
     ["订单事实", (s.orders || []).length ? "最近订单见持仓页" : "没有订单"],
     ["单智能体基准", baseline ? "影子记录，不下单" : (ma.enabled ? "未完成" : "未启用")],
     ["安全门", s.freeze_reason ? "冻结：" + s.freeze_reason : "无冻结"],

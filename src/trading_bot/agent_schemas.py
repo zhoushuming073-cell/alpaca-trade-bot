@@ -26,6 +26,7 @@ class ResearchScanItem(Strict):
     symbol: str = Field(min_length=1, max_length=12)
     setup_type: SetupType
     opportunity_grade: OpportunityGrade
+    direction: Literal["LONG", "SHORT", "NEUTRAL", "INSUFFICIENT"] = "NEUTRAL"
     thesis: str = Field(min_length=1, max_length=2500)
     evidence_ids: list[str] = Field(default_factory=list, max_length=30)
     priority: int = Field(default=50, ge=1, le=100)
@@ -64,6 +65,7 @@ class ResearchReport(Strict):
     symbol: str = Field(min_length=1, max_length=12)
     setup_type: SetupType
     opportunity_grade: OpportunityGrade
+    direction: Literal["LONG", "SHORT", "NEUTRAL", "INSUFFICIENT"] = "NEUTRAL"
     technical_structure: str = Field(min_length=1, max_length=4000)
     fundamental_context: str = Field(min_length=1, max_length=4000)
     event_evidence: list[str] = Field(default_factory=list, max_length=30)
@@ -98,12 +100,14 @@ class CritiqueReport(Strict):
     research_report_id: str = Field(min_length=1, max_length=140)
     as_of_utc: datetime
     symbol: str = Field(min_length=1, max_length=12)
+    direction_reviewed: Literal["LONG", "SHORT", "NEUTRAL", "INSUFFICIENT"] = "NEUTRAL"
     verified_claims: list[str] = Field(default_factory=list, max_length=30)
     unsupported_claims: list[str] = Field(default_factory=list, max_length=30)
     contradictory_evidence: list[str] = Field(default_factory=list, max_length=30)
     alternative_explanations: list[str] = Field(default_factory=list, max_length=20)
     data_gaps: list[str] = Field(default_factory=list, max_length=30)
     major_risks: list[str] = Field(default_factory=list, max_length=30)
+    squeeze_risks: list[str] = Field(default_factory=list, max_length=20)
     thesis_failure_scenarios: list[str] = Field(default_factory=list, max_length=30)
     critique_severity: Literal["NONE", "LOW", "MEDIUM", "HIGH"]
     overall_assessment: Literal["SUPPORT", "QUALIFIED", "OPPOSE", "INSUFFICIENT"]

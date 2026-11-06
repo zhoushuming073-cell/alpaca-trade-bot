@@ -169,7 +169,10 @@ python -m venv .venv
 ./run.ps1 resolve-order -Cid ... -Reason ... -Confirm
 ./run.ps1 status                # 有界查询，不加载全部历史
 ./run.ps1 paper                 # LumiBot 常驻；当前默认暂停
+.venv/Scripts/python -m trading_bot.main research-only  # RESEARCH_ONLY：真实只读研究，禁止券商写请求
 ```
+
+`research-only` 在 `paused=true` 时仍可研究，但不会修改暂停状态、不会创建可执行 `plans`、不会写 `orders`，底层 PaperClient 也会拒绝所有写请求。真实 DeepSeek 调用会产生费用，需显式执行；当前费率未配置时只能保证 Token 上限，不能精确报费用。
 
 研究档案首次分批构建（会调用 DeepSeek，**不会**下单；需要显式执行并自行承担 API 费用）：
 

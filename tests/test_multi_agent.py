@@ -257,6 +257,26 @@ def test_budget_is_finite_and_fails_closed(store):
     assert result.plan is None
 
 
+def test_budget_estimate_blocks_before_provider_call(store):
+    bundle = bundle_with(True)
+    tight = bundle.multi_agent.budget.model_copy(update={"max_session_tokens": 3000})
+    bundle = replace(
+        bundle,
+        multi_agent=bundle.multi_agent.model_copy(update={"budget": tight}),
+    )
+    ai = FakeAI()
+    orchestrator = MultiAgentOrchestrator(store, ai, bundle, clock=lambda: NOW,
+                                          run_id_factory=lambda: "run-preflight")
+    result = orchestrator.run_premarket(
+        session=None, base_payload=base_payload(),
+        universe=[{"symbol": "CRWV", "history": {"daily_recent": [{"close": 100}]}, "data_status": "OK"}],
+        held={}, focus_loader=focus_loader, deadline_utc=NOW + timedelta(minutes=30),
+        universe_version="u1", trading_day="2026-11-06",
+    )
+    assert result.status == "FAILED"
+    assert ai.calls == []
+
+
 def test_skeptic_timeout_blocks_symbol_and_never_falls_back_to_buy(store):
     result = run(store, FakeAI(fail="skeptic"))
     assert result.status in {"FAILED", "NO_TRADE"}

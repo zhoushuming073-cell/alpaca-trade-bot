@@ -27,6 +27,7 @@ Return ONLY this JSON object:
       "symbol": "<watchlist symbol>",
       "setup_type": "PULLBACK_RECLAIM|EVENT_MISPRICING",
       "opportunity_grade": "A|B|C",
+      "direction": "LONG|SHORT|NEUTRAL|INSUFFICIENT",
       "thesis": "<evidence-based thesis, including both bull and bear considerations>",
       "evidence_ids": ["<ids from input>"],
       "priority": 1
@@ -39,3 +40,5 @@ Return ONLY this JSON object:
 Select roughly 0–8 genuinely worthwhile candidates. Zero candidates is valid. Do not
 fill a quota. Existing positions/open orders take priority for review, but do not force
 a trade. Do not output any text outside the JSON object.
+
+Direction is mandatory in spirit: state LONG only for a long thesis, SHORT only for a short thesis, NEUTRAL when no edge, INSUFFICIENT when evidence is missing. A short thesis must be evidence-based, not merely a falling price.

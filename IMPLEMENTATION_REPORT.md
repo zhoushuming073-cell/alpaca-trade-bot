@@ -9,9 +9,9 @@
 - 分支：`fix/paper-order-safety`
 - 修复提交：`dcf2dec`（核心实现；后续安全修正提交见 `git log -1`）
 - 修改前基线：`180 passed`（旧 IOC/target_weight/29:30 全撤语义）。
-- 修改后：`283 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
+- 修改后：`288 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 websockets 弃用警告）。
 - 检查：`compileall` 通过、`pip check` 无 broken、`node --check web/app.js` 通过、`git diff --check` 通过。
-- 未执行：Paper 实际订单生命周期、长期 24/5 运行、真实 DeepSeek 下单决策调用。
+- 未执行：Paper 实际订单生命周期、长期 24/5 运行；真实 DeepSeek 仅执行 RESEARCH_ONLY 影子研究，未执行真实交易决策/订单。
 
 ## 1.5 2026-11-05 三阶段迭代（进行中）
 
@@ -111,7 +111,7 @@
 
 ## 4. 并发和崩溃测试结果
 
-`283 passed`，关键用例：
+`288 passed`，关键用例：
 
 - 预留后、校验前崩溃 → 新进程 `recover_stale_leases` 标 `NOT_SENT`，不查券商。
 - 校验失败且从未 POST → `NOT_SENT`，0 submissions/0 lookup/safety 空。
@@ -145,7 +145,7 @@
 
 - Paper 实际订单生命周期：未执行（用户禁止提交订单）；DAY 下午成交、部分成交、撤单竞态、真实 OTO/止损、断网恢复均未验证。
 - 做空真实 Paper 生命周期：未执行；账户虽返回 `shorting_enabled=true`，但 `allow_shorting=false`，没有空单。真实借券可用性、空头保证金、空头部分成交、空头跨日/被召回、空头 OTO 止损均未验证。
-- 三智能体真实 DeepSeek 调用：未执行（避免未经授权的额外费用）；Prompt 解析、Schema、预算、超时/重试和失败降级只在 Fake/离线测试中验证。真实模型输出质量、429/5xx 行为、Token/成本/延迟基准未验证。
+- 三智能体真实 DeepSeek 调用：已执行 RESEARCH_ONLY（3 次受控尝试、17 次 provider 调用）；完整第三次 66,787 tokens/50.9 秒，但三次累计 301,246 tokens，超出本次 120k 总预算；真实成本未知。真实模型输出质量、429/5xx 行为和长期成本仍未验证。
 - 三智能体真实 Paper 订单：未执行；只通过 FakeBroker 离线验证研究→计划→触发→成交→次日对账，不代表 Alpaca 实际成交。
 - 单智能体基准的前向比较：尚无真实样本，不能用少量结果宣称多智能体更优。
 - `BROKER_STOP`：请求构造/拒绝路径已实现并有离线测试；Alpaca 账户是否支持所需 OTO/DAY/部分成交组合未知；默认禁用。
@@ -154,7 +154,7 @@
 - DeepSeek Search/Fetch、Vision、SEC/Alpaca News：未实际接入/验证；默认 `UnavailableSources`，不伪造。
 - 首次全池深研不会自动执行；需人工 `research-bootstrap`，且会产生 DeepSeek 费用。
 - 长期无人值守运行、Windows 强杀后的实盘对账、看板旧进程自动升级：未验证。
-- 真实 DeepSeek 交易决策未调用；只验证了只读 Alpaca/IEX 数据。
+- 真实 DeepSeek 交易决策：已执行一次 RESEARCH_ONLY 影子研究；未执行任何真实/Paper 订单决策。
 - `BROKER_STOP` 的止损覆盖/部分成交覆盖/跨日规则未真实测试。
 
 ## 7. 当前 API 验证等级
@@ -172,7 +172,7 @@
 
 ## 8. 测试数量与命令
 
-- `283 passed`：`.venv/Scripts/python -m pytest -q`
+- `288 passed`：`.venv/Scripts/python -m pytest -q`
 - 离线 E2E：`.venv/Scripts/python -m trading_bot.offline_validation --output test-results/offline-e2e-new.json`
 - 编译：`.venv/Scripts/python -m compileall -q src tests`
 - 依赖：`.venv/Scripts/python -m pip check`

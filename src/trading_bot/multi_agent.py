@@ -104,12 +104,13 @@ class _Budget:
         self.max_tokens = config.budget.effective_max_tokens
         self.max_cost = config.budget.effective_max_cost
 
-    def check(self, role: str, role_tokens: int) -> None:
+    def check(self, role: str, estimated_tokens: int) -> None:
         with self.lock:
-            if self.usage.tokens + role_tokens > self.max_tokens:
+            if self.usage.tokens + max(0, int(estimated_tokens)) > self.max_tokens:
                 raise BudgetExceeded(
                     "TOKEN_BUDGET",
-                    f"{role} would exceed {self.max_tokens} session tokens; used={self.usage.tokens}",
+                    f"{role} estimated input+output would exceed {self.max_tokens} session tokens; "
+                    f"used={self.usage.tokens} estimated={estimated_tokens}",
                 )
             if self.usage.cost_known and self.usage.cost_usd >= self.max_cost:
                 raise BudgetExceeded("COST_BUDGET", f"session cost {self.usage.cost_usd:.4f} reached")
@@ -177,6 +178,7 @@ class MultiAgentOrchestrator:
         deadline_utc: datetime,
         universe_version: str,
         trading_day: str,
+        mode: str = "THREE_AGENT",
     ) -> OrchestrationResult:
         if not self.config.enabled:
             raise MultiAgentError("DISABLED", "multi-agent mode is not enabled")
@@ -187,7 +189,7 @@ class MultiAgentOrchestrator:
             "universe_version": universe_version,
         })
         self.store.create_agent_run({
-            "run_id": run_id, "trading_day": trading_day, "mode": "THREE_AGENT",
+            "run_id": run_id, "trading_day": trading_day, "mode": mode,
             "status": "RUNNING", "as_of_utc": base_payload.get("as_of_utc"),
             "universe_version": universe_version, "config_hash": getattr(self.config, "hash", None)
             or _hash({"multi_agent": self.config.model_dump()}),
@@ -443,7 +445,7 @@ class MultiAgentOrchestrator:
                 return _with_meta(parsed, meta)
             except Exception:  # noqa: BLE001 - bad cache must not authorize anything
                 pass
-        self.budget.check(role, role_config.max_tokens)
+        self.budget.check(role, _estimate_tokens(clean_payload) + role_config.max_tokens)
         last_error = None
         for attempt in range(role_config.max_retries + 1):
             self._deadline(deadline, role)
@@ -554,7 +556,10 @@ class MultiAgentOrchestrator:
             "symbol": symbol,
             "research_report": report.model_dump(mode="json"),
             "research_report_id": report.research_report_id,
-            "focus": row,
+            "focus": {
+                key: row.get(key) for key in
+                ("symbol", "held", "position", "shortability", "quote")
+            },
             "research_memory": memory.get(symbol, []),
             "news": _news_for(base_payload.get("news"), symbol),
             "execution_contract": base_payload.get("execution_contract", {}),
@@ -622,9 +627,13 @@ class MultiAgentOrchestrator:
                 "position": positions.get(symbol),
                 "quote": row.get("quote"),
                 "shortability": row.get("shortability"),
-                "research_report": report_by_symbol.get(symbol),
-                "critique": critique_by_symbol.get(symbol),
             })
+        relevant = sorted(set(report_by_symbol) | set(held) | set(critique_by_symbol))
+        memory = self.store.agent_memory(relevant, per_symbol=1)
+        feedback = [
+            row for row in self.store.agent_feedback(limit=60)
+            if row.get("symbol") in relevant
+        ]
         return {
             **{k: v for k, v in base_payload.items()
                if k not in {"research", "news", "universe", "focus"}},
@@ -639,8 +648,8 @@ class MultiAgentOrchestrator:
                 {**item["critique"], "critique_id": item["critique_id"]} for item in critiques
             ],
             "blocked_symbols": sorted(set(blocked)),
-            "research_memory": self.store.agent_memory(self.symbols, per_symbol=2),
-            "prior_plan_feedback": self.store.agent_feedback(limit=60),
+            "research_memory": memory,
+            "prior_plan_feedback": feedback,
             "deadline_utc": deadline,
         }
 
@@ -691,7 +700,13 @@ class MultiAgentOrchestrator:
                 "run_id": run_id,
                 "decision_mode": "SINGLE_AGENT",
                 "focus": [
-                    {k: row.get(k) for k in ("symbol", "held", "position", "quote", "shortability")}
+                    {
+                        "symbol": row.get("symbol"), "held": row.get("held"),
+                        "position": row.get("position"), "quote": row.get("quote"),
+                        "shortability": row.get("shortability"),
+                        "scan_summary": (row.get("history") or {}).get("daily_recent", [])[-1:]
+                        if isinstance(row.get("history"), dict) else [],
+                    }
                     for row in focus_rows
                 ],
                 "baseline_shadow_only": True,
@@ -823,6 +838,15 @@ def _hash(value) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:24]
+
+
+def _estimate_tokens(payload: dict) -> int:
+    """Conservative preflight estimate; GPT-style JSON is often ~3-4 chars/token."""
+    try:
+        raw = json.dumps(payload, default=str, ensure_ascii=False, separators=(",", ":"))
+    except Exception:  # noqa: BLE001
+        return 0
+    return max(1, (len(raw) + 2) // 3)
 
 
 def _redact(value):

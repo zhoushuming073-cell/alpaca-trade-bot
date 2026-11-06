@@ -686,7 +686,8 @@ class Engine:
         })
         return plan, meta
 
-    def _multi_agent_premarket(self, session, account_ctx, history, held, unavailable):
+    def _multi_agent_premarket(self, session, account_ctx, history, held, unavailable,
+                               *, run_mode="THREE_AGENT"):
         """Run the three in-process agents and return a fail-closed result."""
         from .multi_agent import MultiAgentOrchestrator
 
@@ -694,12 +695,20 @@ class Engine:
             self.store.event("agent_run_failed", {"reason": "AI client unavailable"})
             return None
         universe = []
+        group_by_symbol = {
+            symbol: group["name"]
+            for group in self.config.groups
+            for symbol in group["symbols"]
+        }
         for symbol, daily in history.items():
-            compact = compact_history(daily, None)
-            compact["daily_recent"] = compact["daily_recent"][-30:]
-            compact["weekly"] = compact["weekly"][-13:]
-            compact["monthly"] = compact["monthly"][-6:]
-            universe.append({"symbol": symbol, "history": compact, "data_status": "OK"})
+            # First-level scan is deliberately summary-only.  Raw bars go only
+            # to the bounded deep-research focus, never to all 48 symbols.
+            universe.append({
+                "symbol": symbol,
+                "group": group_by_symbol.get(symbol, ""),
+                "summary": self._scan_summary(daily),
+                "data_status": "OK",
+            })
         base_payload = self._base_payload(session, account_ctx)
         base_payload["unavailable_context"] = list(base_payload.get("unavailable_context") or [])
 
@@ -748,9 +757,11 @@ class Engine:
             deadline_utc=deadline,
             universe_version=self.config.hashes.get("watchlist", self.config.hash),
             trading_day=session.trading_day,
+            mode=run_mode,
         )
         self.store.event("multi_agent_run", {
             "run_id": result.run_id, "status": result.status,
+            "mode": run_mode,
             "reports": len(result.reports), "critiques": len(result.critiques),
             "blocked": result.blocked_symbols, "tokens": result.usage.tokens,
             "cost_usd": result.usage.cost_usd if result.usage.cost_known else None,
@@ -765,6 +776,37 @@ class Engine:
                 "candidates": [candidate.symbol for candidate in result.plan.candidates],
             })
         return result
+
+    @staticmethod
+    def _scan_summary(daily) -> dict:
+        """Compact, non-fabricated scan facts; no full OHLCV history."""
+        try:
+            frame = daily.dropna(subset=["close"])
+            close = frame["close"].astype(float)
+            if close.empty:
+                return {"bars": 0, "status": "NO_CLOSE"}
+            last = float(close.iloc[-1])
+            def change(period):
+                if len(close) <= period:
+                    return None
+                prior = float(close.iloc[-1 - period])
+                return round((last / prior - 1) * 100, 3) if prior else None
+            high = float(frame["high"].tail(20).max()) if "high" in frame else None
+            low = float(frame["low"].tail(20).min()) if "low" in frame else None
+            volume = float(frame["volume"].tail(20).mean()) if "volume" in frame else None
+            return {
+                "bars": int(len(close)),
+                "last": round(last, 4),
+                "change_1d_pct": change(1),
+                "change_5d_pct": change(5),
+                "change_20d_pct": change(20),
+                "high_20": round(high, 4) if high is not None else None,
+                "low_20": round(low, 4) if low is not None else None,
+                "avg_volume_20": round(volume, 2) if volume is not None else None,
+                "last_bar": str(frame.index[-1]),
+            }
+        except Exception as exc:  # noqa: BLE001 - scan data is best-effort but explicit
+            return {"bars": 0, "status": type(exc).__name__}
 
     def _save_plans(self, session, plan: PremarketPlan, focus, held, *,
                     agent_run_id: str = "", agent_report_id: str = ""):
