@@ -291,7 +291,7 @@ def test_safety_freeze_during_slow_preflight_prevents_post(store, bundle, clock,
 def test_slow_preflight_crossing_cutoff_is_not_sent(store, bundle, clock, session):
     class Slow(FakeBroker):
         def prepare(self, intent_value, cid, session=None, account=None):
-            clock.advance(1800)
+            clock.advance(9000)
             return self.snapshot()
 
     broker = Slow()

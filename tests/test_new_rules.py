@@ -156,7 +156,7 @@ def test_frozen_and_outside_window_reject(bundle, session):
             buy_attempts=0, paused=True,
         )
     assert failure.value.code == "PAUSED"
-    after = session_info(datetime(2026, 11, 5, 15, 5, tzinfo=timezone.utc), bundle.execution)
+    after = session_info(datetime(2026, 11, 5, 17, 5, tzinfo=timezone.utc), bundle.execution)
     with pytest.raises(RiskRejected) as failure:
         validate(intent(), bundle, after)
     assert failure.value.code in {"OUTSIDE_ACTIVE_WINDOW", "AFTER_SUBMIT_CUTOFF"}

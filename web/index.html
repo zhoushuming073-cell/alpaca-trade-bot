@@ -140,13 +140,9 @@ button{transition:background var(--m-fast) var(--ease-out),border-color var(--m-
 </style>
 <style>
 .brand-row{display:flex;align-items:center;gap:8px;min-width:0}.brand-row .brand{min-width:0}.sidebar-toggle{width:28px;height:28px;min-height:28px;flex:0 0 28px;margin:0 0 0 auto;padding:0;border:1px solid #dbd6cb;border-radius:7px;background:transparent;color:#77736b;display:inline-flex;align-items:center;justify-content:center;font-size:17px;line-height:1;text-align:center}.sidebar-toggle:hover{background:#e3dfd5;color:#302e29}
-.side-clock-wrap{display:flex;justify-content:center;margin:2px 0 14px}.et-clock{width:82px;height:82px;flex:0 0 82px;border:1px solid #cfc8ba;border-radius:4px;background:#fbfaf5;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:7px 5px;box-shadow:0 5px 16px #302e2910;font-variant-numeric:tabular-nums}
+.side-clock-wrap{display:flex;justify-content:center;margin:2px 0 14px}.et-clock{width:82px;height:58px;flex:0 0 82px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
 .et-clock-label{font-size:7px;letter-spacing:1.5px;color:#8a8173;font-weight:600}
 .et-clock-time{font:20px Georgia,"Times New Roman",serif;letter-spacing:.4px;color:#3f3a32;line-height:1.15;margin-top:3px}
-.et-clock-date{font-size:8px;color:#8f8678;letter-spacing:.3px;margin-top:2px}
-.et-clock-signal{font-size:7px;letter-spacing:.6px;color:#8a5b32;margin-top:4px;border-top:1px solid #e6dfd2;padding-top:4px;width:100%;text-align:center}
-.et-clock-signal.ok{color:#48654d}
-.et-clock-signal.warn{color:#8a5b32}
 @media(max-width:800px){.side-clock-wrap{display:none}}
 </style>
 <style>
@@ -170,8 +166,6 @@ body.sidebar-collapsed .brand-row{justify-content:flex-start}body.sidebar-collap
     <div id="et-clock" class="et-clock" aria-label="美东时间与网页心跳">
       <span class="et-clock-label">NEW YORK</span>
       <span id="et-clock-time" class="et-clock-time">--:--:--</span>
-      <span id="et-clock-date" class="et-clock-date">----</span>
-      <span id="et-clock-signal" class="et-clock-signal">PAGE --</span>
     </div>
   </div>
   <nav aria-label="页面导航">

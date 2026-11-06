@@ -1,13 +1,29 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time as dtime
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
 
 CALENDAR = mcal.get_calendar("NYSE")
+ET = ZoneInfo("America/New_York")
+
+
+def _clock_time(value, default):
+    raw = str(value or default)
+    parts = raw.split(":")
+    if len(parts) == 2:
+        parts.append("0")
+    if len(parts) != 3:
+        raise ValueError("Invalid execution time")
+    return dtime(int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+def _et(day, clock):
+    return datetime.combine(day, clock, tzinfo=ET)
 
 
 class SessionPhase(StrEnum):
@@ -77,8 +93,8 @@ def session_info(now, execution=None) -> SessionInfo:
 
     The regular-session open/close comes from the NYSE calendar, so a delayed
     open, half day, holiday and DST transition are all handled without hard
-    coding Beijing time.  The active window is the first 30 minutes after the
-    actual open; the submission cutoff is the last 30 seconds of that window.
+    coding Beijing time.  The configured active window is 09:30-12:00 ET with
+    an independent 11:59:30 submission cutoff.
     """
     stamp = _utc(now)
     now_utc = stamp.to_pydatetime()
@@ -94,11 +110,14 @@ def session_info(now, execution=None) -> SessionInfo:
     close_ts = schedule.iloc[0]["market_close"]
     opening = open_ts.to_pydatetime()
     closing = close_ts.to_pydatetime()
-    premarket_start_ts = open_ts - pd.Timedelta(minutes=30)
-    active_end_ts = open_ts + pd.Timedelta(minutes=30)
-    submit_cutoff_ts = active_end_ts - pd.Timedelta(seconds=30)
-    premarket = premarket_start_ts <= stamp < open_ts
-    active = open_ts <= stamp < active_end_ts
+    premarket_start_ts = _et(day, _clock_time(getattr(execution, "premarket_start", None), "09:00"))
+    active_start_ts = _et(day, _clock_time(getattr(execution, "active_start", None), "09:30"))
+    active_end_ts = _et(day, _clock_time(getattr(execution, "active_end", None), "12:00"))
+    submit_cutoff_ts = _et(day, _clock_time(getattr(execution, "submit_cutoff", None), "11:59:30"))
+    # A delayed exchange open is not tradable before the real open.
+    active_start_ts = max(active_start_ts, opening)
+    premarket = premarket_start_ts <= stamp < active_start_ts
+    active = active_start_ts <= stamp < active_end_ts
     can_submit = active and stamp < submit_cutoff_ts
     if stamp < premarket_start_ts:
         phase, reason = SessionPhase.CLOSED, "before_premarket"
@@ -115,9 +134,9 @@ def session_info(now, execution=None) -> SessionInfo:
         now_et=now_et,
         market_open=opening,
         market_close=closing,
-        premarket_start=premarket_start_ts.to_pydatetime(),
-        active_end=active_end_ts.to_pydatetime(),
-        submit_cutoff=submit_cutoff_ts.to_pydatetime(),
+        premarket_start=premarket_start_ts,
+        active_end=active_end_ts,
+        submit_cutoff=submit_cutoff_ts,
         can_submit=can_submit,
         active=active,
         premarket=premarket,
@@ -134,10 +153,10 @@ def opening_minutes(now):
     return (now - schedule.iloc[0].market_open).total_seconds() / 60
 
 
-def execution_open(now):
-    """Compatibility helper for cache TTLs (first 30 minutes after open)."""
-    minutes = opening_minutes(now)
-    return minutes is not None and 0 <= minutes < 30
+def execution_open(now, execution=None):
+    """Compatibility cache helper; true throughout the configured active window."""
+    info = session_info(now, execution)
+    return info.active
 
 
 def validate_bars(df, end, now, risk, count):

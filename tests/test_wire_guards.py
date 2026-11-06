@@ -187,7 +187,7 @@ def test_prepare_rejects_outside_window_and_unverified_stop(tmp_path, monkeypatc
     store.reserve_order(cid, "2026-11-05", intent(), owner="owner")
     assert store.claim_order(cid, "owner")
     closed = session_info(
-        __import__("datetime").datetime.fromisoformat("2026-11-05T15:05:00+00:00"),
+        __import__("datetime").datetime.fromisoformat("2026-11-05T17:05:00+00:00"),
         bundle.execution,
     )
     with pytest.raises(PreDispatchRejected):

@@ -1174,26 +1174,12 @@ sendHeartbeat();
 setInterval(sendHeartbeat, 10000);
 
 function updateEtClock() {
-  const now = new Date();
   const time = new Intl.DateTimeFormat("en-GB", {
     timeZone: "America/New_York", hour: "2-digit", minute: "2-digit",
     second: "2-digit", hour12: false
-  }).format(now);
-  const date = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", month: "short", day: "2-digit"
-  }).format(now);
-  const timeNode = document.getElementById("et-clock-time");
-  const dateNode = document.getElementById("et-clock-date");
-  const signal = document.getElementById("et-clock-signal");
-  if (timeNode) timeNode.textContent = time;
-  if (dateNode) dateNode.textContent = date.toUpperCase();
-  if (signal) {
-    const hasHeartbeat = Boolean(state && typeof state.web_connected === "boolean");
-    const live = Boolean(state && state.web_connected === true);
-    signal.textContent = hasHeartbeat ? (live ? "PAGE LIVE" : "PAGE OFFLINE") : "PAGE --";
-    signal.classList.toggle("ok", hasHeartbeat && live);
-    signal.classList.toggle("warn", hasHeartbeat && !live);
-  }
+  }).format(new Date());
+  const node = document.getElementById("et-clock-time");
+  if (node) node.textContent = time;
 }
 updateEtClock();
 setInterval(updateEtClock, 1000);

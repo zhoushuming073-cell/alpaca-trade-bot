@@ -33,11 +33,11 @@ def test_daily_internal_gap_rejected():
         daily_history(frame, pd.Timestamp("2026-11-04T15:00Z"))
 
 
-def test_active_window_is_first_thirty_minutes(bundle):
+def test_active_window_ends_at_noon(bundle):
     info = session_info(datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc), bundle.execution)
     assert info.phase == SessionPhase.ACTIVE
     assert info.market_open.isoformat() == "2026-11-05T14:30:00+00:00"
-    assert info.active_end.isoformat() == "2026-11-05T15:00:00+00:00"
+    assert info.active_end.astimezone(timezone.utc).isoformat() == "2026-11-05T17:00:00+00:00"
     assert session_info(
-        datetime(2026, 11, 5, 15, 0, tzinfo=timezone.utc), bundle.execution
+        datetime(2026, 11, 5, 17, 0, tzinfo=timezone.utc), bundle.execution
     ).phase == SessionPhase.CLOSED

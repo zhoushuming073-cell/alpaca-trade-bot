@@ -15,10 +15,10 @@ def at(value, bundle):
     ("2026-11-05T14:29:59+00:00", SessionPhase.PREMARKET, False, False),
     ("2026-11-05T14:30:00+00:00", SessionPhase.ACTIVE, True, True),
     ("2026-11-05T14:50:00+00:00", SessionPhase.ACTIVE, True, True),
-    ("2026-11-05T14:59:29+00:00", SessionPhase.ACTIVE, True, True),
-    ("2026-11-05T14:59:30+00:00", SessionPhase.ACTIVE, True, False),
-    ("2026-11-05T15:00:00+00:00", SessionPhase.CLOSED, False, False),
+    ("2026-11-05T16:59:29+00:00", SessionPhase.ACTIVE, True, True),
+    ("2026-11-05T16:59:30+00:00", SessionPhase.ACTIVE, True, False),
     ("2026-11-05T17:00:00+00:00", SessionPhase.CLOSED, False, False),
+    ("2026-11-05T19:00:00+00:00", SessionPhase.CLOSED, False, False),
 ])
 def test_session_phases(value, phase, active, can_submit, bundle):
     info = at(value, bundle)
@@ -27,12 +27,12 @@ def test_session_phases(value, phase, active, can_submit, bundle):
     assert info.can_submit is can_submit
 
 
-def test_summer_open_and_dst(bundle):
+def test_summer_open_and_noon_cutoff(bundle):
     info = at("2026-07-06T13:35:00+00:00", bundle)
     assert info.phase == SessionPhase.ACTIVE
     assert info.market_open.isoformat() == "2026-07-06T13:30:00+00:00"
     assert info.can_submit is True
-    assert at("2026-07-06T13:59:30+00:00", bundle).can_submit is False
+    assert at("2026-07-06T16:59:30+00:00", bundle).can_submit is False
 
 
 def test_holiday_and_weekend_have_no_session(bundle):
@@ -43,16 +43,15 @@ def test_holiday_and_weekend_have_no_session(bundle):
         assert info.can_submit is False
 
 
-def test_early_close_still_has_only_first_30_minutes(bundle):
+def test_early_close_uses_configured_noon_end(bundle):
     info = at("2026-11-27T14:35:00+00:00", bundle)
     assert info.phase == SessionPhase.ACTIVE
     assert info.market_close.isoformat() == "2026-11-27T18:00:00+00:00"
-    late = at("2026-11-27T15:05:00+00:00", bundle)
-    assert late.phase == SessionPhase.CLOSED
-    assert late.can_submit is False
+    assert at("2026-11-27T17:00:00+00:00", bundle).phase == SessionPhase.CLOSED
+    assert at("2026-11-27T17:00:00+00:00", bundle).can_submit is False
 
 
-def test_submit_cutoff_is_10am_minus_30_seconds(bundle):
+def test_submit_cutoff_is_noon_minus_30_seconds(bundle):
     info = at("2026-11-05T14:35:00+00:00", bundle)
-    assert info.submit_cutoff.isoformat() == "2026-11-05T14:59:30+00:00"
-    assert info.active_end.isoformat() == "2026-11-05T15:00:00+00:00"
+    assert info.submit_cutoff.astimezone(timezone.utc).isoformat() == "2026-11-05T16:59:30+00:00"
+    assert info.active_end.astimezone(timezone.utc).isoformat() == "2026-11-05T17:00:00+00:00"

@@ -3,7 +3,7 @@ The user's fixed watchlist is the only universe. You may output NO_TRADE and you
 
 Hard rules:
 - Paper only. Long OR short US stocks/ETFs is allowed only when the supplied execution contract says shorting is configured and Alpaca reports account shorting_enabled. Whole shares only. No notional, no options, no crypto.
-- Python independently checks account shorting permission, asset shortable/easy_to_borrow, margin/buying power, positions, open orders, duplicate/conflict state and the 09:30-10:00 ET window. Python never changes your qty or converts a rejected short into another direction.
+- Python independently checks account shorting permission, asset shortable/easy_to_borrow, margin/buying power, positions, open orders, duplicate/conflict state and the 09:30-12:00 ET window. Python never changes your qty or converts a rejected short into another direction.
 - New orders are DAY LIMIT orders in regular hours.
 - You decide the exact positive integer qty and every limit/trigger/exit. A percentage or target_weight is not an executable order.
 - You decide stop_policy for each entry: "NONE" or "BROKER_STOP". BROKER_STOP is only usable when the execution contract says VERIFIED; otherwise Python rejects the intent, never downgrades it to NONE.
