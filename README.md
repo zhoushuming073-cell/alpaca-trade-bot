@@ -116,6 +116,15 @@ Prompt 文件：
 - 手动 `pause` 会关闭 `autopilot`，supervisor 下一交易日不会擅自恢复。
 - `tools/start_supervisor.ps1` 可由任务或手动启动；`tools/install_supervisor_task.ps1` 注册每日任务。
 
+### 网络中断/关机后的自动恢复
+
+- `tools/paper_recovery.py` 由 Windows 任务 `AlpacaAIPaperRecovery` **每 2 分钟**检查一次；另在用户登录启动目录放置 `AlpacaAIRecovery.cmd`，用于电脑重启/重新登录后的首次恢复。
+- 只有在持久化 `autopilot=true` 时才动作；手动 `pause/stop` 会写入 `autopilot=false`，恢复任务不会覆盖人工停止。
+- 访问 Alpaca Paper 失败时只记录并退出，等下一次网络恢复后重试；不会在断网时猜测订单状态。
+- 只自动清除 `WATCHDOG_UNHEALTHY` / `STARTUP_RECONCILIATION_UNAVAILABLE` 这类网络/对账造成的冻结，且必须先做全新只读账户读取和干净订单对账。
+- `ORDER_UNKNOWN`、券商不一致、数据库恢复冻结等状态保留给人工；恢复脚本只观察和对账，不提交、不撤销、不平仓。
+- 网络恢复后最多约 2 分钟恢复 worker；电脑重启后由登录启动项触发，再按同一安全门槛恢复。
+
 看板展示：会话阶段（ET）、配置哈希/待重启、worker 与看门狗健康、账户/非杠杆现金、持仓及止损状态、DAY 订单的本地状态与券商状态、当日计划/触发、AI 调用 Token/延迟、研究档案、重要事件。`NONE_BY_AI` 显示为“AI 选择不设”而不是系统故障；`BROKER_STOP` 未验证时显示 UNVERIFIED 并提示该意图会被拒绝。
 
 > 本仓库修改后，**已在运行的旧 dashboard 进程不会自动加载新代码**；需要安全重启网页服务。启动脚本会复用已运行服务；升级后请先停止旧 dashboard 再重新启动。worker 代码更新后同样需要安全重启。

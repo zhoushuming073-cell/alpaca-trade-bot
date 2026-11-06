@@ -90,3 +90,11 @@
 - 5 秒刷新通过 HTML 缓存和计划数据签名避免整页/整卡闪烁；已验证计划展开在刷新后保持。
 - 「机器人状态」页使用 `/api/robot-events` 的 SQLite 事件游标做 3 秒增量更新；已验证 AI/执行/成交/系统筛选、详情展开、47 条真实事件、7 秒无重复增长，且页面不提供下单权限。
 - 交互使用 Motion Tokens、`prefers-reduced-motion`、View Transitions（支持时）和 CSS transform/opacity；未引入大型动画依赖。
+
+## 8. 网络/关机恢复
+
+- 2026-11-06 实际发生网络中断：Alpaca 连接被重置，watchdog 连续对账失败并写入 `WATCHDOG_UNHEALTHY`；用户随后手动停止。
+- 新增 `tools/paper_recovery.py`；在真实网络恢复后实际执行成功：读取 Alpaca、启动 worker、完成干净对账、清除 `WATCHDOG_UNHEALTHY`、恢复 `paused=false`，**没有提交任何订单**。
+- 再次执行恢复为幂等 no-op：`worker healthy and autopilot already live; no action`。
+- Windows 任务 `AlpacaAIPaperRecovery` 每 2 分钟运行；登录启动目录已放置 `AlpacaAIRecovery.cmd`。`ONLOGON` 计划任务因权限拒绝未创建，已用启动目录替代。
+- 人工 `stop` 会关闭 `autopilot`，恢复脚本不会覆盖；未知订单、数据库恢复冻结等不会自动清除。
