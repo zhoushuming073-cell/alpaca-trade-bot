@@ -1188,10 +1188,11 @@ function updateEtClock() {
   if (timeNode) timeNode.textContent = time;
   if (dateNode) dateNode.textContent = date.toUpperCase();
   if (signal) {
-    const live = Boolean(state && state.web_connected);
-    signal.textContent = live ? "PAGE LIVE" : "PAGE OFFLINE";
-    signal.classList.toggle("ok", live);
-    signal.classList.toggle("warn", !live);
+    const hasHeartbeat = Boolean(state && typeof state.web_connected === "boolean");
+    const live = Boolean(state && state.web_connected === true);
+    signal.textContent = hasHeartbeat ? (live ? "PAGE LIVE" : "PAGE OFFLINE") : "PAGE --";
+    signal.classList.toggle("ok", hasHeartbeat && live);
+    signal.classList.toggle("warn", hasHeartbeat && !live);
   }
 }
 updateEtClock();
