@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`289 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`297 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询、10 个板块/48 只股票分组完整性；新增多空方向、空头权限/借券、保证金购买力、空头拒单、平空与平多区分、禁止跨零、空头止损方向和空头 P&L 方向保持。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -45,14 +45,13 @@
 
 ### 2.3 冻结考试回放（2026-11-06，真实 DeepSeek）
 
-- 数据集：`data/exam_v2.duckdb`，`EXPLORATORY`，IEX；60/60 交易日。AI 只接收 09:00 ET 快照；09:30 后的 IEX 1 分钟只用于成交回放。
-- 3 天原始单智能体冒烟（08-13、09-25、11-05）：6 次调用、183,700 tokens、41.5 秒；收益 -4.917%、最大回撤 4.917%、QQQ -10.474%；1 笔 NBIS 开多成交、无平仓。
-- 10 天单智能体（10-23 至 11-05）：20 次调用、616,467 tokens、128.8 秒；收益 -1.617%、最大回撤 2.012%、QQQ -7.955%；4 笔开多成交、无平仓。
-- 10 天三智能体：60 次调用、785,379 tokens、498.2 秒；全部 NO_TRADE/WAIT；收益 0%、最大回撤 0%、QQQ -7.955%；0 成交。
-- **当前限制**：考试回放只在 09:30–09:59:30 评估 `EXECUTE_ORDER`，不执行 `REQUEST_AI_RECHECK`/`INVALIDATE_PLAN`，没有盘中 AI 复核、止损模拟或逐日盯市之外的持仓管理。详见 `EXAM_REPLAY.md`；这些结果不能称为完整盘中管理回测。
-- 无平仓交易，因此胜率/盈亏比 **N/A**；成交与开仓浮盈亏见 `data/exam_replay_runs/`。
+- 数据集：`data/exam_v2.duckdb`，`EXPLORATORY`，IEX；60/60 交易日。
+- **正式 15 天原版单智能体**（2026-09-28 至 2026-10-16，15 个连续 NYSE 交易日）：56 次调用、1,396,603 tokens、279.8 秒；收益 **-2.526%**、最大回撤 **4.075%**、6 笔平仓全部亏损（胜率 0%）、QQQ **-4.185%**、风险敞口匹配 QQQ **+0.085%**；6 次止损触发、15 次盘中 AI 复核、11 次持仓/止损复核；期末 CRWV 150 股、WULF 800 股，未平仓。
+- 修复后已支持：09:30–10:00 `EXECUTE_ORDER`/`REQUEST_AI_RECHECK`/`INVALIDATE_PLAN`，真实 AI 复核、持仓/平均成本/浮盈亏/止损/风险敞口输入，AI 调/删止损，GTC 保护性止损，跳空滑点，DAY 到期，10:00–16:00 仅券商订单回放，15 天连续状态继承。
+- 验证：56/56 AI 调用成功；所有 AI 调用时间不晚于 09:54 ET；无 10:00 后 AI 调用；所有复核历史 bar 的 `end_at` 不晚于 `as_of`（0 个未来 bar）。
+- 旧版 3 天/10 天结果仅保留为历史审计，**不是完整盘中管理回测**；见 `EXAM_REPLAY.md`。
 - 未使用网页搜索、实时行情、生产研究记忆或 Alpaca 写请求；空头借券采用明确假设 `ALL_SYMBOLS_ASSUMED_AVAILABLE_FOR_EXAM`，没有实际空单。
-- 真实 DeepSeek 费用未知；没有真实/Paper 订单。
+- 真实 DeepSeek 费用未知；没有真实/Paper 订单。完整报告：`data/exam_replay_runs/full15/REPORT.md`。
 
 ## 3. 真实 API 只读验证（已执行，无订单）
 

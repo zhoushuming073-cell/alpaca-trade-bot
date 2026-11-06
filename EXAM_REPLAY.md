@@ -1,8 +1,9 @@
-# Frozen exam replay (3-day smoke + 10-day backtest)
+# Frozen exam replay (legacy 3/10-day + full 15-day)
 
-## Important current limitation: premarket-only replay
+## Important distinction: legacy runner vs full runner
 
-The current replay is **not a full intraday management backtest**.
+The **legacy** [src/exam_replay/runner.py](src/exam_replay/runner.py) is
+premarket-only and is retained for the earlier audit:
 
 - `_replay_orders` loops from 09:30 to 09:59:30 ET, but only evaluates
   `EXECUTE_ORDER` triggers for initial fills.
@@ -14,12 +15,24 @@ The current replay is **not a full intraday management backtest**.
 - After 09:59:30 the position is carried, marked at the daily close, and
   processed again only on the next selected day's 09:00 premarket snapshot.
 
-Therefore the 3-day and 10-day results below are valid for
-"premarket decision + initial order + end-of-day mark", but not for
-"continuous intraday trigger monitoring and AI position review".
-The production `engine.py`/`multi_agent.py` already has a recheck path; the
-exam replay does not call it. Re-running as a full intraday replay is required
-before calling these complete strategy backtests.
+Therefore the old 3-day and 10-day results are **not** full intraday
+management backtests.
+
+The **official 15-day run** uses
+[src/exam_replay/full.py](src/exam_replay/full.py) and
+[src/exam_replay/broker.py](src/exam_replay/broker.py):
+
+- 09:30-10:00 minute loop evaluates `EXECUTE_ORDER`, `REQUEST_AI_RECHECK`,
+  `INVALIDATE_PLAN`, and protective stops.
+- The actual production `INTRADAY_RECHECK` prompt/schema is called on
+  rechecks; the production `POSITION_REVIEW` prompt/schema is wired for
+  stop adjustment/removal.
+- Account packets include cash, equity, buying power, full position detail
+  (average entry, mark, unrealized P&L), open orders and active stops.
+- 10:00-16:00 is broker-only replay: no new AI or local orders; DAY limits
+  expire and GTC stops may trigger with gap/slippage.
+- State (cash, positions, fills, stops, orders) carries across all 15
+  contiguous NYSE sessions.
 
 ## Isolation contract
 
@@ -80,7 +93,38 @@ Reports and CSVs:
 - `data/exam_replay_runs/EXAM_SUMMARY.md`
 - `data/exam_replay_runs/*_export_fills.csv`, `*_positions.csv`
 
-## Results (real DeepSeek, 2026-11-06)
+## Official full 15-session result (2026-09-28 → 2026-10-16)
+
+This is the repaired, frozen, official run. It is **single-agent** only;
+three-agent was not used.
+
+| Metric | Result |
+|---|---:|
+| Sessions | 15 contiguous NYSE sessions |
+| AI calls | 56 (`UNIVERSE_SCAN` 15, `PREMARKET_PLAN` 15, `INTRADAY_RECHECK` 15, `POSITION_REVIEW` 11) |
+| Tokens | 1,396,603 |
+| AI latency | 279.8 s |
+| Total return | **-2.526%** |
+| Max drawdown | **4.075%** |
+| Closed trades | 6 |
+| Win rate | **0.000%** (6 losses) |
+| QQQ buy & hold | **-4.185%** |
+| Exposure-matched QQQ | **+0.085%** |
+| Fees / slippage / borrow | $5.45 / $136.92 / $0.00 |
+| Stop triggers | 6 |
+| Open positions at end | CRWV 150 long, WULF 800 long |
+| No-trade sessions | 10 |
+| AI calls after 10:00 ET | **0** |
+| Future bars supplied to AI | **0** |
+| Real/Paper orders | **0** |
+
+Full frozen report:
+`data/exam_replay_runs/full15/REPORT.md`.
+Raw report: `data/exam_replay_runs/full15/report.json`; AI
+requests/responses: `audit.jsonl`.
+
+## Legacy results (not full intraday)
+
 
 | Run | Calls | Tokens | Latency | Return | Max DD | Win rate | QQQ |
 |---|---:|---:|---:|---:|---:|---:|---:|
