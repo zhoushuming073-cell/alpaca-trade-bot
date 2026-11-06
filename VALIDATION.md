@@ -5,7 +5,7 @@
 ## 1. 代码/离线自动化
 
 - 基线（修改前）：180 passed；旧测试覆盖 IOC、target_weight、29:30 全撤等已被最新产品规则替代的语义。
-- 终版：`288 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
+- 终版：`289 passed, 0 failed, 0 errors, 0 skipped`（1 条第三方 `websockets.legacy` 弃用警告，非失败）。
   - 运行：`.venv/Scripts/python -m pytest -q`
 - 覆盖重点：订单状态机/预发送 NOT_SENT/崩溃恢复/并发提交/看门狗竞态/看门狗静默死亡与心跳/DAY 订单 10:00 后不撤/次日对账/整数股与具体 qty/无仓位比例上限/非杠杆现金/卖单与止损占用/BROKER_STOP 不降级/严格 v2 Schema/计划过期与触发去重/AI JSON 修复/研究记忆/旧 SQLite 迁移/压缩 AI 输入/查询计划/看板有界查询、10 个板块/48 只股票分组完整性；新增多空方向、空头权限/借券、保证金购买力、空头拒单、平空与平多区分、禁止跨零、空头止损方向和空头 P&L 方向保持。
 - `python -m compileall`、`pip check`、`node --check web/app.js`、`git diff --check` 结果见最终交付报告。
@@ -42,6 +42,16 @@
 - 修复：全池扫描改为摘要（不再发送 48 只原始 K 线）、PM 去重压缩、预算预检按输入估算 + 最大输出，超预算在调用前拒绝。
 - 结果：研究员仅保留 AAPL（WATCH）与 IREN（UNFAVORABLE）；反方两者均 QUALIFIED/MEDIUM；PM 输出 WATCH，AAPL/IREN HOLD，无订单；单智能体基准 NO_TRADE/HOLD。**没有任何多头/空头计划。**
 - `orders_written=0`、`plans_written=0`；ReadOnlyBroker + PaperClient 写保护测试通过。
+
+### 2.3 冻结考试回放（2026-11-06，真实 DeepSeek）
+
+- 数据集：`data/exam_v2.duckdb`，`EXPLORATORY`，IEX；60/60 交易日。AI 只接收 09:00 ET 快照；09:30 后的 IEX 1 分钟只用于成交回放。
+- 3 天原始单智能体冒烟（08-13、09-25、11-05）：6 次调用、183,700 tokens、41.5 秒；收益 -4.917%、最大回撤 4.917%、QQQ -10.474%；1 笔 NBIS 开多成交、无平仓。
+- 10 天单智能体（10-23 至 11-05）：20 次调用、616,467 tokens、128.8 秒；收益 -1.617%、最大回撤 2.012%、QQQ -7.955%；4 笔开多成交、无平仓。
+- 10 天三智能体：60 次调用、785,379 tokens、498.2 秒；全部 NO_TRADE/WAIT；收益 0%、最大回撤 0%、QQQ -7.955%；0 成交。
+- 无平仓交易，因此胜率/盈亏比 **N/A**；成交与开仓浮盈亏见 `data/exam_replay_runs/`。
+- 未使用网页搜索、实时行情、生产研究记忆或 Alpaca 写请求；空头借券采用明确假设 `ALL_SYMBOLS_ASSUMED_AVAILABLE_FOR_EXAM`，没有实际空单。
+- 真实 DeepSeek 费用未知；没有真实/Paper 订单。
 
 ## 3. 真实 API 只读验证（已执行，无订单）
 
