@@ -100,7 +100,9 @@ Prompt 文件：
 ### 自动启动与交易日调度
 
 - `tools/paper_supervisor.py` 计算美东 NYSE 交易日和开盘时间，自动适配 DST。
-- Windows 任务 `AlpacaAIPaperSupervisor` 每日 **20:30（Asia/Shanghai）** 启动 supervisor；它在 08:55 ET 前启动 dashboard/worker，09:02 ET 前后检查 heartbeat，安全条件通过后把 `autopilot` 打开并 `paused=false`。
+- Windows 任务 `AlpacaAIPaperSupervisor` 每日 **20:30（Asia/Shanghai）** 启动 supervisor；它在 **08:55 ET** 开始检查已有 `autopilot=true` 授权，暂时暂停 worker，重启已有 worker 进程树以加载本地新代码。初始化心跳及独立券商对账均健康后立即恢复，正常情况下在 **09:00 ET 前**完成。supervisor 不会自行把已关闭的 autopilot 打开。
+- **09:00–09:30 ET**：LumiBot 盘前钩子与独立盘前调度共用防重入口；漏掉钩子、09:02 才就绪或稍晚启动，仍可补执行。失败任务按 300 秒冷却、每日最多 5 次实际尝试；成功阶段不会重复调用 AI。09:30 起不再补分析，也不因健康检查迟到而自动解除暂停。
+- 盘前调度不执行主动交易 tick；它遵守暂停、冻结、健康检查和交易日历。初始化/后台心跳不是券商连接成功的证据，watchdog 只在对账无错误/冲突/未知状态时记录成功。
 - 09:00–09:30 ET：worker 的 `before_market_opens` 完成 AI 盘前计划（失败最多 6 次、有界重试）。
 - 09:30–10:00 ET：Engine 监测 AI 授权触发；AI recheck 失败不会消耗触发，下个冷却窗口可重试。
 - 10:00 ET 后：本地不新增订单，不强制平仓/撤单。
@@ -165,6 +167,17 @@ python -m venv .venv
 - 日志/事件写入前做递归脱敏；测试验证 `Authorization`、嵌套 key 和环境密钥不会出现在事件/日志。
 - `tools/untrack_runtime.py` 已改为同时取消 `data/`、`logs/`、`test-results/`、`.pytest_cache/`、`htmlcov/`、`__pycache__`、SQLite/日志/覆盖率产物的**跟踪**，只保留磁盘内容，不动 Git 历史。发布前必须在远端对应 checkout 运行；不要直接覆盖 `main`。
 - 看板是 loopback-only，`/api/status` 会返回一次性 control token；只允许本机访问，不应把 4200 暴露到局域网。
+
+## 11. 一键启动与 AI 互动台（2026-11-06）
+
+双击仓库根目录 `Start-Paper-Trader.bat`。本机上层目录的 `启动交易台.bat` 已转发到该入口，无需另开 PowerShell。
+启动器复用已有网页服务；首次启动最多等待 120 秒，确认本地服务就绪后才打开 http://127.0.0.1:4200 。重复点击由启动互斥锁阻止重复启动。失败窗口保留错误提示，可检查 `logs/dashboard-error.log`。网页就绪不代表 Alpaca 或 DeepSeek 已连接，请查看页面各自的状态。
+
+启动器只负责 Dashboard，不自动启动或恢复交易，也不停止现有 worker。关闭启动器窗口后后台网页服务继续运行。升级后的 Python 代码仍需重启对应服务才能加载。
+
+右下角 AI 互动台提供快捷问题、历史对话和展开回复；默认回复不超过 150 字，展开不超过 400 字。它复用 DeepSeek 和数据库中的持仓、订单、计划、研究档案及已保存新闻，明确缺失和过期信息，不会独立获取全天候新闻，也没有下单、撤单或修改交易计划的权限。
+
+真实决策、成交和风险事件触发主动消息，普通事件合并并去重，普通消息间隔至少 5 分钟、重要消息至少 60 秒；每日最多 24 次主动生成尝试，失败有限重试。对话与主动消息保存于本地 SQLite，浏览器关闭不影响留存，但 Dashboard 服务必须运行。聊天调用与交易 AI 调用分别记录。
 
 ## 官方核查入口
 

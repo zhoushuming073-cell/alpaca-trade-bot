@@ -125,15 +125,26 @@ def start_worker_with_retry() -> bool:
     return False
 
 
-def wait_for_worker_health() -> bool:
+def wait_for_worker_health(*, until, started_at, clock=None, sleep=None) -> bool:
+    clock = clock or (lambda: datetime.now(ET))
+    sleep = sleep or time.sleep
     store = Store(ROOT / "data/paper.sqlite", role="supervisor-health")
     try:
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            health = store.health("worker", 90)
-            if health["alive"] and not health["stale"]:
+        while clock() < until:
+            healthy = True
+            for component in ("worker", "watchdog"):
+                health = store.health(component, 90)
+                success = health.get("last_success")
+                success = datetime.fromisoformat(success) if success else None
+                if not (health["alive"] and not health["stale"]
+                        and health["consecutive_failures"] == 0 and success
+                        and success >= started_at and (clock() - success).total_seconds() <= 90):
+                    healthy = False
+            if healthy:
                 return True
-            time.sleep(2)
+            if autopilot_block_reason(store):
+                return False
+            sleep(min(2, max(0, (until - clock()).total_seconds())))
         return False
     finally:
         store.close()
@@ -171,7 +182,33 @@ def main() -> int:
             pass
 
 
-def run_session(now, session) -> int:
+def restart_existing_worker() -> bool:
+    """Pre-open only: reload disk code, including the new fallback, each day.
+
+    Windows venv launchers have a child Python process. Stop the entire worker
+    tree; terminating only the launcher can leave an old worker trading.
+    No broker cancellation or position operation is performed here.
+    """
+    import psutil
+    processes = []
+    for parent in worker_processes():
+        try:
+            processes.extend(parent.children(recursive=True))
+            processes.append(parent)
+        except psutil.NoSuchProcess:
+            continue
+    for process in processes:
+        try:
+            process.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(processes, timeout=8)
+    return not alive
+
+
+def run_session(now, session, *, clock=None, sleep=None, keep_alive=True) -> int:
+    clock = clock or (lambda: datetime.now(ET))
+    sleep = sleep or time.sleep
     if not session:
         log("no US session today; supervisor exits")
         return 0
@@ -180,26 +217,44 @@ def run_session(now, session) -> int:
     if now >= market_open:
         log("supervisor started after the session open; no premarket plan; exits")
         return 0
-    while datetime.now(ET) < start_at:
-        time.sleep(min(300, max(5, (start_at - datetime.now(ET)).total_seconds())))
+    while clock() < start_at:
+        sleep(min(60, max(1, (start_at - clock()).total_seconds())))
+    if clock() >= market_open:
+        log("missed premarket window; no automatic resume")
+        return 1
     log("pre-open supervisor wakeup")
+    store = Store(ROOT / "data/paper.sqlite", role="supervisor-control")
+    try:
+        blocked = autopilot_block_reason(store)
+        if blocked:
+            log("autopilot blocked: " + blocked)
+            return 1
+        store.pause(True)
+        store.set_alive("worker", False)
+        store.set_alive("watchdog", False)
+    finally:
+        store.close()
     if not ensure_dashboard():
         return 1
+    if not restart_existing_worker():
+        log("old worker still alive; no duplicate start")
+        return 1
+    started_at = clock()
     if not start_worker_with_retry():
         log("worker failed to start; autopilot remains paused")
         return 1
-    # Engine.heartbeat is first produced by the 09:00 premarket hook.  Do not
-    # mistake a normal pre-open initialization wait for a dead worker.
-    ready_at = max(datetime.now(ET), market_open + timedelta(minutes=2))
-    while datetime.now(ET) < ready_at:
-        time.sleep(min(60, max(1, (ready_at - datetime.now(ET)).total_seconds())))
-    if not wait_for_worker_health():
+    # Initialization/idle heartbeat is independent of the 09:00 AI hook.
+    # Resume as soon as BOTH worker and broker reconciler are healthy, ideally
+    # before 09:00. A delayed start can catch up, but never resume after 09:30.
+    if not wait_for_worker_health(until=market_open, started_at=started_at, clock=clock, sleep=sleep):
         log("worker heartbeat not healthy; autopilot remains paused")
         return 1
 
     store = Store(ROOT / "data/paper.sqlite", role="supervisor-control")
     try:
         blocked = autopilot_block_reason(store)
+        if clock() >= market_open:
+            blocked = "PREMARKET_WINDOW_MISSED"
         if blocked:
             store.pause(True)
             store.event("operator", {
@@ -218,8 +273,8 @@ def run_session(now, session) -> int:
 
     # The worker owns the session; keep the supervisor alive through the
     # close so this process's lock prevents a duplicate daily start.
-    while datetime.now(ET) < market_close + timedelta(minutes=10):
-        time.sleep(60)
+    while keep_alive and clock() < market_close + timedelta(minutes=10):
+        sleep(60)
     log("session finished; supervisor exits")
     return 0
 

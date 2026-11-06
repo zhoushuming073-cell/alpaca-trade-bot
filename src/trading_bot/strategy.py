@@ -10,6 +10,7 @@ from .execution import OrderService
 from .research import ResearchService, UnavailableSources
 from .settings import config_snapshot, credentials, load_config
 from .watchdog import CutoffWatchdog
+from .premarket_scheduler import PremarketScheduler
 
 
 class PaperStrategy(Strategy):
@@ -61,51 +62,26 @@ class PaperStrategy(Strategy):
         try:
             result = OrderService(store, self.gateway, self.bundle.execution).reconcile()
             store.event("startup_reconciliation", result)
+            if result.get("errors") or result.get("unknown") or result.get("conflicts"):
+                store.error("startup_reconciliation", RuntimeError("Incomplete reconciliation"),
+                            outcome="wait_for_watchdog_recovery")
         except Exception as exc:  # noqa: BLE001
             store.block("STARTUP_RECONCILIATION_UNAVAILABLE: " + type(exc).__name__)
             store.error("startup_reconciliation", exc, outcome="startup_blocked")
+        store.heartbeat("worker", ok=True, detail={"phase": "initialized"})
+        self.premarket_scheduler = PremarketScheduler(self.engine)
+        self.premarket_scheduler.start()
 
     def on_trading_iteration(self):
         self.engine.tick()
 
     def before_market_opens(self):
-        """Run the 09:00-09:30 ET premarket plan in LumiBot's pre-open hook.
-
-        LumiBot's scheduled on_trading_iteration normally begins at the open,
-        so premarket research cannot rely on it.  This hook runs exactly at
-        minutes_before_opening (30) before the actual session open and returns
-        before LumiBot waits for the open.  Repeated failures stay bounded and
-        leave the day without a plan rather than trading stale data.
-        """
+        """Use the same idempotent path as the independent premarket fallback."""
         if not hasattr(self, "engine"):
             return
-        import time
-
-        results = []
-        for attempt in range(6):
-            result = self.engine.tick()
-            results.append(result)
-            try:
-                self.engine.store.event("premarket_lifecycle", {
-                    "attempt": attempt + 1, "result": result,
-                })
-            except Exception:  # noqa: BLE001
-                pass
-            if result in {"premarket_planned", "premarket_no_trade", "disabled", "config_pending"}:
-                break
-            # A clock boundary or a transient data/AI failure can be retried
-            # only while the premarket window is still open.
-            from .market_data import session_info
-
-            info = session_info(self.engine.clock(), self.engine.execution)
-            if info.premarket:
-                time.sleep(5)
-                continue
-            if info.market_open and info.now_utc < info.market_open:
-                # LumiBot woke us a fraction before the 09:00 boundary.
-                time.sleep(5)
-                continue
-            break
+        if not hasattr(self, "premarket_scheduler"):
+            self.premarket_scheduler = PremarketScheduler(self.engine)
+        return self.premarket_scheduler.run_once()
 
     def after_market_closes(self):
         try:
@@ -117,6 +93,8 @@ class PaperStrategy(Strategy):
             self.engine.store.error("after_close_reconciliation", exc, outcome="after_close_failed")
 
     def on_abrupt_closing(self):
+        if hasattr(self, "premarket_scheduler"):
+            self.premarket_scheduler.stop()
         if hasattr(self, "watchdog"):
             self.watchdog.stop()
         if hasattr(self, "engine"):

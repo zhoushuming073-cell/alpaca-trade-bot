@@ -259,7 +259,7 @@ def test_premarket_ai_failure_is_bounded_and_no_plan(store, clock, bundle):
     ai = Fail()
     engine, broker, _ = make_engine(store, clock, bundle, ai=ai)
     assert engine.tick() == "premarket_failed"
-    assert engine.tick() == "premarket_failed"
+    assert engine.tick() == "premarket_not_claimed"  # durable retry cooldown
     assert ai.calls >= 1
     clock.set(datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc))
     assert engine.tick() in {"active_no_plan", "active_scan"}
@@ -358,25 +358,12 @@ def test_plan_from_old_config_is_invalidated(store, clock, bundle):
     assert broker.submissions == 0
 
 
-def test_lumibot_premarket_hook_runs_bounded_plan(monkeypatch):
+def test_lumibot_premarket_hook_uses_shared_scheduler():
     from trading_bot.strategy import PaperStrategy
 
-    class StubEngine:
-        execution = None
-        store = SimpleNamespace(event=lambda *args, **kwargs: None)
-        clock = lambda self: datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc)
-
-        def __init__(self):
-            self.results = ["premarket_failed", "premarket_planned"]
-            self.calls = 0
-
-        def tick(self):
-            value = self.results[min(self.calls, len(self.results) - 1)]
-            self.calls += 1
-            return value
-
-    monkeypatch.setattr("time.sleep", lambda seconds: None)
     strategy = PaperStrategy.__new__(PaperStrategy)
-    strategy.engine = StubEngine()
+    strategy.engine = object()
+    calls = []
+    strategy.premarket_scheduler = SimpleNamespace(run_once=lambda: calls.append("shared"))
     strategy.before_market_opens()
-    assert strategy.engine.calls == 2
+    assert calls == ["shared"]

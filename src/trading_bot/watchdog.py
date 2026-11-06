@@ -47,6 +47,8 @@ class CutoffWatchdog:
                     # worker's new-risk gate.
                     store.touch(self.COMPONENT, {"phase": "start"})
                     result = service.reconcile(cancel_lingering=False)
+                    if result.get("errors") or result.get("unknown") or result.get("conflicts"):
+                        raise RuntimeError("Reconciliation incomplete: " + str(result))
                     self.consecutive_failures = 0
                     store.heartbeat(self.COMPONENT, ok=True, detail=result)
                 except Exception as exc:  # noqa: BLE001 - loop isolation is the point

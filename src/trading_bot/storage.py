@@ -1249,7 +1249,9 @@ class Store:
                 )
                 return True
             updated = _parse_iso(row["updated_at"])
-            if row["status"] in {"DONE", "RUNNING"} and updated and (
+            if row["status"] == "DONE":
+                return False
+            if row["status"] in {"FAILED", "RUNNING"} and updated and (
                 now - updated
             ).total_seconds() < stale_seconds:
                 return False

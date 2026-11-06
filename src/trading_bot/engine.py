@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
@@ -93,6 +94,7 @@ class Engine:
         self.check_disk_config = (mode == "paper") if check_disk_config is None else check_disk_config
         self.orders = OrderService(store, broker, self.execution, clock=self.clock)
         self.started_at = self.clock()
+        self.tick_lock = threading.RLock()
         self._last_account_event = None
         self._last_scan = None
         self._last_config_error = None
@@ -107,10 +109,27 @@ class Engine:
 
     # -------------------------------------------------------------- lifecycle
     def tick(self):
+        # The LumiBot hook and the premarket fallback share one engine.  A
+        # slow AI call must not overlap another callback or an opening tick.
+        with self.tick_lock:
+            return self._tick()
+
+    def premarket_tick(self):
+        with self.tick_lock:
+            return self._tick(premarket_only=True)
+
+    def _tick(self, *, premarket_only=False):
         now = self.clock()
         try:
             self.store.heartbeat("worker", ok=True, detail={"phase": "tick"})
             session = session_info(now, self.execution)
+            if premarket_only:
+                if not session.premarket:
+                    return "outside_premarket"
+                if self.store.paused() or self.store.freeze_reason():
+                    return "premarket_blocked"
+                if not self._watchdog_ok(now):
+                    return "premarket_waiting_health"
             if session.phase is SessionPhase.NO_SESSION:
                 return "closed"
             if self.check_disk_config and self._config_pending():
@@ -282,7 +301,9 @@ class Engine:
         ):
             return "premarket_not_claimed"
         try:
-            self.orders.reconcile()
+            reconciliation = self.orders.reconcile()
+            if reconciliation.get("errors") or reconciliation.get("unknown") or reconciliation.get("conflicts"):
+                raise RuntimeError("Premarket reconciliation incomplete")
             now = self.clock()
             account = self._account(now)
             account_ctx, held = self._account_context(account)

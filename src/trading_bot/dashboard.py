@@ -24,6 +24,7 @@ from .market_data import SessionPhase, session_info
 from .order_state import BROKER_STATUS_TO_STATE
 from .settings import ROOT, Execution, config_snapshot, credentials, load_config
 from .storage import Store
+from .assistant import Companion, AssistantError, AssistantBusy
 
 PORT = 4200
 ORIGIN = f"http://127.0.0.1:{PORT}"
@@ -524,9 +525,18 @@ def snapshot(store, account_feed=None):
     }
 
 
-def create_app(db_path=None, account_feed=None):
+def create_app(db_path=None, account_feed=None, companion_model=None):
     app = Flask(__name__)
     db_path = db_path or ROOT / "data/paper.sqlite"
+    app.config["MAX_CONTENT_LENGTH"] = 16384
+    def read_status():
+        store = Store(db_path, role="assistant-read")
+        try:
+            return snapshot(store, account_feed)
+        finally:
+            store.close()
+    companion = Companion(db_path, read_status, model=companion_model)
+    app.extensions["companion"] = companion
     token = secrets.token_urlsafe(32)
     mutex = threading.Lock()
 
@@ -557,6 +567,11 @@ def create_app(db_path=None, account_feed=None):
     @app.get("/app.js")
     def js():
         return send_from_directory(ROOT / "web", "app.js")
+
+    @app.get("/api/health")
+    def health():
+        # Readiness is local: never wait for Alpaca, AI, or account snapshots.
+        return jsonify(service="ai-paper-trader", ready=True)
 
     @app.get("/api/status")
     def status():
@@ -610,6 +625,35 @@ def create_app(db_path=None, account_feed=None):
                 return jsonify(error="操作失败：" + type(exc).__name__ + "；请检查本地日志与配置。"), 500
             finally:
                 store.close()
+
+    @app.get("/api/assistant")
+    def assistant_history():
+        try:
+            after = int(request.args.get("after", "0"))
+            before = int(request.args["before"]) if "before" in request.args else None
+            if after < 0 or (before is not None and before <= 0):
+                raise ValueError()
+        except ValueError:
+            return jsonify(error="消息页码无效。"), 400
+        return jsonify(companion.history(after=after, before=before))
+
+    @app.post("/api/assistant")
+    def assistant_ask():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(error="请输入问题。"), 400
+        message, request_id = body.get("message"), body.get("request_id")
+        if not isinstance(message, str) or not 1 <= len(message.strip()) <= 500:
+            return jsonify(error="问题请控制在 1–500 字。"), 400
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", request_id):
+            return jsonify(error="请求标识无效，请重新提问。"), 400
+        try:
+            return jsonify(companion.ask(message.strip(), request_id, expand=body.get("expand") is True))
+        except AssistantBusy as exc:
+            return jsonify(error=str(exc)), 429
+        except AssistantError as exc:
+            return jsonify(error=str(exc)), 502
+
     return app
 
 
@@ -638,9 +682,12 @@ def main():
             (ROOT / "logs").mkdir(exist_ok=True)
             with (ROOT / "logs/dashboard-error.log").open("a", encoding="utf-8") as handle:
                 handle.write("account feed unavailable: " + logging_error + "\n")
-        make_server(
-            "127.0.0.1", PORT, create_app(account_feed=account_feed), threaded=True
-        ).serve_forever()
+        app = create_app(account_feed=account_feed)
+        app.extensions["companion"].start()
+        try:
+            make_server("127.0.0.1", PORT, app, threaded=True).serve_forever()
+        finally:
+            app.extensions["companion"].stop_event.set()
 
 
 if __name__ == "__main__":

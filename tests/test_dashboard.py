@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from trading_bot.dashboard import ORIGIN, create_app
 from trading_bot.order_state import OrderState
 from trading_bot.storage import Store
@@ -49,6 +51,16 @@ def test_status_fields(tmp_path, monkeypatch):
     assert data["health"]["watchdog"]["alive"] is False
     assert data["execution"]["time_in_force"] == "day"
     assert data["phase"] in {"PREMARKET", "ACTIVE", "CLOSED", "FROZEN", "NO_SESSION"}
+
+
+def test_health_does_not_fetch_accounts_or_read_snapshot(tmp_path, monkeypatch):
+    import trading_bot.dashboard as dashboard
+    c = client(tmp_path, monkeypatch)
+    monkeypatch.setattr(dashboard, "snapshot", lambda *a, **k: pytest.fail("readiness must be local"))
+    response = c.get("/api/health", base_url=ORIGIN)
+    assert response.status_code == 200
+    assert response.get_json() == {"service": "ai-paper-trader", "ready": True}
+    assert c.get("/api/health", base_url="http://evil.test").status_code == 403
 
 
 def test_pause_and_resume_allow_open_day_order(tmp_path, monkeypatch):

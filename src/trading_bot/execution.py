@@ -217,7 +217,7 @@ class OrderService:
         action.  The watchdog and the session never cancel DAY orders or stops.
         """
         store, broker = self.store, self.broker
-        results = {"checked": 0, "updated": 0, "unknown": 0, "conflicts": 0, "cancelled": 0}
+        results = {"checked": 0, "updated": 0, "unknown": 0, "conflicts": 0, "cancelled": 0, "errors": 0}
         for row in store.orders_for_reconcile():
             results["checked"] += 1
             cid = row["cid"]
@@ -225,6 +225,7 @@ class OrderService:
                 found = broker.lookup(cid)
             except Exception as exc:  # noqa: BLE001
                 store.error("order_reconciliation", exc, cid=cid, outcome="reconciliation_retry")
+                results["errors"] += 1
                 continue
             if found:
                 before = row["state"]
@@ -241,6 +242,7 @@ class OrderService:
                         results["cancelled"] += 1
                     except Exception as exc:  # noqa: BLE001
                         store.error("order_cancel", exc, cid=cid, outcome="cancel_not_confirmed")
+                        results["errors"] += 1
                 continue
             # No broker order was found for this local row.
             current = OrderState(row["state"])
@@ -283,6 +285,7 @@ class OrderService:
             account = broker.snapshot()
         except Exception as exc:  # noqa: BLE001
             store.error("order_reconciliation", exc, outcome="snapshot_failed")
+            results["errors"] += 1
             return results
         for order in account.get("open_orders", []):
             cid = str(order.get("client_order_id") or "")
