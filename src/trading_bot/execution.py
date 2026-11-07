@@ -122,6 +122,8 @@ class OrderService:
             final_session = session_info(self.clock(), self.execution)
             if not final_session.can_submit:
                 raise PreDispatchRejected("Outside submission cutoff at dispatch boundary")
+            if (final_session.submit_cutoff - self.clock()).total_seconds() <= self.execution.write_guard_buffer_seconds:
+                raise PreDispatchRejected("Inside conservative broker write safety buffer")
             # A pause, safety freeze or config change can arrive while slow
             # preflight work is running.  Re-check it before the durable POST
             # boundary, not only at the start of prepare().
@@ -221,9 +223,10 @@ class OrderService:
     def reconcile(self, *, cancel_lingering: bool = False) -> dict:
         """Read-only broker reconciliation.
 
-        ``cancel_lingering`` exists only for an explicitly authorized operator
-        action.  The watchdog and the session never cancel DAY orders or stops.
+        The watchdog and the session never cancel DAY orders or stops.
         """
+        if cancel_lingering:
+            raise RuntimeError("Automatic cancellation during reconciliation is disabled")
         store, broker = self.store, self.broker
         results = {"checked": 0, "updated": 0, "unknown": 0, "conflicts": 0, "cancelled": 0, "errors": 0}
         for row in store.orders_for_reconcile():
@@ -242,15 +245,6 @@ class OrderService:
                     results["updated"] += 1
                 if state is OrderState.RECONCILIATION_REQUIRED:
                     results["conflicts"] += 1
-                if cancel_lingering and state not in {OrderState.FILLED, OrderState.CANCELED,
-                                                      OrderState.EXPIRED, OrderState.REJECTED,
-                                                      OrderState.NOT_SENT}:
-                    try:
-                        broker.cancel(cid)
-                        results["cancelled"] += 1
-                    except Exception as exc:  # noqa: BLE001
-                        store.error("order_cancel", exc, cid=cid, outcome="cancel_not_confirmed")
-                        results["errors"] += 1
                 continue
             # No broker order was found for this local row.
             current = OrderState(row["state"])

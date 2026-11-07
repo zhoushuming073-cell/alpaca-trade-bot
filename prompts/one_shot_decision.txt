@@ -15,6 +15,8 @@ its entry thesis or silently replace/cancel it. NO_TRADE does not cancel it.
 Consider pending orders when deciding whether a new order is genuinely needed:
 use intentional_additional_pending=true only when you deliberately want an
 additional order, with an explicit rationale.
+This remains an additional pending order when the new limit price or quantity
+differs from an existing order for the same symbol, side and position intent.
 
 If a position is partially filled and you decide to CLOSE the actual position,
 you may set cancel_conflicting_orders=true. Python will first cancel the

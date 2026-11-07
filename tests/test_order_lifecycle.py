@@ -56,6 +56,13 @@ def test_watchdog_reconcile_ignores_pre_dispatch_reservation(store, bundle):
     assert store.safety_reason() == ""
 
 
+def test_reconciliation_cannot_cancel_orders_even_if_legacy_flag_is_requested(store, bundle):
+    broker = FakeBroker()
+    with pytest.raises(RuntimeError, match="Automatic cancellation"):
+        OrderService(store, broker, bundle.execution).reconcile(cancel_lingering=True)
+    assert broker.cancel_calls == []
+
+
 def test_watchdog_cannot_poison_inflight_post_dispatch(tmp_path, bundle, clock, session, monkeypatch):
     path = tmp_path / "race.sqlite"
     store = Store(path, clock=clock, instance_id="engine")
@@ -300,6 +307,16 @@ def test_slow_preflight_crossing_cutoff_is_not_sent(store, bundle, clock, sessio
     assert broker.submissions == 0
     assert broker.lookup_calls == 0
     assert not store.dispatched(result["cid"])
+
+
+def test_write_buffer_rejects_before_durable_dispatch(store, bundle, clock, session):
+    clock.set(datetime.fromisoformat("2026-11-05T16:59:29+00:00"))
+    broker = FakeBroker()
+    result = submit(store, broker, bundle, clock, session)
+    assert result["state"] == OrderState.NOT_SENT.value
+    assert broker.submissions == 0
+    assert not store.dispatched(result["cid"])
+    assert "safety buffer" in store.order_row(result["cid"])["reason"]
 
 
 @pytest.mark.parametrize("browser_state", ["closed", "expired", "reconnected"])

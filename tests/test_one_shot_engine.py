@@ -137,6 +137,61 @@ def test_new_decision_cannot_accidentally_duplicate_same_pending_limit_order(sto
     assert intentional["state"] == "ACCEPTED" and broker.submissions == 2
 
 
+@pytest.mark.parametrize("qty,price", [(3, "99.25"), (4, "99.50"), (4, "99.25")])
+def test_new_decision_must_not_stack_same_direction_pending_order_without_flag(
+    store, bundle, clock, qty, price,
+):
+    engine, broker = build(store, bundle, clock)
+    first = engine.context()
+    assert engine.apply_decision(command(first), first)["state"] == "ACCEPTED"
+    next_context = engine.context()
+    result = engine.apply_decision(
+        command(next_context, decision_id="second-decision", qty=qty, price=price),
+        next_context,
+    )
+    assert result == {"status": "BLOCKED", "reason": "ADDITIONAL_PENDING_INTENT_REQUIRES_AUTHORIZATION"}
+    assert broker.submissions == 1
+
+
+def test_partial_fill_still_counts_as_active_same_direction_order(store, bundle, clock):
+    engine, broker = build(store, bundle, clock)
+    first = engine.context()
+    buy = engine.apply_decision(command(first, qty=10), first)
+    broker.orders[buy["cid"]].update(status="partially_filled", filled_qty="3")
+    broker.positions["CRWV"] = 3
+    context = engine.context()
+    result = engine.apply_decision(
+        command(context, qty=2, price="99.25", decision_id="second"), context,
+    )
+    assert result["reason"] == "ADDITIONAL_PENDING_INTENT_REQUIRES_AUTHORIZATION"
+    assert broker.submissions == 1
+
+
+def test_terminal_prior_order_does_not_require_additional_pending_flag(store, bundle, clock):
+    engine, broker = build(store, bundle, clock)
+    first = engine.context()
+    buy = engine.apply_decision(command(first), first)
+    broker.advance_fill(buy["cid"])
+    context = engine.context()
+    result = engine.apply_decision(command(context, decision_id="new-trade"), context)
+    assert result["state"] == "ACCEPTED"
+    assert broker.submissions == 2
+
+
+def test_explicit_additional_pending_still_obeys_cash_reservation(store, bundle, clock):
+    engine, broker = build(store, bundle, clock)
+    first = engine.context()
+    assert engine.apply_decision(command(first, qty=1000), first)["state"] == "ACCEPTED"
+    context = engine.context()
+    result = engine.apply_decision(
+        command(context, qty=10, price="99.25", decision_id="authorized-but-unfunded", additional=True),
+        context,
+    )
+    assert result["state"] == "NOT_SENT"
+    assert result["rejected"] == "INSUFFICIENT_CASH"
+    assert broker.submissions == 1
+
+
 def test_partial_fill_closing_position_cancels_remainder_first(store, bundle, clock):
     engine, broker = build(store, bundle, clock)
     context = engine.context()
@@ -310,6 +365,34 @@ def test_stale_snapshot_or_changed_account_does_not_trade(store, bundle, clock):
     assert broker.submissions == 0
 
 
+def test_harmless_equity_mark_change_does_not_invalidate_ai_order(store, bundle, clock):
+    class MarkingBroker(FakeBroker):
+        mark_delta = 0.0
+
+        def snapshot(self, include_history=False):
+            result = super().snapshot(include_history=include_history)
+            result["equity"] += self.mark_delta
+            return result
+
+    broker = MarkingBroker(fill=False)
+    engine, _ = build(store, bundle, clock, broker=broker)
+    context = engine.context()
+    broker.mark_delta = 0.01
+    result = engine.apply_decision(command(context), context)
+    assert result["state"] == "ACCEPTED"
+    assert broker.submissions == 1
+
+
+def test_cash_change_still_invalidates_ai_order(store, bundle, clock):
+    engine, broker = build(store, bundle, clock)
+    context = engine.context()
+    broker.cash -= 0.01
+    assert engine.apply_decision(command(context), context) == {
+        "status": "BLOCKED", "reason": "ACCOUNT_CHANGED_SINCE_AI_DECISION",
+    }
+    assert broker.submissions == 0
+
+
 def test_strict_schema_rejects_no_trade_with_order_and_exit_cancel_on_buy(store, bundle, clock):
     context = build(store, bundle, clock)[0].context()
     payload = command(context).model_dump(mode="json")
@@ -385,6 +468,97 @@ def test_cycle_exposes_all_state_to_ai(store, bundle, clock):
     assert "synthetic_news" in context["research"]
     assert context["strategy_guidance"]["authority"] == "advisory, not mandatory trade filters"
     assert context["execution_contract"]["time_in_force"] == "day"
+
+
+def test_transient_ai_failure_retries_with_bounded_backoff_not_full_interval(store, bundle, clock):
+    class FlakyAI:
+        calls = 0
+
+        def complete(self, mode, context, parser):
+            self.calls += 1
+            if self.calls <= 2:
+                raise TimeoutError("offline synthetic model timeout")
+            return parser(no_trade(context).model_dump_json()), {}
+
+    ai = FlakyAI()
+    engine, broker = build(store, bundle, clock, ai=ai)
+    assert engine.tick()["status"] == "AI_FAILED"
+    assert ai.calls == 1
+    clock.advance(10)
+    assert engine.tick()["status"] == "RETRY_BACKOFF"
+    clock.advance(5)
+    assert engine.tick()["status"] == "AI_FAILED"
+    assert ai.calls == 2
+    clock.advance(30)
+    assert engine.tick()["status"] == "NO_TRADE"
+    assert ai.calls == 3 and broker.submissions == 0
+    clock.advance(15)
+    assert engine.tick()["status"] == "WAITING_NEXT_RESEARCH"
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("timeout"), RuntimeError("429 rate limit"), ValueError("bad JSON")])
+def test_ai_errors_never_retry_without_backoff_or_place_orders(store, bundle, clock, failure):
+    class BrokenAI:
+        calls = 0
+
+        def complete(self, mode, context, parser):
+            self.calls += 1
+            raise failure
+
+    ai = BrokenAI()
+    engine, broker = build(store, bundle, clock, ai=ai)
+    assert engine.tick()["status"] == "AI_FAILED"
+    clock.advance(14)
+    assert engine.tick()["status"] == "RETRY_BACKOFF"
+    assert ai.calls == 1 and broker.submissions == 0
+    clock.advance(1)
+    assert engine.tick()["status"] == "AI_FAILED"
+    clock.advance(29)
+    assert engine.tick()["status"] == "RETRY_BACKOFF"
+    assert ai.calls == 2 and broker.submissions == 0
+
+
+def test_ai_attempt_cap_survives_worker_restart(store, bundle, clock):
+    from dataclasses import replace
+
+    limited = replace(bundle, execution=bundle.execution.model_copy(
+        update={"max_decision_attempts_per_day": 2}
+    ))
+
+    class BrokenAI:
+        calls = 0
+
+        def complete(self, mode, context, parser):
+            self.calls += 1
+            raise TimeoutError("synthetic")
+
+    ai = BrokenAI()
+    engine, broker = build(store, limited, clock, ai=ai)
+    assert engine.tick()["status"] == "AI_FAILED"
+    clock.advance(15)
+    assert engine.tick()["status"] == "AI_FAILED"
+    clock.advance(30)
+    restarted, _ = build(store, limited, clock, broker=broker, ai=ai)
+    assert restarted.tick() == {"status": "BLOCKED", "reason": "AI_ATTEMPT_LIMIT"}
+    assert ai.calls == 2 and broker.submissions == 0
+
+
+def test_ai_retry_never_crosses_submit_cutoff(store, bundle, clock):
+    clock.set(datetime(2026, 11, 5, 16, 59, 20, tzinfo=timezone.utc))
+
+    class BrokenAI:
+        calls = 0
+
+        def complete(self, mode, context, parser):
+            self.calls += 1
+            raise TimeoutError("synthetic")
+
+    ai = BrokenAI()
+    engine, broker = build(store, bundle, clock, ai=ai)
+    assert engine.tick()["status"] == "AI_FAILED"
+    clock.advance(15)
+    assert engine.tick()["status"] == "OBSERVE_ONLY"
+    assert ai.calls == 1 and broker.submissions == 0
 
 
 def test_experimental_prompt_keeps_strategy_advisory_and_orders_one_shot():

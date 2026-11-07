@@ -309,3 +309,292 @@ def test_gateway_rejects_cancel_and_post_at_exact_cutoff(tmp_path, monkeypatch):
     with pytest.raises(PreDispatchRejected, match="cutoff"):
         gateway.dispatch(intent(), cid)
     assert calls == []
+
+
+def test_cancel_lookup_crossing_cutoff_never_reaches_http_delete(tmp_path, monkeypatch):
+    import trading_bot.broker as broker_module
+    from trading_bot.decision_schema import OrderIntent
+    from trading_bot.one_shot_engine import OneShotDecision, decision_fingerprint
+
+    gateway, broker, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    gateway.execution = gateway.execution.model_copy(update={"write_guard_buffer_seconds": 0})
+    broker.api.write_execution = gateway.execution
+    now = [datetime.fromisoformat("2026-11-05T16:59:29+00:00")]
+
+    class ClockDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now[0].astimezone(tz)
+
+    monkeypatch.setattr(broker_module, "datetime", ClockDateTime)
+    cid = "cancel-crossing-cutoff"
+    dispatch_ready(store, load_config(), cid, intent())
+    store.apply_broker_order(cid, {
+        "id": "00000000-0000-0000-0000-000000000001", "status": "accepted",
+        "client_order_id": cid, "filled_qty": "0",
+    })
+    decision = OneShotDecision(
+        decision_id="close-after-cancel", snapshot_id="0" * 32,
+        action="PLACE_ORDER", reason="Offline close test", cancel_conflicting_orders=True,
+        order_intent=OrderIntent(action="SELL", symbol="TEST", qty=3, limit_price="100.05"),
+    )
+    assert store.reserve_one_shot_decision(decision.decision_id, decision_fingerprint(decision),
+                                           decision.action) == "NEW"
+    lookups = []
+
+    def slow_lookup(value):
+        assert value == cid
+        lookups.append(value)
+        now[0] = datetime.fromisoformat("2026-11-05T16:59:31+00:00")
+        return {"id": "00000000-0000-0000-0000-000000000001", "client_order_id": cid,
+                "symbol": "TEST", "side": "buy", "status": "accepted"}
+
+    monkeypatch.setattr(gateway, "lookup", slow_lookup)
+    writes = []
+    monkeypatch.setattr(broker.api, "_one_request", lambda method, url, options, retry: writes.append(method))
+    with pytest.raises(RuntimeError, match="WRITE_CUTOFF"):
+        gateway.cancel(cid, decision=decision)
+    assert lookups == [cid]
+    assert writes == []
+
+
+def test_post_sdk_entry_crossing_cutoff_never_reaches_http_post(tmp_path, monkeypatch):
+    import trading_bot.broker as broker_module
+
+    gateway, broker, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    gateway.execution = gateway.execution.model_copy(update={"write_guard_buffer_seconds": 0})
+    broker.api.write_execution = gateway.execution
+    now = [datetime.fromisoformat("2026-11-05T16:59:29+00:00")]
+
+    class ClockDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now[0].astimezone(tz)
+
+    monkeypatch.setattr(broker_module, "datetime", ClockDateTime)
+    cid = "post-crossing-cutoff"
+    dispatch_ready(store, load_config(), cid, intent())
+    real_request = broker.api._request
+
+    def late_request(method, path, data=None, **kwargs):
+        now[0] = datetime.fromisoformat("2026-11-05T16:59:31+00:00")
+        return real_request(method, path, data, **kwargs)
+
+    monkeypatch.setattr(broker.api, "_request", late_request)
+    writes = []
+    monkeypatch.setattr(broker.api, "_one_request", lambda method, url, options, retry: writes.append(method))
+    with pytest.raises(RuntimeError, match="WRITE_CUTOFF"):
+        gateway.dispatch(intent(), cid)
+    assert writes == []
+
+
+@pytest.mark.parametrize("stamp,allowed", [
+    ("2026-11-05T16:59:29.999000+00:00", True),
+    ("2026-11-05T16:59:30+00:00", False),
+    ("2026-11-05T16:59:30.001000+00:00", False),
+    ("2026-11-26T16:59:29+00:00", False),  # NYSE holiday
+    ("2026-07-06T15:59:30+00:00", False),  # DST boundary
+])
+def test_final_sdk_transport_gate_checks_post_and_delete(
+    tmp_path, monkeypatch, stamp, allowed,
+):
+    from alpaca.trading.client import TradingClient
+    from trading_bot.broker import WritePermit
+    from trading_bot.one_shot_engine import OneShotDecision, decision_fingerprint
+    from trading_bot.decision_schema import OrderIntent
+
+    gateway, broker, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    gateway.execution = gateway.execution.model_copy(update={"write_guard_buffer_seconds": 0})
+    broker.api.write_execution = gateway.execution
+    now = datetime.fromisoformat(stamp)
+    broker.api.write_clock = lambda: now
+    monkeypatch.delattr(broker.api, "_one_request")  # Exercise PaperClient's actual final guard.
+    calls = []
+
+    def fake_transport(self, method, url, opts, retry):
+        calls.append((method, url))
+        return {"synthetic": True}
+
+    monkeypatch.setattr(TradingClient, "_one_request", fake_transport, raising=False)
+    post_cid = "transport-post"
+    dispatch_ready(store, load_config(), post_cid, intent())
+    broker.api.permits.transport = WritePermit(
+        method="POST", path="/orders", cid=post_cid,
+        expires_at=now.replace(year=now.year + 1), validate=lambda data: None,
+        request_checked=True,
+    )
+    post_call = lambda: broker.api._one_request(
+        "POST", "https://paper-api.alpaca.markets/v2/orders", {"json": intent()}, 0,
+    )
+    if allowed:
+        assert post_call() == {"synthetic": True}
+    else:
+        with pytest.raises(RuntimeError, match="WRITE_CUTOFF"):
+            post_call()
+    assert len(calls) == int(allowed)
+
+    cancel_cid = "transport-delete"
+    dispatch_ready(store, load_config(), cancel_cid, intent())
+    store.apply_broker_order(cancel_cid, {
+        "id": "123", "status": "accepted", "client_order_id": cancel_cid, "filled_qty": "0",
+    })
+    decision = OneShotDecision(
+        decision_id="transport-close", snapshot_id="0" * 32, action="PLACE_ORDER",
+        reason="Offline DELETE contract", cancel_conflicting_orders=True,
+        order_intent=OrderIntent(action="SELL", symbol="TEST", qty=3, limit_price="100.05"),
+    )
+    fingerprint = decision_fingerprint(decision)
+    store.reserve_one_shot_decision(decision.decision_id, fingerprint, decision.action)
+    broker.api.permits.transport = WritePermit(
+        method="DELETE", path="/orders/123", cid=cancel_cid,
+        expires_at=now.replace(year=now.year + 1), validate=lambda data: None,
+        decision_id=decision.decision_id, decision_fingerprint=fingerprint,
+        request_checked=True,
+    )
+    delete_call = lambda: broker.api._one_request(
+        "DELETE", "https://paper-api.alpaca.markets/v2/orders/123", {"json": None}, 0,
+    )
+    if allowed:
+        assert delete_call() == {"synthetic": True}
+    else:
+        with pytest.raises(RuntimeError, match="WRITE_CUTOFF"):
+            delete_call()
+    assert len(calls) == 2 * int(allowed)
+
+
+@pytest.mark.parametrize("qty,price", [(3, "99.25"), (4, "99.50"), (4, "99.25")])
+def test_real_gateway_engine_blocks_unapproved_same_direction_http_post(
+    tmp_path, monkeypatch, qty, price,
+):
+    from trading_bot.decision_schema import OrderIntent
+    from trading_bot.one_shot_engine import OneShotDecision, OneShotEngine
+
+    gateway, broker, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    gateway.symbols = {"CRWV"}
+    store.web_heartbeat()
+    bundle = load_config()
+    broker_orders = {}
+    http_posts = []
+
+    def snapshot(include_history=False):
+        return {
+            "account_id_hash": "offline-paper", "asof": NOW,
+            "cash": 100000.0, "equity": 100000.0, "last_equity": 100000.0,
+            "buying_power": 100000.0, "non_margin_cash": 100000.0,
+            "blocked": False, "positions": {}, "position_details": {},
+            "quantities": {}, "available_quantities": {},
+            "open_orders": list(broker_orders.values()), "recent_orders": [],
+        }
+
+    def transport(method, url, options, retry):
+        assert method.upper() == "POST" and url.endswith("/v2/orders")
+        wire = options["json"]
+        http_posts.append(dict(wire))
+        order = {
+            "id": f"00000000-0000-0000-0000-{len(http_posts):012d}",
+            "client_order_id": wire["client_order_id"], "symbol": wire["symbol"],
+            "side": str(getattr(wire["side"], "value", wire["side"])),
+            "qty": wire["qty"], "filled_qty": "0",
+            "limit_price": wire["limit_price"], "type": "limit", "time_in_force": "day",
+            "status": "accepted", "order_class": "simple", "extended_hours": False,
+            "created_at": NOW, "submitted_at": NOW, "updated_at": NOW,
+        }
+        broker_orders[order["client_order_id"]] = order
+        return order
+
+    monkeypatch.setattr(gateway, "snapshot", snapshot)
+    monkeypatch.setattr(gateway, "lookup", lambda cid: broker_orders.get(cid))
+    monkeypatch.setattr(gateway, "is_open", lambda: True)
+    monkeypatch.setattr(gateway, "quote", lambda symbol, risk=None: {
+        "bid": 99.99, "ask": 100.01, "last": 100.0,
+        "quote_age_seconds": 0.0, "last_age_seconds": 0.0,
+        "timestamp": NOW, "last_timestamp": NOW,
+    })
+    monkeypatch.setattr(broker.api, "_one_request", transport)
+    engine = OneShotEngine(store, gateway, None, bundle,
+                           clock=lambda: datetime.fromisoformat(NOW),
+                           require_watchdog=False, check_disk_config=False)
+
+    def decide(context, decision_id, shares, limit, additional=False):
+        return OneShotDecision(
+            decision_id=decision_id, snapshot_id=context["snapshot_id"],
+            action="PLACE_ORDER", reason="Offline SDK transport test",
+            intentional_additional_pending=additional,
+            order_intent=OrderIntent(action="BUY", symbol="CRWV", qty=shares,
+                                     limit_price=limit),
+        )
+
+    first = engine.context()
+    assert engine.apply_decision(decide(first, "first", 3, "99.50"), first)["state"] == "ACCEPTED"
+    second = engine.context()
+    assert len(second["account"]["open_orders"]) == 1
+    blocked = engine.apply_decision(decide(second, "second", qty, price), second)
+    assert blocked == {"status": "BLOCKED", "reason": "ADDITIONAL_PENDING_INTENT_REQUIRES_AUTHORIZATION"}
+    assert len(http_posts) == 1
+    third = engine.context()
+    allowed = engine.apply_decision(decide(third, "third", qty, price, True), third)
+    assert allowed["state"] == "ACCEPTED"
+    assert len(http_posts) == 2
+    replay_context = engine.context()
+    assert engine.apply_decision(decide(replay_context, "third", qty, price, True),
+                                 replay_context)["status"] == "DUPLICATE"
+    assert len(http_posts) == 2
+
+
+def test_direct_sdk_writes_without_durable_permit_never_reach_transport(tmp_path, monkeypatch):
+    from alpaca.trading.client import TradingClient
+
+    gateway, broker, _, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    monkeypatch.delattr(broker.api, "_one_request")
+    calls = []
+    monkeypatch.setattr(TradingClient, "_one_request",
+                        lambda self, method, url, opts, retry: calls.append(method), raising=False)
+    broker.api.write_clock = lambda: datetime.fromisoformat(NOW)
+    for method, path in (("POST", "/orders"), ("DELETE", "/orders/123")):
+        with pytest.raises(RuntimeError, match="MISSING_WRITE_PERMIT"):
+            broker.api._one_request(
+                method, "https://paper-api.alpaca.markets/v2" + path, {"json": intent()}, 0,
+            )
+    with pytest.raises(RuntimeError, match="Unapproved broker write method"):
+        broker.api._one_request("PATCH", "https://paper-api.alpaca.markets/v2/orders/123",
+                                {"json": {}}, 0)
+    assert calls == []
+    with pytest.raises(RuntimeError, match="Explicit OneShot cancellation decision required"):
+        gateway.cancel("not-authorized")
+
+
+def test_authorized_cancel_uses_single_sdk_delete_and_rejects_wrong_side(tmp_path, monkeypatch):
+    from alpaca.trading.client import TradingClient
+    from trading_bot.decision_schema import OrderIntent
+    from trading_bot.one_shot_engine import OneShotDecision, decision_fingerprint
+
+    gateway, broker, store, _, _ = prepared_gateway(tmp_path, monkeypatch)
+    broker.api.write_clock = lambda: datetime.fromisoformat(NOW)
+    monkeypatch.delattr(broker.api, "_one_request")
+    writes = []
+    monkeypatch.setattr(TradingClient, "_one_request",
+                        lambda self, method, url, opts, retry: writes.append((method, url)), raising=False)
+    cid = "authorized-cancel"
+    dispatch_ready(store, load_config(), cid, intent())
+    store.apply_broker_order(cid, {
+        "id": "00000000-0000-0000-0000-000000000001", "status": "accepted",
+        "client_order_id": cid, "filled_qty": "0",
+    })
+    decision = OneShotDecision(
+        decision_id="authorized-close", snapshot_id="0" * 32,
+        action="PLACE_ORDER", reason="Offline close test", cancel_conflicting_orders=True,
+        order_intent=OrderIntent(action="SELL", symbol="TEST", qty=3, limit_price="100.05"),
+    )
+    assert store.reserve_one_shot_decision(decision.decision_id, decision_fingerprint(decision),
+                                           decision.action) == "NEW"
+    broker_order = {
+        "id": "00000000-0000-0000-0000-000000000001", "client_order_id": cid,
+        "symbol": "TEST", "side": "buy", "status": "accepted",
+    }
+    monkeypatch.setattr(gateway, "lookup", lambda value: broker_order)
+    gateway.cancel(cid, decision=decision)
+    assert writes == [("DELETE", "https://paper-api.alpaca.markets/v2/orders/" + broker_order["id"])]
+    broker_order["side"] = "sell"
+    with pytest.raises(RuntimeError, match="does not conflict"):
+        gateway.cancel(cid, decision=decision)
+    assert len(writes) == 1

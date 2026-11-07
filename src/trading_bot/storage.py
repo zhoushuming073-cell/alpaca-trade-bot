@@ -656,6 +656,30 @@ class Store:
             )
             return "NEW"
 
+    def one_shot_decision_row(self, decision_id: str) -> dict | None:
+        with self.lock:
+            row = self.db.execute(
+                "SELECT decision_id,fingerprint,action,created_at FROM one_shot_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def claim_one_shot_ai_attempt(self, trading_day: str, limit: int) -> int | None:
+        """Atomically cap model attempts across worker restarts and processes."""
+        key = "one_shot_ai_attempts:" + trading_day
+        with self._tx():
+            row = self.db.execute("SELECT value FROM controls WHERE key=?", (key,)).fetchone()
+            count = int(row["value"]) if row else 0
+            if count >= limit:
+                return None
+            count += 1
+            self.db.execute(
+                "INSERT INTO controls(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, str(count)),
+            )
+            return count
+
     def reserve_order(
         self,
         cid: str,

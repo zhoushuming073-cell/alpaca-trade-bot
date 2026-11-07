@@ -81,7 +81,7 @@ def test_one_shot_accepts_paper_gateway_through_order_service(store, bundle, clo
     assert store.order_row(result["cid"])["state"] == "ACCEPTED"
 
 
-def test_paper_decision_stops_when_recent_order_history_is_missing(store, bundle, clock):
+def test_paper_decision_degrades_when_recent_order_history_is_missing(store, bundle, clock):
     gateway = OfflinePaperGateway(None, store, bundle.symbols, bundle.execution)
     gateway.offline_clock = clock
     original_snapshot = gateway.snapshot
@@ -93,6 +93,34 @@ def test_paper_decision_stops_when_recent_order_history_is_missing(store, bundle
         return result
 
     gateway.snapshot = incomplete_snapshot
+    class NoTradeAI:
+        def complete(self, mode, context, parser):
+            return parser(OneShotDecision(
+                decision_id="history-degraded-no-trade", snapshot_id=context["snapshot_id"],
+                action="NO_TRADE", reason="History is incomplete",
+            ).model_dump_json()), {}
+
+    engine = OneShotEngine(store, gateway, NoTradeAI(), bundle, clock=clock,
+                           require_watchdog=False, check_disk_config=False)
+    context = engine.context()
+    assert context["data_quality"]["recent_closed_orders"] == "DEGRADED"
+    assert context["account"]["recent_orders_error"] == "timeout"
+    assert engine.tick()["status"] == "NO_TRADE"
+    assert gateway.submissions == 0
+    from datetime import datetime, timezone
+
+    clock.set(datetime(2026, 11, 5, 17, 5, tzinfo=timezone.utc))
+    observed = engine.tick()
+    assert observed["status"] == "OBSERVE_ONLY"
+    assert observed["context"]["data_quality"]["recent_closed_orders"] == "DEGRADED"
+
+
+def test_paper_active_order_snapshot_failure_remains_fail_closed(store, bundle, clock):
+    gateway = OfflinePaperGateway(None, store, bundle.symbols, bundle.execution)
+    gateway.offline_clock = clock
+    gateway.snapshot = lambda include_history=False: (_ for _ in ()).throw(
+        TimeoutError("active order endpoint unavailable")
+    )
     engine = OneShotEngine(store, gateway, ScriptedAI(), bundle, clock=clock,
                            require_watchdog=False, check_disk_config=False)
     assert engine.tick()["status"] == "FAILED"

@@ -25,6 +25,9 @@ broker_stop_verified: false
 allow_shorting: false
 
 decision_interval_seconds: 600
+ai_retry_backoff_seconds: [15, 30, 60, 120]
+max_decision_attempts_per_day: 60
+write_guard_buffer_seconds: 2
 # A just-recorded dispatch may not be queryable at Alpaca for a short moment.
 # The watchdog must not call that "unknown" before this grace window.
 submission_grace_seconds: 30

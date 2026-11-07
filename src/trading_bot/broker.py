@@ -28,7 +28,10 @@ import threading
 import time
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Callable
+from urllib.parse import urlparse
 
 from requests.adapters import HTTPAdapter
 
@@ -43,6 +46,19 @@ from .safety import (
 from .settings import PAPER_URL, load_config
 
 
+@dataclass
+class WritePermit:
+    method: str
+    path: str
+    cid: str
+    expires_at: datetime
+    validate: Callable[[dict | None], None]
+    decision_id: str | None = None
+    decision_fingerprint: str | None = None
+    request_checked: bool = False
+    transport_checked: bool = False
+
+
 def build_broker(keys, start_orders_thread=None, read_only=False):
     from alpaca.trading.client import TradingClient
     from lumibot.brokers import Alpaca
@@ -54,6 +70,86 @@ def build_broker(keys, start_orders_thread=None, read_only=False):
             return super().send(request, **kwargs)
 
     class PaperClient(TradingClient):
+        def _check_write(self, method, path, data, permit, *, transport: bool):
+            from .market_data import session_info
+            from .order_state import OrderState
+
+            now = self.write_clock()
+            stage = "transport" if transport else "request"
+            reason = None
+            if getattr(self, "read_only", False):
+                reason = "READ_ONLY_CLIENT"
+            elif not isinstance(permit, WritePermit):
+                reason = "Direct order bypass forbidden: MISSING_WRITE_PERMIT"
+            elif permit.method != method or permit.path != path:
+                reason = "WRITE_PERMIT_MISMATCH"
+            elif permit.expires_at <= now:
+                reason = "WRITE_PERMIT_EXPIRED"
+            elif transport and (not permit.request_checked or permit.transport_checked):
+                reason = "WRITE_PERMIT_ALREADY_CONSUMED"
+            elif not transport and permit.request_checked:
+                reason = "WRITE_PERMIT_ALREADY_CONSUMED"
+            elif self.write_store is None or self.write_execution is None:
+                reason = "WRITE_GATEWAY_NOT_BOUND"
+            elif self.write_store.paused() or self.write_store.freeze_reason() or self.write_store.config_pending():
+                reason = "WRITE_SAFETY_GATE_CLOSED"
+            elif method == "POST" and (
+                (row := self.write_store.order_row(permit.cid)) is None
+                or row["state"] != OrderState.DISPATCH_INTENT_RECORDED.value
+                or not self.write_store.dispatched(permit.cid)
+            ):
+                reason = "WRITE_DURABLE_BOUNDARY_MISSING"
+            elif method == "DELETE" and (
+                (row := self.write_store.order_row(permit.cid)) is None
+                or row["state"] not in {OrderState.ACCEPTED.value, OrderState.PARTIALLY_FILLED.value}
+                or not row["broker_order_id"]
+                or path != "/orders/" + str(row["broker_order_id"])
+                or not permit.decision_id or not permit.decision_fingerprint
+                or (saved := self.write_store.one_shot_decision_row(permit.decision_id)) is None
+                or saved["action"] != "PLACE_ORDER"
+                or saved["fingerprint"] != permit.decision_fingerprint
+            ):
+                reason = "WRITE_CANCEL_AUTHORIZATION_MISSING"
+            else:
+                session = session_info(now, self.write_execution)
+                buffer_seconds = self.write_execution.write_guard_buffer_seconds
+                if not session.can_submit or (session.submit_cutoff - now).total_seconds() <= buffer_seconds:
+                    reason = "WRITE_CUTOFF"
+            if reason is None:
+                try:
+                    permit.validate(data)
+                except Exception:
+                    reason = "WRITE_IDENTITY_OR_STATE_MISMATCH"
+            if getattr(self, "audit", None):
+                self.audit("broker_write_guard", {
+                    "stage": stage, "method": method, "path": path,
+                    "cid": permit.cid if isinstance(permit, WritePermit) else None,
+                    "at_utc": now.astimezone(timezone.utc).isoformat(),
+                    "timezone": "America/New_York",
+                    "outcome": "ALLOWED" if reason is None else reason,
+                })
+            if reason:
+                raise RuntimeError(reason)
+            if transport:
+                permit.transport_checked = True
+            else:
+                permit.request_checked = True
+
+        def _one_request(self, method, url, opts, retry):
+            verb = str(method).upper()
+            if verb in {"POST", "PATCH", "PUT", "DELETE"}:
+                parsed = urlparse(str(url))
+                if f"{parsed.scheme}://{parsed.netloc}" != PAPER_URL:
+                    raise RuntimeError("Paper write endpoint invariant failed")
+                path = parsed.path.removeprefix("/v2")
+                if not (verb == "POST" and path == "/orders" or
+                        verb == "DELETE" and path.startswith("/orders/") and path.count("/") == 2):
+                    raise RuntimeError("Unapproved broker write method or path")
+                permit = getattr(self.permits, "transport", None)
+                self.permits.transport = None
+                self._check_write(verb, path, opts.get("json"), permit, transport=True)
+            return super(PaperClient, self)._one_request(method, url, opts, retry)
+
         @contextmanager
         def fresh_reads(self):
             previous = getattr(self.permits, "fresh", False)
@@ -87,17 +183,20 @@ def build_broker(keys, start_orders_thread=None, read_only=False):
                     quantity = validate_order(data or {}, allow_stop=True)
                     data = dict(data)
                     data["qty"] = str(quantity)
-                    permit = getattr(self.permits, "current", None)
-                    self.permits.current = None
-                    if not permit:
-                        raise RuntimeError("Direct order bypass forbidden: durable execution authorization required")
-                    permit(data)
                 elif verb == "DELETE" and path.startswith("/orders/"):
-                    pass  # explicit cancellation only; the watchdog never calls this
+                    pass
                 else:
                     raise RuntimeError("Replacement, bulk submission and position liquidation endpoints disabled")
+                permit = getattr(self.permits, "current", None)
+                self.permits.current = None
+                self._check_write(verb, path, data, permit, transport=False)
+                self.permits.transport = permit
             operation = lambda: super(PaperClient, self)._request(method, path, data, **kwargs)
-            result = read_retry(operation, getattr(self, "audit", None)) if verb == "GET" else operation()
+            try:
+                result = read_retry(operation, getattr(self, "audit", None)) if verb == "GET" else operation()
+            finally:
+                if verb in {"POST", "PATCH", "PUT", "DELETE"}:
+                    self.permits.transport = None
             with self.cache_lock:
                 if cacheable:
                     self.read_cache[cache_key] = (time.monotonic(), deepcopy(result))
@@ -109,6 +208,9 @@ def build_broker(keys, start_orders_thread=None, read_only=False):
     client.read_only = bool(read_only)
     client._retry = 0
     client.permits = threading.local()
+    client.write_clock = lambda: datetime.now(timezone.utc)
+    client.write_store = None
+    client.write_execution = None
     client.read_cache = {}
     client.cache_lock = threading.RLock()
     client._session.mount("https://", BoundedAdapter(max_retries=0))
@@ -207,6 +309,8 @@ class PaperGateway:
         if store:
             self.api.audit = store.event
             self.api.idle = lambda: store.paused() or bool(store.safety_reason())
+        self.api.write_store = store
+        self.api.write_execution = self.execution
         self._last_account_number = ""
         self._quote_lock = threading.Lock()
 
@@ -536,7 +640,11 @@ class PaperGateway:
             elif wire.get("order_class") in ("oto", OrderClass.OTO):
                 raise RuntimeError("Unexpected stop leg")
 
-        self.api.permits.current = guard
+        self.api.permits.current = WritePermit(
+            method="POST", path="/orders", cid=cid,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=10),
+            validate=guard,
+        )
         try:
             from .market_data import session_info
 
@@ -601,16 +709,59 @@ class PaperGateway:
             "source": "iex",
         }
 
-    def cancel(self, cid):
+    def cancel(self, cid, *, decision=None):
         from .market_data import session_info
+        from .one_shot_engine import OneShotDecision, decision_fingerprint
+        from .order_state import OrderState
 
         if self.read_only or getattr(self.api, "read_only", False):
             raise RuntimeError("RESEARCH_ONLY: order cancellation is forbidden")
-        if not session_info(datetime.now(timezone.utc), self.execution).can_submit:
+        now = datetime.now(timezone.utc)
+        session = session_info(now, self.execution)
+        if not session.can_submit or (session.submit_cutoff - now).total_seconds() <= self.execution.write_guard_buffer_seconds:
             raise RuntimeError("Cancellation is forbidden at or after the 11:59:30 ET cutoff")
+        if not self.store or decision is None:
+            raise RuntimeError("Explicit OneShot cancellation decision required")
+        decision = OneShotDecision.model_validate(decision)
+        intent = decision.order_intent
+        recorded = self.store.one_shot_decision_row(decision.decision_id)
+        if (decision.action != "PLACE_ORDER" or not decision.cancel_conflicting_orders
+                or intent is None or intent.position_intent not in {"sell_to_close", "buy_to_close"}
+                or not recorded or recorded["action"] != "PLACE_ORDER"
+                or recorded["fingerprint"] != decision_fingerprint(decision)):
+            raise RuntimeError("Cancellation is not bound to an authorized closing decision")
+        local = self.store.order_row(cid)
+        if not local or local["state"] not in {OrderState.ACCEPTED.value, OrderState.PARTIALLY_FILLED.value}:
+            raise RuntimeError("Cancellation target is not a tracked active order")
         order = self.lookup(cid)
-        if order:
-            self.api.cancel_order_by_id(order["id"])
+        if (not order or str(order.get("client_order_id") or "") != cid or not order.get("id")
+                or not local["broker_order_id"] or str(order["id"]) != str(local["broker_order_id"])):
+            raise RuntimeError("Cancellation target identity is unconfirmed")
+        if (str(order.get("symbol") or "") != intent.symbol
+                or str(order.get("side") or "").lower() == intent.side
+                or str(order.get("status") or "").lower() in {"filled", "canceled", "expired", "rejected"}):
+            raise RuntimeError("Cancellation target does not conflict with closing decision")
+        order_id = str(order["id"])
+
+        def validate_cancel(_):
+            current = self.store.order_row(cid)
+            if not current or current["state"] not in {OrderState.ACCEPTED.value, OrderState.PARTIALLY_FILLED.value}:
+                raise RuntimeError("Cancellation target changed before DELETE")
+            saved = self.store.one_shot_decision_row(decision.decision_id)
+            if not saved or saved["fingerprint"] != decision_fingerprint(decision):
+                raise RuntimeError("Cancellation decision changed before DELETE")
+
+        self.api.permits.current = WritePermit(
+            method="DELETE", path=f"/orders/{order_id}", cid=cid,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=10),
+            validate=validate_cancel,
+            decision_id=decision.decision_id,
+            decision_fingerprint=decision_fingerprint(decision),
+        )
+        try:
+            self.api.cancel_order_by_id(order_id)
+        finally:
+            self.api.permits.current = None
 
     def account_summary(self):
         snapshot = self.snapshot()

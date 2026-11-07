@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
@@ -81,8 +81,21 @@ def _fingerprint(value: object) -> str:
     ).hexdigest()[:32]
 
 
+def decision_fingerprint(decision: OneShotDecision) -> str:
+    intent = as_order_intent(decision.order_intent) if decision.order_intent else None
+    return _fingerprint({
+        "action": decision.action, "intent": intent,
+        "cancel_conflicting_orders": decision.cancel_conflicting_orders,
+        "intentional_additional_pending": decision.intentional_additional_pending,
+    })
+
+
 def _account_identity(account: dict) -> str:
-    """Exclude volatile quote/time fields, but include exposure and open orders."""
+    """Bind structure and spendable funds; let mark-to-market equity float.
+
+    Equity is rechecked against the daily loss limit by OrderService's final
+    broker snapshot.  Cash and buying power are never given a tolerance here.
+    """
     orders = [
         {k: item.get(k) for k in (
             "client_order_id", "symbol", "side", "position_intent", "qty",
@@ -93,10 +106,13 @@ def _account_identity(account: dict) -> str:
     return _fingerprint({
         "account_id_hash": account.get("account_id_hash"),
         "cash": account.get("cash"),
-        "equity": account.get("equity"),
+        "non_margin_cash": account.get("non_margin_cash"),
+        "buying_power": account.get("buying_power"),
         "quantities": account.get("quantities", {}),
+        "available_quantities": account.get("available_quantities", {}),
         "open_orders": sorted(orders, key=lambda row: str(row.get("client_order_id"))),
         "blocked": account.get("blocked"),
+        "shorting_enabled": account.get("shorting_enabled"),
     })
 
 
@@ -104,8 +120,8 @@ def _same_pending_intent(order: dict, intent: dict) -> bool:
     try:
         return (
             str(order.get("symbol")) == intent["symbol"]
-            and str(order.get("side") or "").lower() == intent["side"]
-            and str(order.get("position_intent") or (
+            and str(getattr(order.get("side"), "value", order.get("side")) or "").lower() == intent["side"]
+            and str(getattr(order.get("position_intent"), "value", order.get("position_intent")) or (
                 "buy_to_open" if intent["side"] == "buy" else "sell_to_close"
             )).lower() == intent["position_intent"]
             and Decimal(str(order.get("qty"))) == Decimal(str(intent["qty"]))
@@ -113,6 +129,21 @@ def _same_pending_intent(order: dict, intent: dict) -> bool:
         )
     except (ValueError, TypeError, ArithmeticError):
         return False
+
+
+def _same_pending_direction(order: dict, intent: dict) -> bool:
+    """Identify live same-side exposure regardless of price or quantity."""
+    if str(order.get("status") or "").lower() in {
+        "filled", "canceled", "cancelled", "expired", "rejected", "replaced",
+    }:
+        return False
+    return (
+        str(order.get("symbol") or "") == intent["symbol"]
+        and str(getattr(order.get("side"), "value", order.get("side")) or "").lower() == intent["side"]
+        and str(getattr(order.get("position_intent"), "value", order.get("position_intent")) or (
+            "buy_to_open" if intent["side"] == "buy" else "sell_to_close"
+        )).lower() == intent["position_intent"]
+    )
 
 
 def _order_context(order: dict, account_asof: str | None) -> dict:
@@ -151,6 +182,10 @@ class OneShotEngine:
         self.started_at = self.clock()
         self.tick_lock = threading.RLock()
         self._last_decision_at = None
+        self._last_attempt_at = None
+        self._decision_day = None
+        self._consecutive_ai_failures = 0
+        self._next_retry_at = None
         self._premarket_day = None
         self._last_account_event = None
         self.orders = OrderService(store, broker, config.execution, clock=self.clock,
@@ -200,6 +235,7 @@ class OneShotEngine:
             session = session_info(self.clock(), self.config.execution)
             if session.phase is SessionPhase.NO_SESSION:
                 return {"status": "CLOSED"}
+            attempt_claimed = False
             try:
                 if session.premarket:
                     return self.premarket_tick()
@@ -209,14 +245,78 @@ class OneShotEngine:
                 if gate:
                     self.orders.reconcile(cancel_lingering=False)
                     return {"status": "BLOCKED", "reason": gate}
+                if not self.ai:
+                    self.orders.reconcile(cancel_lingering=False)
+                    return {"status": "NO_AI"}
+                self._load_decision_clock(session.trading_day)
+                now = self.clock()
+                if self._next_retry_at and now < self._next_retry_at:
+                    self.orders.reconcile(cancel_lingering=False)
+                    return {"status": "RETRY_BACKOFF", "next_retry_at": self._next_retry_at.isoformat()}
                 if self._last_decision_at and (self.clock() - self._last_decision_at).total_seconds() < self.config.execution.decision_interval_seconds:
                     self.orders.reconcile(cancel_lingering=False)
                     return {"status": "WAITING_NEXT_RESEARCH"}
-                self._last_decision_at = self.clock()
-                return self.cycle()
+                attempt = self.store.claim_one_shot_ai_attempt(
+                    session.trading_day, self.config.execution.max_decision_attempts_per_day,
+                )
+                if attempt is None:
+                    self.orders.reconcile(cancel_lingering=False)
+                    return {"status": "BLOCKED", "reason": "AI_ATTEMPT_LIMIT"}
+                attempt_claimed = True
+                self._last_attempt_at = now
+                self.store.event("one_shot_ai_attempt", {"trading_day": session.trading_day,
+                                                         "attempt": attempt, "at_utc": now.isoformat()})
+                result = self.cycle()
+                if result.get("status") in {"NO_TRADE", "ORDER_RESULT"}:
+                    self._last_decision_at = self.clock()
+                    self.store.set_control("one_shot_last_completed_at:" + session.trading_day,
+                                           self._last_decision_at.isoformat())
+                    self._consecutive_ai_failures = 0
+                    self._next_retry_at = None
+                    self.store.set_control("one_shot_ai_failures:" + session.trading_day, "0")
+                    self.store.set_control("one_shot_next_retry_at:" + session.trading_day, "")
+                elif result.get("status") == "AI_FAILED":
+                    self._schedule_decision_retry(session.trading_day, "AI_FAILED", failure=True)
+                elif result.get("status") in {"RESEARCH_REQUESTED", "BLOCKED"}:
+                    self._schedule_decision_retry(session.trading_day, result["status"], failure=False)
+                return result
             except Exception as exc:
                 self.store.error("one_shot_tick", exc, outcome="cycle_failed")
+                if session.can_submit and attempt_claimed:
+                    try:
+                        self._schedule_decision_retry(session.trading_day, "DATA_OR_CYCLE_FAILED", failure=False)
+                    except Exception as schedule_error:
+                        self.store.error("one_shot_retry", schedule_error, outcome="retry_state_unavailable")
                 return {"status": "FAILED", "reason": type(exc).__name__}
+
+    def _load_decision_clock(self, trading_day: str) -> None:
+        if self._decision_day == trading_day:
+            return
+        self._decision_day = trading_day
+        completed = self.store.get_control("one_shot_last_completed_at:" + trading_day)
+        retry_at = self.store.get_control("one_shot_next_retry_at:" + trading_day)
+        self._last_decision_at = datetime.fromisoformat(completed) if completed else None
+        self._next_retry_at = datetime.fromisoformat(retry_at) if retry_at else None
+        self._consecutive_ai_failures = int(
+            self.store.get_control("one_shot_ai_failures:" + trading_day) or 0
+        )
+        self._last_attempt_at = None
+
+    def _schedule_decision_retry(self, trading_day: str, reason: str, *, failure: bool) -> None:
+        if failure:
+            self._consecutive_ai_failures += 1
+        delays = self.config.execution.ai_retry_backoff_seconds
+        index = min(max(self._consecutive_ai_failures - 1, 0), len(delays) - 1)
+        self._next_retry_at = self.clock() + timedelta(seconds=delays[index])
+        self.store.set_control("one_shot_ai_failures:" + trading_day,
+                               str(self._consecutive_ai_failures))
+        self.store.set_control("one_shot_next_retry_at:" + trading_day,
+                               self._next_retry_at.isoformat())
+        self.store.event("one_shot_retry", {
+            "trading_day": trading_day, "reason": reason,
+            "consecutive_ai_failures": self._consecutive_ai_failures,
+            "next_retry_at": self._next_retry_at.isoformat(),
+        })
 
     def premarket_tick(self) -> dict:
         with self.tick_lock:
@@ -258,14 +358,26 @@ class OneShotEngine:
         if any(result.get(key) for key in ("errors", "unknown", "conflicts")):
             raise RuntimeError("Broker reconciliation incomplete")
         account = self.broker.snapshot(include_history=True)
-        if self.paper and account.get("recent_orders_error"):
-            raise RuntimeError("Recent broker order history is unavailable")
+        history_degraded = bool(self.paper and account.get("recent_orders_error"))
+        quality = "DEGRADED" if history_degraded else "COMPLETE"
+        if self.paper and quality != self._last_account_event:
+            self.store.event("one_shot_data_quality", {
+                "at_utc": self.clock().astimezone(timezone.utc).isoformat(),
+                "recent_closed_orders": quality,
+                "reason": "closed_order_history_unavailable" if history_degraded else "restored",
+            })
+            self._last_account_event = quality
         session = session_info(self.clock(), self.config.execution)
         reserved = reserved_buy_cash(account, self.store.unresolved_orders())
         context = {
             "as_of_utc": self.clock().astimezone(timezone.utc).isoformat(),
             "account_as_of_utc": account.get("asof"),
             "snapshot_id": _account_identity(account),
+            "data_quality": {
+                "critical_broker_state": "COMPLETE",
+                "recent_closed_orders": quality,
+                "note": "Recent closed orders are unknown" if history_degraded else "Broker history available",
+            },
             "session": {
                 "phase": session.phase.value,
                 "now_et": session.now_et.isoformat(),
@@ -388,11 +500,7 @@ class OneShotEngine:
             return {"status": "BLOCKED", "reason": "ACCOUNT_CHANGED_SINCE_AI_DECISION"}
 
         intent = as_order_intent(decision.order_intent) if decision.order_intent else None
-        fingerprint = _fingerprint({
-            "action": decision.action, "intent": intent,
-            "cancel_conflicting_orders": decision.cancel_conflicting_orders,
-            "intentional_additional_pending": decision.intentional_additional_pending,
-        })
+        fingerprint = decision_fingerprint(decision)
         reservation = self.store.reserve_one_shot_decision(
             decision.decision_id, fingerprint, decision.action,
         )
@@ -409,6 +517,8 @@ class OneShotEngine:
             "action": decision.action,
             "reason": decision.reason,
             "order_intent": decision.order_intent.model_dump(mode="json") if decision.order_intent else None,
+            "cancel_conflicting_orders": decision.cancel_conflicting_orders,
+            "intentional_additional_pending": decision.intentional_additional_pending,
         })
         if decision.action == "NO_TRADE":
             return {"status": "NO_TRADE"}  # Does not cancel accepted DAY orders.
@@ -458,16 +568,18 @@ class OneShotEngine:
                 # A zero/insufficient position must never authorize canceling
                 # an otherwise valid pending entry as a side effect.
                 return {"status": "BLOCKED", "reason": "INSUFFICIENT_POSITION_FOR_EXIT"}
-            result = self._cancel_conflicting(opposing, account, intent["symbol"])
+            result = self._cancel_conflicting(opposing, account, intent["symbol"], decision)
             if result:
                 return result
             account = self.broker.snapshot()
             pending = list(account.get("open_orders") or [])
 
-        if not decision.intentional_additional_pending and any(
-            _same_pending_intent(order, intent) for order in pending
-        ):
-            return {"status": "BLOCKED", "reason": "DUPLICATE_PENDING_INTENT"}
+        if not decision.intentional_additional_pending:
+            same_direction = [order for order in pending if _same_pending_direction(order, intent)]
+            if any(_same_pending_intent(order, intent) for order in same_direction):
+                return {"status": "BLOCKED", "reason": "DUPLICATE_PENDING_INTENT"}
+            if same_direction:
+                return {"status": "BLOCKED", "reason": "ADDITIONAL_PENDING_INTENT_REQUIRES_AUTHORIZATION"}
 
         # This is the only path that can dispatch.  It performs its own fresh
         # broker/account/quote/risk/session checks before the durable POST.
@@ -488,7 +600,8 @@ class OneShotEngine:
         })
         return {"status": "ORDER_RESULT", **result}
 
-    def _cancel_conflicting(self, opposing: list[dict], account: dict, symbol: str) -> dict | None:
+    def _cancel_conflicting(self, opposing: list[dict], account: dict, symbol: str,
+                            decision: OneShotDecision) -> dict | None:
         """Explicit position-exit prerequisite; never a strategy recheck."""
         before_qty = float((account.get("quantities") or {}).get(symbol, 0))
         for item in opposing:
@@ -500,7 +613,10 @@ class OneShotEngine:
             if not session_info(self.clock(), self.config.execution).can_submit:
                 return {"status": "OBSERVE_ONLY", "reason": "CUTOFF_BEFORE_CANCEL"}
             try:
-                self.broker.cancel(cid)
+                if self.paper:
+                    self.broker.cancel(cid, decision=decision)
+                else:
+                    self.broker.cancel(cid)
                 observed = self.broker.lookup(cid)
             except Exception as exc:  # noqa: BLE001 - unknown cancel result
                 self.store.block("CANCEL_OUTCOME_UNKNOWN: " + cid)

@@ -111,6 +111,9 @@ class Execution(Strict):
     # shortable/easy_to_borrow checks from Alpaca.
     allow_shorting: bool = False
     decision_interval_seconds: int = Field(default=600, ge=60, le=3600)
+    ai_retry_backoff_seconds: list[int] = Field(default=[15, 30, 60, 120], min_length=1, max_length=8)
+    max_decision_attempts_per_day: int = Field(default=60, ge=1, le=300)
+    write_guard_buffer_seconds: int = Field(default=2, ge=0, le=30)
     submission_grace_seconds: int = Field(default=30, ge=5, le=300)
     watchdog_interval_seconds: int = Field(default=10, ge=2, le=120)
     watchdog_stale_seconds: int = Field(default=45, ge=10, le=600)
@@ -126,6 +129,13 @@ class Execution(Strict):
     @classmethod
     def _time(cls, value: str) -> str:
         return _validate_hhmm(value)
+
+    @field_validator("ai_retry_backoff_seconds")
+    @classmethod
+    def _retry_backoff(cls, value: list[int]) -> list[int]:
+        if any(not 1 <= seconds <= 600 for seconds in value):
+            raise ValueError("AI retry backoff must be 1-600 seconds")
+        return value
 
 
 class ConfigError(ValueError):
