@@ -25,7 +25,7 @@ from exam_v2.evaluation import evaluate
 from exam_v2.simulation import HistoricalSimBroker
 from exam_v2.snapshot import ExamMode, get_v2_snapshot
 
-from trading_bot.decision_schema import (
+from exam_replay.legacy_decision_schema import (
     MarketDecision, OrderIntent, PremarketPlan, TradeDecision, parse_plan, parse_scan,
 )
 
@@ -326,7 +326,7 @@ class ExamReplay:
 
     def _scan(self, snapshot, account):
         payload = self._scan_payload(snapshot, account, self._groups())
-        system = EXAM_GUARD + (ROOT / "prompts/universe_scan.txt").read_text(encoding="utf-8")
+        system = EXAM_GUARD + (ROOT / "archive/legacy_prompts/universe_scan.txt").read_text(encoding="utf-8")
         result = self._call(
             "UNIVERSE_SCAN", system, _canon(snapshot["asof_utc"]) if False else _canon(payload),
             lambda raw: parse_scan(raw, symbols=self.symbols, now=_parse_time(snapshot["asof_utc"])),
@@ -364,7 +364,7 @@ class ExamReplay:
         return result, payload
 
     def _plan(self, scan, scan_payload, snapshot, account, focus_symbols):
-        system = EXAM_GUARD + (ROOT / "prompts/premarket_plan.txt").read_text(encoding="utf-8")
+        system = EXAM_GUARD + (ROOT / "archive/legacy_prompts/premarket_plan.txt").read_text(encoding="utf-8")
         focus = self._focus(snapshot, account, focus_symbols)
         payload = {
             "exam": scan_payload["exam"], "model_id": self.model,
@@ -739,183 +739,6 @@ class ExamReplay:
                 "unrealized_pnl": pnl,
             })
         return out
-
-    def run_three_agent(self, days):
-        """Optional three-agent exam replay; isolated temp memory per day."""
-        import tempfile
-        from dataclasses import replace
-
-        from trading_bot.multi_agent import MultiAgentOrchestrator
-        from trading_bot.settings import load_config
-        from trading_bot.storage import Store
-
-        prompt_files = {
-            "RESEARCHER_SCAN": "researcher_scan.txt",
-            "RESEARCH_REPORT": "researcher_report.txt",
-            "SKEPTIC_REVIEW": "skeptic_review.txt",
-            "PORTFOLIO_MANAGER": "portfolio_manager.txt",
-        }
-
-        class AgentAI:
-            def __init__(self, transport):
-                self.transport = transport
-                self.model = "deepseek-flash"
-
-            def complete(self, mode, payload, parser, **kwargs):
-                name = prompt_files[mode]
-                system = EXAM_GUARD + (ROOT / "prompts" / name).read_text(encoding="utf-8")
-                response = self.transport(system, _canon(payload))
-                parsed = parser(response["raw"])
-                return parsed, {
-                    "model": self.model, "prompt_tokens": response.get("prompt_tokens"),
-                    "completion_tokens": response.get("completion_tokens"),
-                    "latency_ms": response.get("latency_ms"), "raw": response.get("raw", ""),
-                }
-
-        bundle = load_config()
-        agent_exec = bundle.multi_agent.execution.model_copy(
-            update={"max_deep_candidates": 2, "max_parallel_requests": 1},
-        )
-        comparison = bundle.multi_agent.comparison.model_copy(
-            update={"enable_single_agent_baseline": False},
-        )
-        multi = bundle.multi_agent.model_copy(update={
-            "enabled": True, "execution": agent_exec, "comparison": comparison,
-        })
-        bundle = replace(bundle, multi_agent=multi,
-                         hashes={**bundle.hashes, "combined": "exam-three-agent"})
-        result = ReplayResult(start_cash=float(self.initial_cash),
-                              short_locate_assumption=self.short_locate_assumption())
-        for day_value in days:
-            day = date.fromisoformat(str(day_value))
-            cutoff = datetime.combine(day, dtime(9, 0), ET)
-            if self.short_locates:
-                for symbol in self.symbols:
-                    self.broker.short_locates[(day, symbol)] = True
-            self._last_marks = self._daily_close(day - timedelta(days=1))
-            if not self._last_marks:
-                with ExamStore(self.db_path, read_only=True) as store:
-                    rows = store.db.execute(
-                        "SELECT symbol,close FROM bars WHERE timeframe='1Day' AND feed='iex' "
-                        "AND day<? ORDER BY day DESC LIMIT 48", [day],
-                    ).fetchall()
-                self._last_marks = {symbol: float(close) for symbol, close in rows}
-            snapshot = self._snapshot(day, cutoff)
-            raw_account = self.broker.snapshot(cutoff, self._last_marks)
-            scan_payload = self._scan_payload(snapshot, raw_account, self._groups())
-            account_ctx = {
-                "account_snapshot_id": scan_payload["account_snapshot_id"],
-                "cash": raw_account["cash"], "equity": raw_account["equity"],
-                "positions": [
-                    {"symbol": symbol, "qty": qty,
-                     "direction": "long" if qty > 0 else "short",
-                     "whole_shares": abs(qty)}
-                    for symbol, qty in raw_account["positions"].items() if qty
-                ],
-                "open_orders": raw_account["open_orders"],
-                "shorting_enabled": True,
-            }
-            base_payload = {
-                "as_of_utc": snapshot["asof_utc"], "model_id": "deepseek-flash",
-                "account_snapshot_id": scan_payload["account_snapshot_id"],
-                "account": account_ctx,
-                "strategy": scan_payload["strategy"],
-                "execution_contract": scan_payload["execution_contract"],
-                "session": {"phase": "PREMARKET", "now_et": cutoff.isoformat()},
-            }
-
-            def focus_loader(symbols):
-                rows = self._focus(snapshot, raw_account, symbols)
-                out = []
-                for row in rows:
-                    pre = row.get("premarket") or []
-                    out.append({
-                        **row,
-                        "history": {
-                            "daily_recent": row.get("daily", []),
-                            "premarket_recent": pre,
-                        },
-                        "quote": pre[-1] if pre else None,
-                        "shortability": {"shortable": True, "easy_to_borrow": True,
-                                         "assumption": self.short_locate_assumption()},
-                    })
-                return out
-
-            with tempfile.TemporaryDirectory(prefix="exam-agent-") as temp:
-                store = Store(Path(temp) / "agents.sqlite", clock=lambda: cutoff, instance_id="exam")
-                try:
-                    orchestrator = MultiAgentOrchestrator(
-                        store, AgentAI(self.transport), bundle, clock=lambda: cutoff,
-                    )
-                    run = orchestrator.run_premarket(
-                        session=SimpleNamespace(phase="PREMARKET"),
-                        base_payload=base_payload,
-                        universe=scan_payload["universe"],
-                        held={s: q for s, q in raw_account["positions"].items() if q},
-                        focus_loader=focus_loader,
-                        deadline_utc=datetime.combine(day, dtime(16, 0), ET),
-                        universe_version=snapshot["dataset_version"],
-                        trading_day=day.isoformat(),
-                        mode="EXAM_THREE_AGENT",
-                    )
-                    if run.plan is None:
-                        plan = None
-                    else:
-                        plan = run.plan
-                    result.calls.extend(store.ai_calls_for_day(day.isoformat()))
-                finally:
-                    store.close()
-            if plan is not None:
-                submitted, bars = self._replay_orders(plan, day)
-            else:
-                submitted, bars = [], []
-            close_marks = self._daily_close(day)
-            close_at = datetime.combine(day, dtime(16, 0), ET)
-            self.broker.expire_day(day)
-            borrow = self.broker.accrue_borrow(day, close_marks)
-            state = self.broker.snapshot(close_at, close_marks)
-            gross = sum(abs(q) * close_marks.get(s, 0.0) for s, q in self.broker.positions.items())
-            result.days.append({
-                "day": day.isoformat(),
-                "scan_candidates": [c.symbol for c in run.plan.candidates] if plan else [],
-                "focus": [c.symbol for c in plan.candidates] if plan else [],
-                "market_decision": plan.market_decision.value if plan else "NO_TRADE",
-                "submitted": submitted, "fills": len(self.broker.fills),
-                "cash": float(self.broker.cash), "equity": float(state["equity"]),
-                "gross_exposure": gross, "borrow_cost": float(borrow),
-                "positions": dict(self.broker.positions),
-            })
-            result.equity_curve.append(float(state["equity"]))
-            result.decisions.append({
-                "day": day.isoformat(),
-                "plan": plan.model_dump(mode="json") if plan else None,
-                "run_id": run.run_id, "status": run.status,
-                "submitted": submitted,
-            })
-            self._last_marks = close_marks
-        result.trades = self._trade_ledger(0)
-        result.fills = [
-            {"order_id": fill.order_id, "symbol": fill.symbol, "action": fill.action,
-             "qty": fill.qty, "price": float(fill.price), "fee": float(fill.fee),
-             "at": fill.at.isoformat()}
-            for fill in self.broker.fills
-        ]
-        result.open_positions = self._open_positions()
-        result.simulator = self.broker
-        if days:
-            first = date.fromisoformat(str(days[0])); last = date.fromisoformat(str(days[-1]))
-            with ExamStore(self.db_path, read_only=True) as store:
-                first_rows = store.db.execute(
-                    "SELECT open FROM bars WHERE symbol='QQQ' AND timeframe='1Min' AND feed='iex' "
-                    "AND day=? ORDER BY ts LIMIT 1", [first],
-                ).fetchall()
-                last_rows = store.db.execute(
-                    "SELECT close FROM bars WHERE symbol='QQQ' AND timeframe='1Min' AND feed='iex' "
-                    "AND day=? ORDER BY ts DESC LIMIT 1", [last],
-                ).fetchall()
-            if first_rows and last_rows:
-                result.qqq_prices = [float(first_rows[0][0]), float(last_rows[0][0])]
-        return result
 
     def report(self, result):
         metrics = result.metrics()

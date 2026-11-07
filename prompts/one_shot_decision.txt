@@ -38,7 +38,8 @@ Return only one strict JSON object, without markdown, matching this shape:
   "reason": "Specific rationale based on the available facts",
   "order_intent": null,
   "cancel_conflicting_orders": false,
-  "intentional_additional_pending": false
+  "intentional_additional_pending": false,
+  "research_symbols": []
 }
 
 If action=PLACE_ORDER, order_intent must contain a valid structured order:
@@ -54,3 +55,5 @@ is a position-closing SELL/CLOSE_LONG/COVER_SHORT. If NO_TRADE, provide no
 order_intent and both boolean flags must be false. Use an existing decision_id
 when retrying precisely the same command, and a distinct ID only for a truly
 new decision. Never claim a broker order was sent; Python determines that.
+research_symbols may name up to eight allowed symbols for a read-only deeper
+research request. It never authorizes an order. Missing or stale data is unknown.

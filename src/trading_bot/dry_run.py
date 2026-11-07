@@ -1,8 +1,4 @@
-"""Offline, synthetic dry run for the new session engine.
-
-This is a plumbing fixture, not an investment signal and not a Paper order.
-It exercises premarket plan -> trigger -> DAY limit submission -> reconcile.
-"""
+"""Synthetic OneShotEngine fixture. It never contacts Alpaca or places Paper orders."""
 
 from __future__ import annotations
 
@@ -11,24 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from .decision_schema import (
-    Candidate,
-    Condition,
-    MarketDecision,
-    OpportunityGrade,
-    OrderIntent,
-    PremarketPlan,
-    ScanCandidate,
-    SetupType,
-    StopPolicy,
-    TradeDecision,
-    Trigger,
-    TriggerPurpose,
-    UniverseScan,
-)
-from .engine import Engine
-from .market_data import CALENDAR
 from .settings import load_config
+from .market_data import CALENDAR
 
 
 class FakeBroker:
@@ -47,7 +27,7 @@ class FakeBroker:
         self.shorting_enabled = shorting_enabled
         self.shortable = shortable
 
-    def snapshot(self):
+    def snapshot(self, include_history=False):
         open_orders = [
             dict(order) for order in self.orders.values()
             if str(order.get("status")) not in {"filled", "canceled", "expired", "rejected"}
@@ -79,6 +59,7 @@ class FakeBroker:
             "quantities": dict(self.positions),
             "available_quantities": {s: abs(q) for s, q in self.positions.items()},
             "open_orders": open_orders,
+            "recent_orders": [dict(order) for order in self.orders.values() if order not in open_orders][-50:] if include_history else [],
             "asof": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -161,59 +142,29 @@ class FakeBroker:
 
 
 class ScriptedAI:
+    """Deterministic OneShot fixture; never accesses a network."""
     model = "offline-fixture"
 
-    def __init__(self, *, symbol="CRWV", qty=3, limit_price=100.0, stop_policy="NONE"):
-        self.symbol = symbol
-        self.qty = qty
-        self.limit_price = limit_price
-        self.stop_policy = stop_policy
+    def __init__(self, *, symbol="CRWV", qty=3, limit_price=100.0):
+        self.symbol, self.qty, self.limit_price = symbol, qty, limit_price
         self.calls = []
 
     def complete(self, mode, payload, parser):
+        from .decision_schema import OrderIntent
+        from .one_shot_engine import OneShotDecision, OneShotResearch
         self.calls.append(mode)
-        now = datetime.fromisoformat(str(payload["as_of_utc"]).replace("Z", "+00:00"))
-        meta = {
-            "mode": mode, "model": self.model, "resolved_model": self.model,
-            "latency_ms": 0, "attempts": 1, "prompt_tokens": 0,
-            "completion_tokens": 0, "finish_reason": "stop",
-            "prompt_hash": "offline", "input_hash": "offline",
-            "output_hash": "offline", "repair_used": False,
-        }
-        if mode == "UNIVERSE_SCAN":
-            return UniverseScan(
-                as_of_utc=now, model_id=self.model,
-                account_snapshot_id=payload["account_snapshot_id"],
-                candidates=[ScanCandidate(
-                    symbol=self.symbol, setup_type=SetupType.PULLBACK_RECLAIM,
-                    opportunity_grade=OpportunityGrade.A, trade_decision=TradeDecision.BUY,
-                    thesis="offline fixture; no investment signal", priority=1,
-                )],
-            ), meta
-        if mode == "PREMARKET_PLAN":
-            candidate = Candidate(
-                symbol=self.symbol, setup_type=SetupType.PULLBACK_RECLAIM,
-                opportunity_grade=OpportunityGrade.A, trade_decision=TradeDecision.BUY,
-                analysis="Offline plumbing fixture; not an investment signal.",
-                plan_id="offline-plan-1",
-                plan_valid_until_utc=now + timedelta(minutes=50),
-                triggers=[Trigger(
-                    trigger_id="offline-exec", purpose=TriggerPurpose.EXECUTE_ORDER,
-                    all_of=[Condition(field="last", op="<=", value=101.0)],
-                )],
-                order_intent=OrderIntent(
-                    action="BUY", symbol=self.symbol, qty=self.qty,
-                    limit_price=self.limit_price, stop_policy=StopPolicy(self.stop_policy),
-                    stop_loss=None,
-                ),
-            )
-            return PremarketPlan(
-                as_of_utc=now, model_id=self.model,
-                market_decision=MarketDecision.TRADE,
-                account_snapshot_id=payload["account_snapshot_id"],
-                candidates=[candidate],
-            ), meta
-        raise AssertionError("unexpected offline AI mode: " + mode)
+        if mode == "ONE_SHOT_RESEARCH":
+            research = OneShotResearch(snapshot_id=payload["snapshot_id"],
+                                       summary="Synthetic premarket research",
+                                       focus_symbols=[self.symbol])
+            return parser(research.model_dump_json()), {"model": self.model}
+        decision = OneShotDecision(
+            decision_id="offline-decision-1", snapshot_id=payload["snapshot_id"],
+            action="PLACE_ORDER", reason="Synthetic offline fixture",
+            order_intent=OrderIntent(action="BUY", symbol=self.symbol,
+                                     qty=self.qty, limit_price=self.limit_price),
+        )
+        return parser(decision.model_dump_json()), {"model": self.model}
 
 
 def _days(now):
@@ -239,32 +190,18 @@ def _minutes(now):
 
 
 def run(store, bundle=None, *, now=None, fill=True):
+    from .one_shot_engine import OneShotEngine
+
     bundle = bundle or load_config()
-    # The deterministic dry-run fixture exercises the single-agent path;
-    # production multi-agent behavior is tested separately.
-    if bundle.multi_agent.enabled:
-        bundle = replace(bundle, multi_agent=bundle.multi_agent.model_copy(update={"enabled": False}))
-    now = now or datetime(2026, 11, 5, 14, 5, 10, tzinfo=timezone.utc)
+    now = now or datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc)
     clock = [now]
     broker = FakeBroker(fill=fill)
     ai = ScriptedAI(symbol=bundle.symbols[0])
-    engine = Engine(
-        store, broker, ai, bundle,
-        data=lambda symbol: _minutes(clock[0]),
-        daily_data=lambda symbol: _days(clock[0]),
-        clock=lambda: clock[0],
-        mode="dry-run",
-        require_watchdog=False,
-        check_disk_config=False,
-    )
-    premarket = engine.tick()
-    clock[0] = datetime(2026, 11, 5, 14, 35, 10, tzinfo=timezone.utc)
+    engine = OneShotEngine(store, broker, ai, bundle, clock=lambda: clock[0],
+                           require_watchdog=False, check_disk_config=False)
     active = engine.tick()
     return {
-        "premarket": premarket,
-        "active": active,
-        "submissions": broker.submissions,
-        "positions": dict(broker.positions),
-        "safety": store.safety_reason(),
+        "active": active["status"], "submissions": broker.submissions,
+        "positions": dict(broker.positions), "safety": store.safety_reason(),
         "ai_calls": ai.calls,
     }

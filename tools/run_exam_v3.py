@@ -32,7 +32,7 @@ def sha(path):
 
 def sources():
     paths = list((ROOT / "src/exam_v3").glob("*.py")) + [
-        ROOT / "prompts/decision_v3.txt", ROOT / "prompts/scan_v3.txt", ROOT / "config/aggressive_paper_v3.yaml",
+        ROOT / "archive/legacy_prompts/decision_v3.txt", ROOT / "archive/legacy_prompts/scan_v3.txt", ROOT / "config/aggressive_paper_v3.yaml",
         Path(__file__), ROOT / "src/exam_v2/snapshot.py", ROOT / "src/exam_data/store.py",
         ROOT / "requirements.lock.txt", ROOT / "pyproject.toml",
     ]

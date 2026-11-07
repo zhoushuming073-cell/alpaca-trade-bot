@@ -1,28 +1,27 @@
-"""Isolated, offline-only prototype of one-shot AI order decisions.
+"""The sole trading decision engine for the Alpaca Paper worker.
 
-This module is deliberately NOT registered with the main worker, dashboard,
-LumiBot strategy or supervisor.  It refuses a real broker.  Python handles
-order legality and state reconciliation; an injected test AI handles decisions.
-An accepted DAY order is not strategically reconsidered or canceled by a later
-NO_TRADE decision.  After the configured cutoff, the engine is read-only.
+AI owns strategy; this engine owns state freshness, liveness and dispatch
+coordination. The existing OrderService remains the only broker POST path.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field, model_validator
+import portalocker
 
 from .decision_schema import OrderIntent, as_order_intent
 from .execution import OrderService
-from .market_data import session_info
+from .market_data import SessionPhase, session_info
 from .order_state import OrderState
 from .risk_manager import reserved_buy_cash
-from .settings import Strict
+from .settings import Strict, config_snapshot, load_config
 
 
 class OneShotDecision(Strict):
@@ -37,6 +36,7 @@ class OneShotDecision(Strict):
     order_intent: OrderIntent | None = None
     cancel_conflicting_orders: bool = False
     intentional_additional_pending: bool = False
+    research_symbols: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def _consistent(self):
@@ -50,6 +50,25 @@ class OneShotDecision(Strict):
         }:
             raise ValueError("Only a position-closing decision can cancel conflicting orders")
         return self
+
+
+class OneShotResearch(Strict):
+    schema_version: Literal["1.0"] = "1.0"
+    mode: Literal["ONE_SHOT_RESEARCH"] = "ONE_SHOT_RESEARCH"
+    snapshot_id: str = Field(min_length=16, max_length=64)
+    summary: str = Field(min_length=1, max_length=6000)
+    focus_symbols: list[str] = Field(default_factory=list, max_length=8)
+    needs_deeper_research: bool = False
+
+    @model_validator(mode="after")
+    def _research_request_has_symbols(self):
+        if self.needs_deeper_research and not self.focus_symbols:
+            raise ValueError("Deeper research requires focus_symbols")
+        return self
+
+
+def parse_one_shot_research(raw: str) -> OneShotResearch:
+    return OneShotResearch.model_validate_json(raw)
 
 
 def parse_one_shot_decision(raw: str) -> OneShotDecision:
@@ -96,20 +115,30 @@ def _same_pending_intent(order: dict, intent: dict) -> bool:
         return False
 
 
-class OneShotEngine:
-    """Offline orchestrator; it cannot be activated by the production entrypoint.
+def _order_context(order: dict, account_asof: str | None) -> dict:
+    item = dict(order)
+    try:
+        item["remaining_qty"] = str(max(
+            Decimal("0"), Decimal(str(item["qty"])) - Decimal(str(item.get("filled_qty") or 0))
+        ))
+    except (KeyError, ValueError, ArithmeticError):
+        item["remaining_qty"] = None
+    item["observed_at_utc"] = account_asof
+    return item
 
-    ``cycle`` may request a validated decision from an injected synthetic AI.
-    ``apply_decision`` also supports deterministic scenario tests.  Neither
-    method retries an accepted order or evaluates an outstanding order's thesis.
-    """
+
+class OneShotEngine:
+    """One decision can produce at most one durable OrderService dispatch."""
 
     def __init__(self, store, broker, ai, config, *, clock=None, context_provider=None,
-                 max_snapshot_age_seconds: int = 90):
+                 max_snapshot_age_seconds: int = 90, require_watchdog=None,
+                 check_disk_config=None):
         from .dry_run import FakeBroker
+        from .broker import PaperGateway
 
-        if not isinstance(broker, FakeBroker):
-            raise RuntimeError("OneShotEngine is an OFFLINE-ONLY prototype: FakeBroker required")
+        if not isinstance(broker, (FakeBroker, PaperGateway)):
+            raise RuntimeError("OneShotEngine requires FakeBroker or Alpaca PaperGateway")
+        self.paper = isinstance(broker, PaperGateway)
         self.store = store
         self.broker = broker
         self.ai = ai
@@ -117,16 +146,125 @@ class OneShotEngine:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.context_provider = context_provider
         self.max_snapshot_age_seconds = max_snapshot_age_seconds
-        self.orders = OrderService(store, broker, config.execution, clock=self.clock)
+        self.require_watchdog = self.paper if require_watchdog is None else require_watchdog
+        self.check_disk_config = self.paper if check_disk_config is None else check_disk_config
+        self.started_at = self.clock()
+        self.tick_lock = threading.RLock()
+        self._last_decision_at = None
+        self._premarket_day = None
+        self._last_account_event = None
+        self.orders = OrderService(store, broker, config.execution, clock=self.clock,
+                                   require_web_heartbeat=self.paper)
+        if store.active_config() is None:
+            store.set_active_config(config_snapshot(config))
+        recovered = store.recover_stale_leases()
+        if recovered:
+            store.event("order_recovery", {"count": len(recovered), "states": "NOT_SENT"})
+
+    def _decision_gate(self) -> str | None:
+        if self.store.paused() or self.store.freeze_reason() or self.store.config_pending():
+            return "paused_or_frozen"
+        if self.check_disk_config:
+            try:
+                if load_config().hash != self.config.hash:
+                    self.store.set_config_pending(True)
+                    return "config_pending"
+            except Exception as exc:
+                self.store.set_config_pending(True)
+                self.store.event("config_load", {"error": type(exc).__name__})
+                return "config_pending"
+        if self.paper:
+            if not self.store.web_connected(30):
+                return "web_disconnected"
+            if self.store.web_reconnect_required():
+                result = self.orders.reconcile(cancel_lingering=False)
+                if any(result.get(key) for key in ("errors", "unknown", "conflicts")):
+                    return "web_reconcile_incomplete"
+                self.store.set_web_reconnect_required(False)
+        if self.require_watchdog:
+            health = self.store.health("watchdog", self.config.execution.watchdog_stale_seconds)
+            if health["consecutive_failures"] >= 3:
+                self.store.block("WATCHDOG_UNHEALTHY: repeated reconciliation failures")
+                return "watchdog_unhealthy"
+            if not health["alive"] or health["stale"] or not health["last_success"]:
+                return "watchdog_unavailable"
+            last = datetime.fromisoformat(health["last_success"].replace("Z", "+00:00"))
+            if (self.clock() - last).total_seconds() > max(120, 3 * self.config.execution.watchdog_stale_seconds):
+                return "watchdog_stale"
+        return None
+
+    def tick(self) -> dict:
+        """LumiBot callback; broker reconciliation remains active after noon."""
+        with self.tick_lock:
+            self.store.heartbeat("worker", ok=True, detail={"phase": "one_shot_tick"})
+            session = session_info(self.clock(), self.config.execution)
+            if session.phase is SessionPhase.NO_SESSION:
+                return {"status": "CLOSED"}
+            try:
+                if session.premarket:
+                    return self.premarket_tick()
+                if not session.can_submit:
+                    return {"status": "OBSERVE_ONLY", "context": self.context()}
+                gate = self._decision_gate()
+                if gate:
+                    self.orders.reconcile(cancel_lingering=False)
+                    return {"status": "BLOCKED", "reason": gate}
+                if self._last_decision_at and (self.clock() - self._last_decision_at).total_seconds() < self.config.execution.decision_interval_seconds:
+                    self.orders.reconcile(cancel_lingering=False)
+                    return {"status": "WAITING_NEXT_RESEARCH"}
+                self._last_decision_at = self.clock()
+                return self.cycle()
+            except Exception as exc:
+                self.store.error("one_shot_tick", exc, outcome="cycle_failed")
+                return {"status": "FAILED", "reason": type(exc).__name__}
+
+    def premarket_tick(self) -> dict:
+        with self.tick_lock:
+            session = session_info(self.clock(), self.config.execution)
+            if not session.premarket:
+                return {"status": "OUTSIDE_PREMARKET"}
+            gate = self._decision_gate()
+            if gate:
+                return {"status": "BLOCKED", "reason": gate}
+            if self._premarket_day == session.trading_day:
+                return {"status": "PREMARKET_PREPARED"}
+            context = self.context()
+            if not self.ai:
+                return {"status": "NO_AI"}
+            research, _meta = self.ai.complete(
+                "ONE_SHOT_RESEARCH", context, parse_one_shot_research
+            )
+            if research.snapshot_id != context["snapshot_id"] or any(
+                symbol not in self.config.symbols for symbol in research.focus_symbols
+            ):
+                raise ValueError("Invalid premarket research binding")
+            detail = research.model_dump(mode="json")
+            detail["as_of_utc"] = context["as_of_utc"]
+            self.store.event("one_shot_research", detail)
+            if research.needs_deeper_research and self.context_provider:
+                deeper = self.context_provider({**context, "focus_symbols": research.focus_symbols})
+                self.store.event("one_shot_research_request", {
+                    "as_of_utc": context["as_of_utc"], "symbols": research.focus_symbols,
+                    "result": deeper,
+                })
+            self._premarket_day = session.trading_day
+            self.store.event("one_shot_premarket", {"as_of_utc": context["as_of_utc"],
+                                                     "research": context["research"].get("status")})
+            return {"status": "PREMARKET_PREPARED"}
 
     def context(self) -> dict:
         """Read-only reconciliation, followed by a broker-authoritative snapshot."""
-        self.orders.reconcile()  # Never cancel lingering DAY orders.
-        account = self.broker.snapshot()
+        result = self.orders.reconcile(cancel_lingering=False)
+        if any(result.get(key) for key in ("errors", "unknown", "conflicts")):
+            raise RuntimeError("Broker reconciliation incomplete")
+        account = self.broker.snapshot(include_history=True)
+        if self.paper and account.get("recent_orders_error"):
+            raise RuntimeError("Recent broker order history is unavailable")
         session = session_info(self.clock(), self.config.execution)
         reserved = reserved_buy_cash(account, self.store.unresolved_orders())
         context = {
             "as_of_utc": self.clock().astimezone(timezone.utc).isoformat(),
+            "account_as_of_utc": account.get("asof"),
             "snapshot_id": _account_identity(account),
             "session": {
                 "phase": session.phase.value,
@@ -135,6 +273,7 @@ class OneShotEngine:
                 "submit_cutoff": session.submit_cutoff.isoformat() if session.submit_cutoff else None,
             },
             "account": {
+                "as_of_utc": account.get("asof"),
                 "account_id_hash": account.get("account_id_hash"),
                 "cash": account.get("cash"),
                 "equity": account.get("equity"),
@@ -144,11 +283,15 @@ class OneShotEngine:
                 "available_non_margin_cash": max(0.0, float(account.get("cash") or 0) - reserved),
                 "positions": account.get("position_details") or {},
                 "quantities": account.get("quantities") or {},
-                "open_orders": account.get("open_orders") or [],
+                "open_orders": [_order_context(item, account.get("asof"))
+                                for item in account.get("open_orders") or []],
+                "recent_orders": [_order_context(item, account.get("asof"))
+                                  for item in account.get("recent_orders") or []],
+                "recent_orders_error": account.get("recent_orders_error"),
             },
             "allowed_symbols": list(self.config.symbols),
             "execution_contract": {
-                "mode": "Paper only (offline prototype)",
+                "mode": "Alpaca Paper" if self.paper else "synthetic offline",
                 "order_type": "limit",
                 "time_in_force": "day",
                 "whole_shares": True,
@@ -165,18 +308,28 @@ class OneShotEngine:
                 "analysis": self.config.policy.analysis_rules,
                 "authority": "advisory, not mandatory trade filters",
             },
-            "recent_decisions": [
-                row["payload"] for row in self.store.recent_events(("one_shot_decision",), 12)
-            ],
+            "recent_decisions": self.store.recent_events(("one_shot_decision",), 12),
+            "recent_order_results": self.store.recent_events(("one_shot_result",), 12),
+            "recent_research": self.store.recent_events(("one_shot_research",), 4),
+            "recent_focused_research": self.store.recent_events(("one_shot_research_request",), 2),
             "research": {"status": "UNAVAILABLE", "reason": "No read-only research provider configured"},
         }
         # After 12:00 the local loop does not even refresh research; it only
         # reconciles brokerage orders and observes account/position changes.
         if self.context_provider and (session.premarket or session.active):
             context["research"] = self.context_provider(context)
+        if self.paper:
+            asof = datetime.fromisoformat(str(account.get("asof") or "").replace("Z", "+00:00"))
+            age = (self.clock() - asof).total_seconds()
+            if not 0 <= age <= self.max_snapshot_age_seconds:
+                raise RuntimeError("Broker account snapshot is stale")
         return context
 
     def cycle(self) -> dict:
+        if self.paper:
+            gate = self._decision_gate()
+            if gate:
+                return {"status": "BLOCKED", "reason": gate}
         context = self.context()
         if not session_info(self.clock(), self.config.execution).can_submit:
             return {"status": "OBSERVE_ONLY", "context": context}
@@ -186,12 +339,31 @@ class OneShotEngine:
             decision, _meta = self.ai.complete(
                 "ONE_SHOT_DECISION", context, parse_one_shot_decision
             )
+            if any(symbol not in self.config.symbols for symbol in decision.research_symbols):
+                return {"status": "AI_FAILED", "reason": "OUTSIDE_RESEARCH_POOL"}
+            if decision.research_symbols and self.context_provider:
+                deeper = self.context_provider({**context, "focus_symbols": decision.research_symbols})
+                self.store.event("one_shot_research_request", {
+                    "as_of_utc": context["as_of_utc"], "symbols": decision.research_symbols,
+                    "result": deeper,
+                })
+                if decision.action == "PLACE_ORDER":
+                    return {"status": "RESEARCH_REQUESTED", "reason": "NEW_RESEARCH_REQUIRES_NEW_DECISION"}
             return self.apply_decision(decision, context)
         except Exception as exc:  # noqa: BLE001 - never trade on invalid AI output
             self.store.event("one_shot_error", {"stage": "ai_decision", "type": type(exc).__name__})
             return {"status": "AI_FAILED", "reason": type(exc).__name__}
 
     def apply_decision(self, decision: OneShotDecision, context: dict) -> dict:
+        """Serialize different decision IDs against one Paper account."""
+        lock_path = str(self.store.path) + ".one_shot_dispatch.lock"
+        try:
+            with portalocker.Lock(lock_path, timeout=0):
+                return self._apply_decision_locked(decision, context)
+        except portalocker.LockException:
+            return {"status": "BLOCKED", "reason": "CONCURRENT_DECISION"}
+
+    def _apply_decision_locked(self, decision: OneShotDecision, context: dict) -> dict:
         """A single strategy decision becomes at most one new broker POST."""
         decision = OneShotDecision.model_validate(decision)
         session = session_info(self.clock(), self.config.execution)
@@ -199,6 +371,10 @@ class OneShotEngine:
             return {"status": "OBSERVE_ONLY", "reason": "OUTSIDE_SUBMISSION_WINDOW"}
         if self.store.paused() or self.store.freeze_reason() or self.store.config_pending():
             return {"status": "BLOCKED", "reason": "PAUSED_OR_FROZEN_OR_CONFIG_PENDING"}
+        if self.paper:
+            gate = self._decision_gate()
+            if gate:
+                return {"status": "BLOCKED", "reason": gate}
         try:
             as_of = datetime.fromisoformat(context["as_of_utc"])
             age = (self.clock().astimezone(timezone.utc) - as_of.astimezone(timezone.utc)).total_seconds()
@@ -332,6 +508,8 @@ class OneShotEngine:
                 return {"status": "BLOCKED", "reason": "CANCEL_OUTCOME_UNKNOWN"}
             if observed:
                 self.store.apply_broker_order(cid, observed)
+                if Decimal(str(observed.get("filled_qty") or 0)) != Decimal(str(item.get("filled_qty") or 0)):
+                    return {"status": "BLOCKED", "reason": "FILL_CHANGED_DURING_CANCEL"}
             if not observed or str(observed.get("status") or "").lower() not in {
                 "canceled", "cancelled", "expired", "rejected",
             }:

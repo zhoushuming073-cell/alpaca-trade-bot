@@ -39,10 +39,7 @@ def no_network(monkeypatch):
 
 @pytest.fixture
 def bundle():
-    # Most legacy engine tests exercise the single-agent path explicitly.
-    # Multi-agent tests construct their own config with enabled=True.
-    base = load_config()
-    return replace(base, multi_agent=base.multi_agent.model_copy(update={"enabled": False}))
+    return load_config()
 
 
 @pytest.fixture

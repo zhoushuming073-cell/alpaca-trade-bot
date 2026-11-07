@@ -172,8 +172,7 @@ body.sidebar-collapsed .brand-row{justify-content:flex-start}body.sidebar-collap
     <i id="nav-pill" class="nav-pill" aria-hidden="true"></i>
     <a href="#overview" data-page="overview" class="active" title="账户概览"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="nav-label">账户概览</span></a>
     <a href="#positions" data-page="positions" title="持仓与订单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10m8 10V4m8 16v-7"/></svg><span class="nav-label">持仓与订单</span></a>
-    <a href="#plans" data-page="plans" title="AI 计划"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 计划</span></a>
-    <a href="#agents" data-page="agents" title="智能体"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm6 0a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM5 17c0-2 2-3 4-3s4 1 4 3m2-3c2 0 4 1 4 3M12 11v3"/></svg><span class="nav-label">智能体</span></a>
+    <a href="#plans" data-page="plans" title="AI 决策"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><span class="nav-label">AI 决策</span></a>
     <a href="#research" data-page="research" title="研究档案"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7l2 2h7v14H4Z M8 10h8m-8 4h6"/></svg><span class="nav-label">研究档案</span></a>
     <a href="#activity" data-page="activity" title="运行记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="nav-label">运行记录</span></a>
     <a href="#robot" data-page="robot" title="机器人状态"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M8 16h8"/></svg><span class="nav-label">机器人状态</span></a>
@@ -230,23 +229,11 @@ body.sidebar-collapsed .brand-row{justify-content:flex-start}body.sidebar-collap
 
     <section class="page-view" id="view-plans" data-page="plans" hidden>
       <div class="grid">
-        <section class="panel" id="plans"><div class="section-head"><h2>最近 AI 计划</h2><span class="hint" id="plan-count">—</span></div><div id="plan-list" class="plan-list"></div></section>
+        <section class="panel" id="plans"><div class="section-head"><h2>最近 AI 决策</h2><span class="hint" id="plan-count">—</span></div><div id="plan-list" class="plan-list"></div></section>
         <section class="panel"><div class="section-head"><h2>AI 动态</h2><span class="hint">最近 6 次分析</span></div><div id="ai-list"></div></section>
       </div>
     </section>
 
-    <section class="page-view" id="view-agents" data-page="agents" hidden>
-      <div id="agent-banner" class="notice" hidden></div>
-      <section class="agent-role-grid" id="agent-role-grid"></section>
-      <div class="grid">
-        <section class="panel"><div class="section-head"><h2>本轮运行</h2><span class="hint" id="agent-run-status">等待运行</span></div><div id="agent-run" class="agent-run"></div><p class="panel-foot" id="agent-run-foot">研究与计划完成不会自动下单；只有触发条件命中并由 Python 风控通过后才可能提交 Paper 订单。</p></section>
-        <section class="panel"><div class="section-head"><h2>API 使用</h2><span class="hint" id="agent-api-date"></span></div><div id="agent-usage"></div></section>
-      </div>
-      <section class="panel"><div class="section-head"><h2>股票研究</h2><span class="hint">研究员结论 + 反方质疑</span></div><div id="agent-research"></div></section>
-      <section class="panel"><div class="section-head"><h2>基金经理决策</h2><span class="hint" id="agent-decision-mode"></span></div><div id="agent-decision"></div><p class="panel-foot" id="agent-decision-foot"></p></section>
-      <section class="panel"><div class="section-head"><h2>对照实验</h2><span class="hint">同一数据快照 · 基准仅影子记录</span></div><div id="agent-experiment"></div><p class="panel-foot">单智能体基准不会向 Paper 账户下单；两组结果仅用于后续前向比较，不能用少量样本宣称优越性。</p></section>
-      <section class="panel"><div class="section-head"><h2>安全状态</h2><span class="hint">研究 / 计划 / 执行不是同一状态</span></div><div id="agent-safety" class="agent-safety"></div></section>
-    </section>
 
     <section class="page-view" id="view-research" data-page="research" hidden>
       <section class="panel" id="research"><div class="section-head"><h2>研究档案 <span class="count" id="research-count">正在同步</span></h2><span class="hint">真实档案 · 来源与证据</span></div>
@@ -280,10 +267,6 @@ body.sidebar-collapsed .brand-row{justify-content:flex-start}body.sidebar-collap
         <div class="robot-hero-copy"><div class="eyebrow">实时行为观察</div><h2 id="robot-state">正在同步机器人状态</h2><p id="robot-task">等待系统快照。</p></div>
         <div class="robot-hero-side"><span class="robot-live-dot" aria-hidden="true"></span><span id="robot-live-copy">真实系统数据 · 每 3 秒增量更新</span></div>
       </section>
-      <section class="panel robot-monitor-panel">
-        <div class="section-head"><h2>当前监测 <span class="count" id="robot-monitor-count"></span></h2><span class="hint">来自有效 AI 计划</span></div>
-        <div id="robot-monitor" class="robot-monitor"></div>
-      </section>
       <section class="panel robot-log-panel">
         <div class="section-head"><h2>实时行为日志 <span class="count" id="robot-log-count"></span></h2><span class="hint" id="robot-log-updated">等待同步</span></div>
         <div class="robot-filters" role="group" aria-label="行为日志筛选">
@@ -304,7 +287,7 @@ body.sidebar-collapsed .brand-row{justify-content:flex-start}body.sidebar-collap
 <button id="assistant-open" class="assistant-launch" aria-controls="assistant-panel" aria-expanded="false"><span aria-hidden="true">✳</span> 交易助手 <span id="assistant-unread" class="unread" hidden></span></button>
 <div id="chat-backdrop" class="chat-backdrop" hidden></div>
 <aside id="assistant-panel" class="chat-panel" role="dialog" aria-labelledby="chat-title" aria-modal="false" tabindex="-1" hidden>
-  <div class="chat-head"><div><h2 id="chat-title">交易助手</h2><p>DeepSeek · 基于真实记录，聊聊市场与计划</p></div><button id="assistant-close" class="chat-close" aria-label="关闭交易助手">×</button></div>
+  <div class="chat-head"><div><h2 id="chat-title">交易助手</h2><p>DeepSeek · 基于真实记录，聊聊市场与决策</p></div><button id="assistant-close" class="chat-close" aria-label="关闭交易助手">×</button></div>
   <div id="chat-body" class="chat-body"><button id="chat-older" class="chat-older" hidden>查看更早的对话</button><div id="chat-welcome" class="chat-welcome"><span class="spark" aria-hidden="true">✳</span><strong>随时聊聊，今晚的市场。</strong>我会结合机器人的计划与真实记录回答。<br>有值得关注的新进展，也会在这里告诉你。</div><div id="chat-messages" role="log" aria-label="与交易助手的对话" aria-live="polite" aria-relevant="additions"></div><div id="chat-busy" class="chat-busy" role="status" hidden>正在阅读最新记录…</div></div>
   <div class="chat-compose"><div class="chat-quick"><button data-question="今晚主要关注哪些股票？">今晚关注什么？</button><button data-question="机器人现在在做什么？">现在在做什么？</button><button data-question="为什么今天没有买入？">为什么没买入？</button></div><form id="chat-form"><div class="chat-inputbox"><textarea id="chat-input" rows="2" maxlength="500" placeholder="问问持仓、计划或今晚的风险…" aria-label="向交易助手提问"></textarea><button id="chat-send" class="chat-send" type="submit" aria-label="发送问题">↑</button></div></form><p id="chat-error" class="chat-error" role="status" hidden></p><div class="chat-foot"><span>只读交流 · 不执行交易</span><span id="chat-state">正在同步记录</span></div></div>
 </aside>

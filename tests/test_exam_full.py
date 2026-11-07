@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from exam_replay.full import FullExamReplay
-from trading_bot.decision_schema import (
+from exam_replay.legacy_decision_schema import (
     MarketDecision, PositionReview, PremarketPlan, RecheckResponse, UniverseScan,
 )
 

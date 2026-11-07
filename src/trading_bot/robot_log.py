@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from .storage import Store
 
 ROBOT_KINDS = (
+    "one_shot_decision", "one_shot_result", "one_shot_error",
+    "one_shot_research", "one_shot_research_request", "one_shot_premarket",
+    "one_shot_cancel_unknown",
     "premarket_plan", "universe_scan", "intraday_recheck", "plan",
     "plan_invalidated", "plan_rejected", "premarket_no_trade", "premarket_aborted",
     "premarket_lifecycle", "premarket_data", "quote_errors", "held_data_unavailable",
@@ -23,6 +25,7 @@ ROBOT_KINDS = (
 )
 
 _AI_KINDS = {
+    "one_shot_decision", "one_shot_research", "one_shot_research_request", "one_shot_premarket",
     "premarket_plan", "universe_scan", "intraday_recheck", "plan",
     "plan_invalidated", "plan_rejected", "premarket_no_trade", "premarket_lifecycle",
     "ai_call", "agent_run_started", "agent_run_finished", "agent_report",
@@ -59,7 +62,7 @@ def _category(kind: str, payload: dict) -> str:
         return "fill" if str(payload.get("status", "")).lower() in _FILL_STATUSES else "execution"
     if kind in {"order_imported", "order_recovery", "fractional_residual"}:
         return "fill"
-    if kind in {"intent_rejected", "order_not_sent"}:
+    if kind in {"intent_rejected", "order_not_sent", "one_shot_result", "one_shot_cancel_unknown"}:
         return "execution"
     if kind in _AI_KINDS:
         return "ai"
@@ -67,6 +70,8 @@ def _category(kind: str, payload: dict) -> str:
 
 
 def _source(kind: str, category: str) -> str:
+    if kind.startswith("one_shot_"):
+        return "AI" if category == "ai" else "Python"
     if kind in {"premarket_plan", "universe_scan", "intraday_recheck", "ai_call"}:
         return "AI"
     if kind in {"short_check", "short_data"}:
@@ -83,7 +88,8 @@ def _source(kind: str, category: str) -> str:
 def _severity(kind: str, payload: dict) -> str:
     if kind in {"safety_alert", "error"}:
         return "critical"
-    if kind in {"network_retry", "intent_rejected", "order_not_sent", "quote_errors", "config_pending"}:
+    if kind in {"network_retry", "intent_rejected", "order_not_sent", "quote_errors", "config_pending",
+                "one_shot_error", "one_shot_cancel_unknown"}:
         return "warning"
     if kind == "order" and str(payload.get("status", "")).lower() == "rejected":
         return "critical"
@@ -91,6 +97,20 @@ def _severity(kind: str, payload: dict) -> str:
 
 
 def _title(kind: str, payload: dict) -> str:
+    if kind == "one_shot_decision":
+        return "OneShot AI 决策"
+    if kind == "one_shot_result":
+        return "OneShot 订单处理结果"
+    if kind == "one_shot_research":
+        return "OneShot 盘前研究"
+    if kind == "one_shot_research_request":
+        return "OneShot 深入研究"
+    if kind == "one_shot_premarket":
+        return "OneShot 盘前准备完成"
+    if kind == "one_shot_error":
+        return "OneShot AI 输出错误"
+    if kind == "one_shot_cancel_unknown":
+        return "撤单结果未知"
     if kind == "premarket_plan":
         return "AI 生成盘前计划"
     if kind == "universe_scan":
@@ -98,7 +118,7 @@ def _title(kind: str, payload: dict) -> str:
     if kind == "intraday_recheck":
         return "DeepSeek 复核决策"
     if kind == "ai_call":
-        return "DeepSeek 复核请求"
+        return "DeepSeek 分析请求"
     if kind == "plan":
         return "交易计划状态更新"
     if kind == "plan_invalidated":
@@ -173,6 +193,19 @@ def _title(kind: str, payload: dict) -> str:
 
 
 def _summary(kind: str, payload: dict, candidate: dict | None, order: dict | None) -> str:
+    if kind == "one_shot_decision":
+        intent = payload.get("order_intent") or {}
+        return f"{payload.get('action', '—')} {intent.get('symbol', '')} · {payload.get('reason', '')}"[:220]
+    if kind == "one_shot_result":
+        return f"{payload.get('state') or payload.get('rejected') or '待核对'} · {payload.get('cid') or ''}"
+    if kind == "one_shot_research":
+        return str(payload.get("summary") or "盘前研究已记录")[:220]
+    if kind == "one_shot_research_request":
+        return "深入研究 " + "、".join(payload.get("symbols") or [])
+    if kind == "one_shot_error":
+        return f"{payload.get('stage', '')} · {payload.get('type', '')}"
+    if kind == "one_shot_cancel_unknown":
+        return str(payload.get("cid") or "撤单状态待核对")
     if kind == "premarket_plan":
         symbols = payload.get("candidates") or []
         count = len(symbols) if isinstance(symbols, list) else int(symbols or 0)
@@ -277,8 +310,6 @@ def build_feed(store: Store, *, after_id: int = 0, limit: int = 200) -> dict:
     events = []
     for row in rows:
         payload = row.get("payload") or {}
-        if row["kind"] == "ai_call" and payload.get("mode") != "INTRADAY_RECHECK":
-            continue
         plan_id = payload.get("plan_id")
         plan_entry = plans.get(str(plan_id)) if plan_id else None
         candidate = (plan_entry or {}).get("candidate") or {}
@@ -316,28 +347,9 @@ def build_feed(store: Store, *, after_id: int = 0, limit: int = 200) -> dict:
             "decision": _decisions(payload),
             "detail": payload,
         })
-    monitoring = []
-    day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     now = datetime.now(timezone.utc)
-    for plan in store.active_plans(day):
-        candidate = (plan.get("payload") or {}).get("candidate") or {}
-        try:
-            valid = not plan.get("valid_until") or datetime.fromisoformat(
-                str(plan["valid_until"]).replace("Z", "+00:00")
-            ) > now
-        except ValueError:
-            valid = False
-        if not valid or not candidate.get("symbol"):
-            continue
-        monitoring.append({
-            "symbol": candidate["symbol"],
-            "decision": candidate.get("trade_decision"),
-            "valid_until": plan.get("valid_until"),
-            "triggers": candidate.get("triggers") or [],
-        })
     return {
         "events": events,
         "next_after": max((item["id"] for item in events), default=int(after_id or 0)),
-        "monitoring": monitoring,
         "server_time": now.isoformat(),
     }

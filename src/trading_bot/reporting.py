@@ -1,6 +1,4 @@
 import json
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from .settings import load_config
 
@@ -16,8 +14,8 @@ def report(store):
         if peak:
             drawdown = max(drawdown, 1 - equity / peak)
     events = store.recent_events(
-        ("decision", "plan", "order", "error", "safety_alert", "operator",
-         "premarket_plan", "universe_scan", "intraday_recheck", "order_not_sent",
+        ("one_shot_decision", "one_shot_result", "one_shot_error", "one_shot_research",
+         "order", "error", "safety_alert", "operator", "order_not_sent",
          "config_pending", "watchdog_loop"),
         limit=40,
     )
@@ -44,8 +42,6 @@ def report(store):
     except Exception:  # noqa: BLE001
         disk_hash = None
     active = store.active_config() or {}
-    day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    plans = store.active_plans(day)
     return {
         "paused": store.paused(),
         "safety_reason": store.safety_reason(),
@@ -64,11 +60,7 @@ def report(store):
         ),
         "max_observed_drawdown": drawdown,
         "health": {"worker": store.health("worker"), "watchdog": store.health("watchdog")},
-        "active_plans": [
-            {"plan_id": plan["plan_id"], "status": plan["status"],
-             "valid_until": plan["valid_until"]}
-            for plan in plans
-        ],
+        "recent_decisions": store.recent_events(("one_shot_decision",), 12),
         "ai_calls": store.recent_ai_calls(10),
         "orders": orders,
         "unresolved": store.unresolved_orders(),

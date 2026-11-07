@@ -21,7 +21,7 @@ from .safety import redact
 from .settings import ROOT, credentials
 from .market_data import session_info
 
-SYSTEM = """你是用户的美股 Paper 交易伙伴，只解释与交流，没有下单、撤单、改计划或控制进程的权限。
+SYSTEM = """你是用户的美股 Paper 交易伙伴，只解释与交流，没有下单、撤单或控制进程的权限。
 默认用自然中文回答50—150字，先说最值得知道的事，最多3个要点；仅用户要求展开时可到400字。
 像坐在身边的研究伙伴说话。只回答用户所问，不要每次重复全套持仓、规则、时区或免责声明。
 不向用户念字段名、JSON状态、asof、CLOSED；用自然中文解释。市场是否收盘只看market_session，
@@ -32,7 +32,7 @@ local_activity是机器人自己的操作时间限制，绝不是交易所是否
 区分事实与判断，推测用“我的理解/可能”，不要编造交易信号、价格接近某价位、模型决策或原因。
 系统没有记录为什么没买就明确说无法确认。成交仅依据filled/partially_filled，不能把accepted说成已买。
 价差拒绝仅代表相应报价不可用，不能说全局已暂停；只有paused/freeze事实才能描述暂停/冻结。
-心跳和接口可用不等于安全验收通过。过期计划不可说成下一步执行计划；今晚按北京时间日期理解，
+心跳和接口可用不等于安全验收通过。历史决策不可说成新的待执行指令；今晚按北京时间日期理解，
 同时核对美东交易日。若用户要求操作，说明这里只能解读并指向页面控制，不声称执行了操作。
 主动消息只解释所附真实事件，标清发生时间；没有实质更新就输出JSON的should_speak=false。
 主动消息只说新增事件，不附带不相关的账户总览；对照recent_announcements避免重复。积压历史事件
@@ -201,11 +201,11 @@ class Companion:
                           "机器人主动交易窗口已结束；这不代表交易所收盘")
         pool = status.get("symbols") or []
         account = status.get("account") or {}
-        plans = status.get("plans") or []
+        decisions = status.get("decisions") or []
         mentioned = [s for s in pool if re.search(r"(?<![A-Za-z])" + re.escape(s) + r"(?![A-Za-z])", question, re.I)]
         event_symbols = [e.get("payload", {}).get("symbol") or e.get("payload", {}).get("ticker") for e in event_batch or []]
         focus = list(dict.fromkeys(mentioned + [s for s in event_symbols if s] + list((account.get("quantities") or {}).keys()) +
-                                  [(p.get("candidate") or {}).get("symbol") for p in plans]))
+                                  [((d.get("payload") or {}).get("order_intent") or {}).get("symbol") for d in decisions]))
         focus = [s for s in focus if s][:8]
         profiles, news = [], []
         with self.db() as db:
@@ -224,8 +224,8 @@ class Companion:
                 news.extend({"symbol": symbol, **dict(r), "summary": clip(r["summary"], 350)} for r in items)
             ai = [dict(r) for r in db.execute("SELECT ts,mode,outcome,model FROM ai_calls ORDER BY id DESC LIMIT 5")]
             # Decisions and skip reasons are primary records, not inferred from prices.
-            decisions = [dict(r) for r in db.execute("SELECT id,ts,kind,payload FROM events WHERE kind IN "
-                         "('premarket_plan','intraday_recheck','intent_rejected','quote_errors','premarket_no_trade') ORDER BY id DESC LIMIT 8")]
+            recorded = [dict(r) for r in db.execute("SELECT id,ts,kind,payload FROM events WHERE kind IN "
+                         "('one_shot_decision','one_shot_result','one_shot_error','one_shot_research','intent_rejected') ORDER BY id DESC LIMIT 8")]
         return redact({
             "asof": now.isoformat(), "beijing_date": now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),
             "new_york_time": now.astimezone(ZoneInfo("America/New_York")).isoformat(),
@@ -235,17 +235,15 @@ class Companion:
             "account_stale": status.get("account_stale"), "account_age_seconds": status.get("account_age_seconds"),
             "account_error": bool(status.get("account_error")),
             "positions": account.get("position_details") or account.get("quantities"),
-            "plans": [{"status": p.get("status"), "valid_until": p.get("valid_until"),
-                       "expired": not parse_time(p.get("valid_until")) or parse_time(p["valid_until"]) <= now,
-                       "candidate": {k: (p.get("candidate") or {}).get(k) for k in
-                                     ("symbol", "trade_decision", "analysis", "triggers", "order_intent")}} for p in plans],
+            "one_shot_decisions": [{"ts": d.get("ts"), "payload": d.get("payload")}
+                                   for d in decisions[:8]],
             "orders": [{k: o.get(k) for k in ("symbol", "side", "qty", "filled_qty", "status", "state", "filled_at", "updated_at")}
                        for o in (status.get("orders") or [])[:12]],
             "research_index": [{k: r.get(k) for k in ("symbol", "status", "verified_at", "expires_at", "source_status")}
                                for r in (status.get("research") or [])],
             "research_details": profiles, "recorded_news": news,
             "news_note": "仅已保存资料，可能不是最新新闻；未获取新的联网新闻或实时报价。",
-            "latest_ai_calls": ai, "recorded_decisions": [{**r, "payload": clip(r["payload"], 1600)} for r in decisions],
+            "latest_ai_calls": ai, "recorded_decisions": [{**r, "payload": clip(r["payload"], 1600)} for r in recorded],
             "trigger_events": event_batch or [],
         })
 

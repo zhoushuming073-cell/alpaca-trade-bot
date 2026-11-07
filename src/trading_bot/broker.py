@@ -538,6 +538,10 @@ class PaperGateway:
 
         self.api.permits.current = guard
         try:
+            from .market_data import session_info
+
+            if not session_info(datetime.now(timezone.utc), self.execution).can_submit:
+                raise PreDispatchRejected("Submission cutoff reached before Alpaca POST")
             result = self.api.submit_order(order_data=request)
             return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
         finally:
@@ -598,8 +602,12 @@ class PaperGateway:
         }
 
     def cancel(self, cid):
+        from .market_data import session_info
+
         if self.read_only or getattr(self.api, "read_only", False):
             raise RuntimeError("RESEARCH_ONLY: order cancellation is forbidden")
+        if not session_info(datetime.now(timezone.utc), self.execution).can_submit:
+            raise RuntimeError("Cancellation is forbidden at or after the 11:59:30 ET cutoff")
         order = self.lookup(cid)
         if order:
             self.api.cancel_order_by_id(order["id"])

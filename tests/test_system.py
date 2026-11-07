@@ -16,8 +16,7 @@ def test_dry_run_uses_ai_qty_and_day_limit():
     with tempfile.TemporaryDirectory() as directory:
         store = Store(Path(directory) / "dry.sqlite")
         result = dry_run(store)
-        assert result["premarket"] == "premarket_planned"
-        assert result["active"] == "active_triggered"
+        assert result["active"] == "ORDER_RESULT"
         assert result["submissions"] == 1
         assert result["positions"]
         row = store.order_row(

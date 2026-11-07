@@ -13,7 +13,7 @@ OUT=ROOT/'data/decision_v3_validation_r4'
 def sha(p):
     with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 def sources():
-    paths=list((ROOT/'src/exam_v3').glob('*.py'))+[ROOT/'prompts/decision_v3.txt',ROOT/'config/aggressive_paper_v3.yaml',Path(__file__),ROOT/'src/exam_v2/snapshot.py',ROOT/'src/exam_data/store.py']+[x for x in [ROOT/'requirements.lock.txt',ROOT/'pyproject.toml',ROOT/'requirements.txt'] if x.exists()]
+    paths=list((ROOT/'src/exam_v3').glob('*.py'))+[ROOT/'archive/legacy_prompts/decision_v3.txt',ROOT/'config/aggressive_paper_v3.yaml',Path(__file__),ROOT/'src/exam_v2/snapshot.py',ROOT/'src/exam_data/store.py']+[x for x in [ROOT/'requirements.lock.txt',ROOT/'pyproject.toml',ROOT/'requirements.txt'] if x.exists()]
     return {p.relative_to(ROOT).as_posix():sha(p) for p in paths}
 def original_thesis(symbol,entry_time,qty):
     report=json.loads((ROOT/'data/exam_replay_runs/full15/report.json').read_text(encoding='utf-8'))

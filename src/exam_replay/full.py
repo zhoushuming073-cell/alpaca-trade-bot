@@ -24,7 +24,7 @@ from pathlib import Path
 from exam_v2.evaluation import evaluate
 from exam_v2.snapshot import ExamMode
 
-from trading_bot.decision_schema import (
+from exam_replay.legacy_decision_schema import (
     MarketDecision, PremarketPlan, RecheckDecision, TriggerPurpose,
     parse_plan, parse_position_review, parse_recheck, parse_scan,
     PositionAction,

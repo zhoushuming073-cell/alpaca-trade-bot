@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from trading_bot.decision_schema import (
+from exam_replay.legacy_decision_schema import (
     Candidate,
     MarketDecision,
     OpportunityGrade,
@@ -178,29 +178,29 @@ def test_short_candidate_protocol_parses():
 
 
 def test_short_account_context_keeps_signed_pnl_and_direction(bundle, tmp_path):
-    from trading_bot.engine import Engine
+    from trading_bot.one_shot_engine import OneShotEngine
     from trading_bot.storage import Store
 
     store = Store(tmp_path / "short-context.sqlite", instance_id="short-context")
     broker = FakeBroker(shorting_enabled=True)
-    engine = Engine(
-        store, broker, object(), bundle, data=lambda symbol: None,
-        daily_data=lambda symbol: None, mode="dry-run",
-        require_watchdog=False, check_disk_config=False,
-    )
-    acct = account(quantities={"CRWV": -5}, shorting=True)
-    acct["position_details"] = {
-        "CRWV": {
-            "symbol": "CRWV", "qty": -5, "direction": "short",
-            "long_qty": 0.0, "short_qty": 5.0,
-            "market_value": -500.0, "avg_entry_price": 105.0,
-            "unrealized_pl": -12.5, "unrealized_plpc": -0.024,
-            "current_price": 102.5, "available_qty": 5.0,
-        },
-    }
-    context, held = engine._account_context(acct)
-    assert held["CRWV"] == -5
-    assert context["positions"][0]["direction"] == "short"
-    assert context["positions"][0]["short_qty"] == 5
-    assert context["positions"][0]["unrealized_pl"] == -12.5
+    broker.positions["CRWV"] = -5
+    original_snapshot = broker.snapshot
+
+    def snapshot(include_history=False):
+        value = original_snapshot(include_history=include_history)
+        value["position_details"]["CRWV"].update(
+            avg_entry_price=105.0, unrealized_pl=-12.5,
+            unrealized_plpc=-0.024, current_price=102.5,
+        )
+        return value
+
+    broker.snapshot = snapshot
+    engine = OneShotEngine(store, broker, None, bundle,
+                           require_watchdog=False, check_disk_config=False)
+    context = engine.context()
+    detail = context["account"]["positions"]["CRWV"]
+    assert context["account"]["quantities"]["CRWV"] == -5
+    assert detail["direction"] == "short"
+    assert detail["short_qty"] == 5
+    assert detail["unrealized_pl"] == -12.5
     store.close()

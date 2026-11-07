@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from exam_v2.snapshot import ExamMode
-from trading_bot.decision_schema import MarketDecision, PremarketPlan, UniverseScan
+from exam_replay.legacy_decision_schema import MarketDecision, PremarketPlan, UniverseScan
 
 from exam_replay.runner import ExamReplay
 

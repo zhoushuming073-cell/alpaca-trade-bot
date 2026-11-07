@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from exam_data import ExamStore  # noqa: E402
-from trading_bot.decision_schema import (  # noqa: E402
+from exam_replay.legacy_decision_schema import (  # noqa: E402
     parse_plan, parse_position_review, parse_recheck, parse_scan,
 )
 from exam_replay.parsing import normalize_plan, normalize_stop_metadata  # noqa: E402
@@ -105,7 +105,7 @@ def main():
 
     # System prompts are the exact frozen files.  Verify their hashes against
     # the provider call metadata instead of reconstructing from memory.
-    prompt_text = {mode: (ROOT / "prompts" / name).read_text(encoding="utf-8")
+    prompt_text = {mode: (ROOT / "archive/legacy_prompts" / name).read_text(encoding="utf-8")
                    for mode, name in PROMPTS.items()}
     prompt_hash = {mode: text_sha(value) for mode, value in prompt_text.items()}
 
@@ -593,11 +593,11 @@ def main():
 
 ## 1. Production prompt
 
-`prompts/premarket_plan.txt` explicitly permits both directions and contains
+`archive/legacy_prompts/premarket_plan.txt` explicitly permits both directions and contains
 the exact rules. Relevant excerpts (verbatim from the frozen file):
 
 ```text
-{chr(10).join(line for line in (ROOT/'prompts/premarket_plan.txt').read_text(encoding='utf-8').splitlines() if 'short' in line.lower() or 'sell_to_open' in line.lower())}
+{chr(10).join(line for line in (ROOT/'archive/legacy_prompts/premarket_plan.txt').read_text(encoding='utf-8').splitlines() if 'short' in line.lower() or 'sell_to_open' in line.lower())}
 ```
 
 The prompt also says: "If no short setup is genuinely supported by the evidence,
@@ -623,7 +623,7 @@ The isolated broker also had `short_locates=True`; no short order was attempted.
 
 ## 4. Scan capability
 
-`prompts/universe_scan.txt` lists `OPEN_SHORT`/`COVER_SHORT` in the output
+`archive/legacy_prompts/universe_scan.txt` lists `OPEN_SHORT`/`COVER_SHORT` in the output
 schema and says: "Include shorts only when the supplied shorting capability/asset
 facts support them; do not infer a short from market weakness."
 

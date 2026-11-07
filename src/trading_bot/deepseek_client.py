@@ -23,17 +23,8 @@ from .settings import ROOT
 
 PROMPT_FILES = {
     "ONE_SHOT_DECISION": "one_shot_decision.txt",
-    "PREMARKET_PLAN": "premarket_plan.txt",
-    "UNIVERSE_SCAN": "universe_scan.txt",
-    "INTRADAY_RECHECK": "intraday_recheck.txt",
-    "POSITION_REVIEW": "position_review.txt",
+    "ONE_SHOT_RESEARCH": "one_shot_research.txt",
     "RESEARCH_REFRESH": "research_refresh.txt",
-    "RESEARCHER_SCAN": "researcher_scan.txt",
-    "RESEARCH_REPORT": "researcher_report.txt",
-    "SKEPTIC_REVIEW": "skeptic_review.txt",
-    "PORTFOLIO_MANAGER": "portfolio_manager.txt",
-    "PORTFOLIO_RECHECK": "portfolio_recheck.txt",
-    "PATROL": "patrol.txt",
 }
 
 

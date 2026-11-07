@@ -86,7 +86,7 @@ def build_exam_prompt(day,asof,symbols,*,mode=ExamMode.STRICT,stage="UNIVERSE_SC
     chosen=list(symbols)
     if stage=="PREMARKET_PLAN":
         if scan_output_raw is None:raise ValueError("Premarket plan requires historical scan output")
-        from trading_bot.decision_schema import parse_scan
+        from exam_replay.legacy_decision_schema import parse_scan
         scan=parse_scan(scan_output_raw,symbols=symbols,now=cutoff)
         if scan.as_of_utc!=cutoff or scan.account_snapshot_id!=account_id or scan.model_id!=model:
             raise ValueError("Scan is not tied to this historical snapshot/account")
@@ -119,7 +119,7 @@ def build_exam_prompt(day,asof,symbols,*,mode=ExamMode.STRICT,stage="UNIVERSE_SC
     if stage=="PREMARKET_PLAN":
         body["scan_candidates"]=scan_candidates
         body["focus"]=_compact(snapshot,chosen)
-    system=EXAM_GUARD+(ROOT/"prompts"/STAGES[stage]).read_text(encoding="utf-8")
+    system=EXAM_GUARD+(ROOT/"archive/legacy_prompts"/STAGES[stage]).read_text(encoding="utf-8")
     user=_canon(body)
     snapshot_sha=_hash(_canon(snapshot))
     return PromptEnvelope(mode,stage,snapshot["date"],snapshot["asof_utc"],snapshot["dataset_version"],
@@ -129,7 +129,7 @@ def build_exam_prompt(day,asof,symbols,*,mode=ExamMode.STRICT,stage="UNIVERSE_SC
 
 def parse_exam_response(envelope:PromptEnvelope,raw:str,symbols):
     """Reuse production schemas, then bind the output to the historical input."""
-    from trading_bot.decision_schema import parse_plan,parse_scan
+    from exam_replay.legacy_decision_schema import parse_plan,parse_scan
     cutoff=datetime.fromisoformat(envelope.asof_utc)
     if envelope.stage=="UNIVERSE_SCAN":
         result=parse_scan(raw,symbols=symbols,now=cutoff)

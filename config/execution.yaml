@@ -24,12 +24,10 @@ broker_stop_verified: false
 # live Alpaca account shorting_enabled flag and asset shortable/easy_to_borrow.
 allow_shorting: false
 
-trigger_poll_seconds: 10
+decision_interval_seconds: 600
 # A just-recorded dispatch may not be queryable at Alpaca for a short moment.
 # The watchdog must not call that "unknown" before this grace window.
 submission_grace_seconds: 30
-recheck_cooldown_seconds: 120
-max_rechecks_per_day: 20
 watchdog_interval_seconds: 10
 watchdog_stale_seconds: 90
 data_workers: 8

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import datetime
 
 import pytest
 
@@ -23,6 +24,14 @@ def intent(**overrides):
 
 
 def prepared_gateway(tmp_path, monkeypatch):
+    import trading_bot.broker as broker_module
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(NOW).astimezone(tz)
+
+    monkeypatch.setattr(broker_module, "datetime", FrozenDateTime)
     bundle = load_config()
     broker = build_broker({"ALPACA_API_KEY": "fake", "ALPACA_API_SECRET": "fake"},
                           start_orders_thread=False)
@@ -127,9 +136,7 @@ def test_short_prepare_rejects_asset_without_borrow(tmp_path, monkeypatch):
     }
     monkeypatch.setattr(gateway, "snapshot", lambda: account)
     monkeypatch.setattr(broker.api, "get_clock", lambda: SimpleNamespace(
-        is_open=True, timestamp=__import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc
-        )
+        is_open=True, timestamp=datetime.fromisoformat(NOW)
     ))
     monkeypatch.setattr(broker.api, "get_asset", lambda symbol: SimpleNamespace(
         tradable=True, status=SimpleNamespace(value="active"),
@@ -280,3 +287,25 @@ def test_prepare_rejects_exactly_at_noon_cutoff(tmp_path, monkeypatch):
     assert cutoff.can_submit is False
     with pytest.raises(PreDispatchRejected):
         gateway.prepare(intent(), cid, session=cutoff)
+
+
+def test_gateway_rejects_cancel_and_post_at_exact_cutoff(tmp_path, monkeypatch):
+    import trading_bot.broker as broker_module
+
+    gateway, _, store, calls, _ = prepared_gateway(tmp_path, monkeypatch)
+    cutoff_at = datetime.fromisoformat("2026-11-05T16:59:30+00:00")
+
+    class CutoffDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cutoff_at.astimezone(tz)
+
+    monkeypatch.setattr(broker_module, "datetime", CutoffDateTime)
+    monkeypatch.setattr(gateway, "lookup", lambda cid: pytest.fail("cancel queried broker after cutoff"))
+    with pytest.raises(RuntimeError, match="Cancellation is forbidden"):
+        gateway.cancel("pending")
+    cid = "cid-cutoff-dispatch"
+    dispatch_ready(store, load_config(), cid, intent())
+    with pytest.raises(PreDispatchRejected, match="cutoff"):
+        gateway.dispatch(intent(), cid)
+    assert calls == []

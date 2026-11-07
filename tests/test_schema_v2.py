@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from trading_bot.decision_schema import (
+from exam_replay.legacy_decision_schema import (
     Candidate,
     Condition,
     MarketDecision,
@@ -230,33 +230,33 @@ def _client(responses, **kwargs):
 def test_deepseek_records_usage_and_repairs_invalid_json(tmp_path):
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "premarket_plan.txt").write_text("system", encoding="utf-8")
+    (prompts / "one_shot_decision.txt").write_text("system", encoding="utf-8")
     fake, calls = _client([("not json", "stop"), ('{"ok": true}', "stop")])
     records, inputs = [], []
     ai = DeepSeek(
         "fake", client=fake, prompt_dir=prompts, repair_attempts=1,
         record=records.append, input_record=inputs.append,
     )
-    parsed, meta = ai.complete("PREMARKET_PLAN", {"a": 1}, lambda raw: json.loads(raw))
+    parsed, meta = ai.complete("ONE_SHOT_DECISION", {"a": 1}, lambda raw: json.loads(raw))
     assert parsed == {"ok": True}
     assert meta["attempts"] == 2
     assert meta["prompt_tokens"] == 10
     assert len(calls.calls) == 2
-    assert inputs and inputs[0]["mode"] == "PREMARKET_PLAN"
+    assert inputs and inputs[0]["mode"] == "ONE_SHOT_DECISION"
     assert [r["outcome"] for r in records] == ["schema_error", "ok"]
 
 
 def test_deepseek_finish_reason_and_transport_errors(tmp_path):
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "premarket_plan.txt").write_text("system", encoding="utf-8")
+    (prompts / "one_shot_decision.txt").write_text("system", encoding="utf-8")
     fake, _ = _client([('{"ok": true}', "length")])
     ai = DeepSeek("fake", client=fake, prompt_dir=prompts, repair_attempts=0,
                   record=lambda record: None)
     with pytest.raises(AICallError):
-        ai.complete("PREMARKET_PLAN", {}, lambda raw: json.loads(raw))
+        ai.complete("ONE_SHOT_DECISION", {}, lambda raw: json.loads(raw))
     fake, _ = _client([TimeoutError("offline")])
     ai = DeepSeek("fake", client=fake, prompt_dir=prompts, repair_attempts=0,
                   record=lambda record: None)
     with pytest.raises(AICallError):
-        ai.complete("PREMARKET_PLAN", {}, lambda raw: json.loads(raw))
+        ai.complete("ONE_SHOT_DECISION", {}, lambda raw: json.loads(raw))

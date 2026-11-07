@@ -84,5 +84,5 @@ def packet(day,asof,symbols,account,*,mode=ExamMode.EXPLORATORY,db_path=None,sta
     return payload
 
 def messages(payload,prompt='decision_v3.txt'):
-    return [{'role':'system','content':(ROOT/'prompts'/prompt).read_text(encoding='utf-8')},
+    return [{'role':'system','content':(ROOT/'archive/legacy_prompts'/prompt).read_text(encoding='utf-8')},
             {'role':'user','content':canon(payload)}]

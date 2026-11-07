@@ -11,8 +11,7 @@ let toastTimer;
 const PAGE_META = {
   overview: {title: "交易概览", subtitle: "账户、持仓与 AI 的最新进展。", crumb: "账户概览"},
   positions: {title: "持仓与订单", subtitle: "Alpaca Paper 实际持仓、委托与成交状态。", crumb: "持仓与订单"},
-  plans: {title: "AI 计划", subtitle: "今日 AI 判断、触发条件与复核记录。", crumb: "AI 计划"},
-  agents: {title: "智能体", subtitle: "研究员、反方分析师与基金经理的独立研究记录；研究完成不等于下单。", crumb: "智能体"},
+  plans: {title: "AI 决策", subtitle: "OneShotEngine 的决策与订单结果。", crumb: "AI 决策"},
   research: {title: "研究档案", subtitle: "10 个板块 · 48 只固定池标的的来源、证据与核验时间。", crumb: "研究档案"},
   activity: {title: "运行记录", subtitle: "机器人、订单同步和系统事件。", crumb: "运行记录"},
   robot: {title: "机器人状态", subtitle: "实时观察 AI 指令、Python 执行与 Alpaca 回报。", crumb: "机器人状态"},
@@ -112,8 +111,7 @@ const STATUS = {
   OK: "已更新", STALE: "待更新", UNKNOWN: "待核实", SOURCE_UNAVAILABLE: "来源暂不可用",
   AVAILABLE: "可用", UNAVAILABLE: "暂不可用", VERIFIED: "已验证", UNVERIFIED: "未验证"
 };
-const MODE = {PREMARKET_PLAN: "生成盘前计划", UNIVERSE_SCAN: "扫描关注股票",
-  INTRADAY_RECHECK: "复核交易计划", POSITION_REVIEW: "评估当前持仓", RESEARCH_REFRESH: "更新研究档案"};
+const MODE = {ONE_SHOT_DECISION: "AI 交易决策", ONE_SHOT_RESEARCH: "盘前研究", RESEARCH_REFRESH: "更新研究档案"};
 const STOP = {NONE_BY_AI: "未设置", NONE: "未设置", REQUESTED: "待确认", VERIFIED: "已设置",
   FAILED: "设置失败", UNKNOWN: "待核实", BROKER_STOP: "券商止损"};
 const label = (x, fallback = "待确认") => STATUS[x] || fallback;
@@ -152,7 +150,10 @@ function eventMessage(e) {
   const p = e.payload || {};
   const titles = {operator: "运行设置已更新", error: "运行异常", safety_alert: "交易保护已触发",
     order: "订单更新", order_not_sent: "订单未提交", order_imported: "订单同步",
-    order_recovery: "订单状态恢复", premarket_plan: "盘前计划已生成", universe_scan: "股票扫描已完成",
+    order_recovery: "订单状态恢复", one_shot_decision: "OneShot AI 决策",
+    one_shot_result: "OneShot 订单结果", one_shot_research: "OneShot 盘前研究",
+    one_shot_research_request: "OneShot 深入研究", one_shot_error: "OneShot 输出错误",
+    premarket_plan: "历史盘前计划", universe_scan: "历史股票扫描",
     intraday_recheck: "AI 已复核计划", plan: "计划状态更新", plan_invalidated: "计划已失效",
     intent_rejected: "本次交易未通过检查", config_pending: "配置等待更新",
     research_profile: "研究档案更新", source_call: "研究来源请求", source_fetch_error: "资料读取失败",
@@ -172,7 +173,7 @@ function eventMessage(e) {
   } else if (e.kind === "error" || e.kind === "source_fetch_error") {
     detail = p.ticker ? p.ticker + " 暂时无法完成处理，详情可在技术记录中查看。" : "处理暂未完成，请查看运行详情。";
   } else if (e.kind === "premarket_plan") {
-    detail = "今日计划已记录，可在「AI 计划」查看。";
+    detail = "历史盘前计划记录，仅供回顾。";
   } else if (e.kind === "ai_call") {
     detail = (MODE[p.mode] || "AI 分析") + (p.outcome === "ok" ? "已完成。" : "未完成，请查看运行详情。");
   } else if (p.symbol || p.ticker) {
@@ -205,8 +206,6 @@ const groupOf = (symbol, source) => groupLookup(groupsOf(source)).get(symbol) ||
 const groupText = (group) => group ? String(group.id).padStart(2, "0") + " · " + group.name : "未分组";
 const groupCount = (group) => (group?.symbols || []).length;
 const htmlCache = new Map();
-let planRenderKey = "";
-const planExpanded = new Set();
 let researchState = {query: "", sector: "", status: "", detail: null, scroll: 0};
 let researchDetailData = null;
 let robotEvents = new Map();
@@ -214,7 +213,6 @@ let robotNewIds = new Set();
 let robotExpanded = new Set();
 let robotCursor = 0;
 let robotFilter = "all";
-let robotMonitor = [];
 let robotServerTime = null;
 let robotLoading = false;
 let robotError = null;
@@ -277,10 +275,10 @@ function statusSummary(s) {
     return {label: "异常", tone: "danger", heading: "运行状态待确认", copy: "worker 或订单同步尚未恢复健康，新下单保持冻结。"};
   }
   if (s.phase === "ACTIVE") {
-    return {label: "运行中", tone: "ok", heading: "正在监测交易机会", copy: "AI 计划正在等待触发；只在条件满足时提交 Paper 订单。"};
+    return {label: "运行中", tone: "ok", heading: "正在监测交易机会", copy: "OneShotEngine 正在分析账户与市场；安全校验通过后立即提交限价单。"};
   }
   if (s.phase === "PREMARKET") {
-    return {label: "盘前准备", tone: "ok", heading: "正在准备今天的计划", copy: "AI 正在结合账户、研究档案和最新行情生成交易计划。"};
+    return {label: "盘前准备", tone: "ok", heading: "正在准备今日研究", copy: "AI 正在结合账户、研究档案和最新行情准备研究。"};
   }
   if (s.phase === "NO_SESSION") {
     return {label: "运行中", tone: "idle", heading: "今天休市", copy: "没有新的交易安排，等待下一个交易日。"};
@@ -288,59 +286,16 @@ function statusSummary(s) {
   return {label: "运行中", tone: "idle", heading: "今天的交易窗口已结束", copy: "不再发起新的本地订单；已有委托可能继续成交。"};
 }
 
-function planStatusInfo(plan, now) {
-  const status = String(plan?.status || "").toUpperCase();
-  const active = ["ACTIVE", "WATCHING", "TRIGGERED"].includes(status);
-  if (active && plan.valid_until && new Date(plan.valid_until) <= now) {
-    return {key: "expired", label: "已到期"};
-  }
-  if (active) return {key: "active", label: "正在进行"};
-  if (status === "EXECUTED") return {key: "executed", label: "已执行"};
-  if (status === "SUPERSEDED" || status === "INVALIDATED") return {key: "invalid", label: "已失效"};
-  if (status === "NO_ORDER") return {key: "invalid", label: "未下单"};
-  if (status === "NO_TRADE") return {key: "invalid", label: "不交易"};
-  if (status === "EXPIRED") return {key: "expired", label: "已到期"};
-  return {key: "invalid", label: status || "状态待确认"};
-}
-
-function conditionText(condition) {
-  const names = {last: "价格", price: "价格", volume: "成交量", change_pct: "涨跌幅"};
-  return `${names[condition.field] || condition.field} ${condition.op} ${condition.value}`;
-}
-
-function purposeText(purpose) {
-  return {REQUEST_AI_RECHECK: "AI 复核", INVALIDATE_PLAN: "失效条件", EXECUTE_ORDER: "执行订单"}[purpose] || purpose;
-}
-
-function planDetailHtml(candidate, plan, statusLabel) {
-  const triggers = candidate.triggers || [];
-  const triggerHtml = triggers.length ? '<h4>触发条件</h4><ul>' + triggers.map((t) =>
-    '<li><b>' + esc(purposeText(t.purpose)) + '</b>：' +
-    (t.all_of || []).map(conditionText).map(esc).join(" 且 ") + '</li>').join("") + '</ul>' : "";
-  const risks = (candidate.risk_flags || []).length ? '<h4>风险因素</h4><ul>' +
-    candidate.risk_flags.map((r) => '<li>' + esc(r.replaceAll("_", " ")) + '</li>').join("") + '</ul>' : "";
-  const intent = candidate.order_intent;
-  const order = intent ? '<h4>订单意图</h4><p>' + esc(
-    `${intent.action || intent.side || "BUY"} ${intent.qty || "—"} 股 · ${intent.order_type || "LIMIT"} · ` +
-    `${intent.limit_price || "—"} · ${intent.time_in_force || "DAY"} · 止损 ${intent.stop_policy || "NONE"}`
-  ) + '</p>' : "";
-  return '<div class="plan-detail-inner">' +
-    '<h4>完整分析</h4><p>' + esc(candidate.analysis || candidate.thesis || "档案中没有完整分析。") + '</p>' +
-    triggerHtml + risks + order +
-    '<h4>计划记录</h4><p>' + esc(`${statusLabel || plan.status} · 有效期 ${plan.valid_until || "—"}${plan.reason ? " · " + plan.reason : ""}`) + '</p>' +
-    '</div>';
-}
-
 function renderBrief(s) {
   const brief = s.brief || {};
-  const alias = {BUY: "买入", SELL: "卖出", HOLD: "持有", WAIT: "观察", BUY_IF_TRIGGER: "等待触发", NO_TRADE: "不交易",
+  const alias = {BUY: "买入", SELL: "卖出", HOLD: "持有", WAIT: "观察", NO_TRADE: "不交易",
     OPEN_LONG: "做多", CLOSE_LONG: "平多", OPEN_SHORT: "做空", COVER_SHORT: "平空"};
   const focus = (brief.focus || []).slice(0, 4);
   setHTML("brief-focus", focus.length ? focus.map((item) =>
     '<div class="brief-focus-item"><b>' + esc(item.symbol) + '</b><span>' +
     esc(alias[item.decision] || item.decision || "等待判断") + ' · ' + esc(item.analysis || "等待 AI 分析") +
-    '</span><em>' + esc(planStatusInfo({status: item.status, valid_until: item.valid_until}, new Date(s.now || Date.now())).label) +
-    '</em></div>').join("") : '<p class="empty">今天暂时没有有效计划。</p>');
+    '</span><em>' + esc(item.status || "研究关注") +
+    '</em></div>').join("") : '<p class="empty">今天暂时没有研究关注标的。</p>');
   const positions = (brief.positions || []);
   setHTML("brief-positions", positions.length ? positions.map((item) =>
     '<div class="brief-position"><span><b>' + esc(item.symbol) + '</b> ' + esc(item.qty) + ' 股<br><small>' +
@@ -355,189 +310,19 @@ function renderBrief(s) {
   setText("brief-asof", brief.as_of ? "更新于 " + time(brief.as_of) : "等待同步");
 }
 
-function renderPlans(s) {
-  const now = new Date(s.now || Date.now());
-  const rows = (s.plan_history && s.plan_history.length ? s.plan_history : s.plans || [])
-    .filter((plan) => plan && plan.candidate);
-  const dataKey = JSON.stringify(rows.map((plan) => [
-    plan.plan_id, plan.status, plan.valid_until, plan.day,
-    plan.candidate?.trade_decision, plan.candidate?.analysis, plan.candidate?.risk_flags,
-    plan.candidate?.order_intent, plan.candidate?.triggers,
-  ]));
-  if (dataKey === planRenderKey) return;
-  planRenderKey = dataKey;
-  const cards = rows.map((plan) => {
-    const candidate = plan.candidate || {};
-    const state = planStatusInfo(plan, now);
-    return {plan, candidate, state};
-  }).sort((a, b) => {
-    const rank = {active: 0, expired: 1, executed: 2, invalid: 3};
-    const d = (rank[a.state.key] ?? 9) - (rank[b.state.key] ?? 9);
-    return d || String(b.plan.created_at || "").localeCompare(String(a.plan.created_at || ""));
-  });
-  const active = cards.filter((item) => item.state.key === "active").length;
-  setText("plan-count", `${active} 个进行中 · 共 ${cards.length} 个计划`);
-  const html = cards.map(({plan, candidate, state}) => {
-    const id = plan.plan_id || candidate.plan_id || "";
-    const open = planExpanded.has(id);
-    const decision = label(candidate.trade_decision, "等待判断");
-    return '<article class="plan-card' + (open ? " open" : "") + '" data-plan-id="' + esc(id) +
-      '" role="button" tabindex="0" aria-expanded="' + String(open) + '">' +
-      '<div class="plan-head"><span class="plan-symbol">' + esc(candidate.symbol || "计划") +
-      '</span><span class="plan-tag ' + state.key + '">' + esc(state.label) + '</span></div>' +
-      '<div class="plan-decision">' + esc(decision) + (candidate.opportunity_grade ? ' · ' + esc(candidate.opportunity_grade) + ' 级机会' : '') + '</div>' +
-      '<p class="plan-thesis">' + esc(candidate.analysis || candidate.thesis || "暂无分析摘要") + '</p>' +
-      '<div class="plan-meta"><span>有效期 ' + esc(date(plan.valid_until)) + '</span>' +
-      (candidate.risk_flags?.length ? '<span>' + esc(candidate.risk_flags.length) + ' 个风险标记</span>' : '') +
-      '<span>' + esc(plan.day || "") + '</span></div>' +
-      '<div class="plan-detail"><div>' + planDetailHtml(candidate, plan, state.label) + '</div></div></article>';
-  }).join("");
-  setHTML("plan-list", html || '<div class="empty">暂时没有交易计划。</div>');
-}
-
-function renderAgents(s) {
-  const ma = s.multi_agent || {};
-  const cfg = ma.config || {};
-  const agents = cfg.agents || {};
-  const budget = cfg.budget || {};
-  const costKnown = Number(budget.cost_per_1m_input_usd || 0) > 0 ||
-    Number(budget.cost_per_1m_output_usd || 0) > 0;
-  const run = ma.latest_run;
-  const researchOnly = run?.mode === "RESEARCH_ONLY";
-  const reports = ma.reports || [];
-  const banner = $("agent-banner");
-  if (banner) {
-    banner.hidden = !!ma.enabled;
-    banner.textContent = researchOnly
-      ? "当前为 RESEARCH_ONLY 影子研究：真实只读行情/账户 + DeepSeek，已禁止全部券商写请求；不会生成可执行计划。"
-      : "多智能体当前未启用；以下为只读历史或等待状态。启用需要显式配置并安全重启，不会自动下单。";
-  }
-  const byRole = (role) => reports.filter((item) => item.role === role);
-  const latestFor = (role) => byRole(role).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
-  const roleRows = [
-    ["researcher", "市场研究员", agents.researcher],
-    ["skeptic", "反方分析师", agents.skeptic],
-    ["portfolio_manager", "基金经理", agents.portfolio_manager],
-    ["baseline", "单智能体基准", agents.baseline],
-  ];
-  const roleHtml = roleRows.map(([role, label, roleCfg]) => {
-    const enabled = roleCfg?.enabled !== false && (cfg.enabled || researchOnly);
-    const item = latestFor(role === "researcher" ? "researcher" : role);
-    const failed = run?.status === "FAILED" && role !== "baseline" && !item;
-    let status = "等待运行";
-    if (!cfg.enabled && !researchOnly) status = "未启用";
-    else if (!enabled) status = "已关闭";
-    else if (failed) status = "失败";
-    else if (item?.status === "OK") status = "已完成";
-    else if (run?.status === "RUNNING") status = "运行中";
-    const error = run?.status === "FAILED" ? String(run.error || "") : "";
-    return '<article class="agent-role-card"><div class="agent-role-name">' + esc(label) + '</div>' +
-      '<div class="agent-role-model">' + esc(roleCfg?.model || "未配置") + '</div>' +
-      '<div class="agent-role-status"><span>' + esc(status) + '</span><span class="hint">' +
-      esc(item?.created_at ? shortDate(item.created_at) + " " + time(item.created_at) : "—") + '</span></div>' +
-      (error ? '<div class="agent-role-error">' + esc(error.slice(0, 180)) + '</div>' : '') +
-      '</article>';
-  }).join("");
-  setHTML("agent-role-grid", roleHtml || '<div class="empty">暂无智能体配置</div>');
-
-  setText("agent-run-status", run ? (run.status || "—") : "尚未运行");
-  if (!run) {
-    setHTML("agent-run", '<div class="empty">今天还没有多智能体研究记录。盘前研究完成前不会生成交易计划。</div>');
-  } else {
-    const usage = ma.usage || [];
-    const total = usage.reduce((sum, item) => sum + Number(item.prompt_tokens || 0) + Number(item.completion_tokens || 0), 0);
-    const cost = usage.reduce((sum, item) => sum + Number(item.cost_usd || 0), 0);
-    const items = [
-      ["运行编号", run.run_id], ["状态", run.status],
-      ["运行模式", run.mode || "THREE_AGENT"],
-      ["交易日", run.trading_day], ["配置版本", run.universe_version],
-      ["研究 / 质疑", byRole("researcher").length + " / " + byRole("skeptic").length],
-      ["预算内调用", usage.reduce((sum, item) => sum + Number(item.calls || 0), 0) + " 次"],
-      ["Token", total], ["估算成本", costKnown ? "$" + cost.toFixed(4) : "费率未配置"],
-      ["单智能体基准", run.baseline_status || "未运行"],
-    ];
-    setHTML("agent-run", items.map(([label, value]) =>
-      '<p><span>' + esc(label) + '</span><small>' + esc(String(value ?? "—")) + '</small></p>').join(""));
-  }
-
-  const usageRows = (ma.usage || []).map((item) => [
-    esc(item.role || "single_agent"),
-    esc(String(item.calls ?? 0)),
-    esc(String(item.prompt_tokens ?? 0)),
-    esc(String(item.completion_tokens ?? 0)),
-    costKnown ? "$" + Number(item.cost_usd || 0).toFixed(4) : "费率未配置",
-    item.calls ? (Number(item.latency_ms || 0) / Number(item.calls) / 1000).toFixed(1) + " 秒" : "—",
-    esc(String(item.cached_calls ?? 0)),
-  ]);
-  setHTML("agent-usage", table(["角色", "调用", "输入 Token", "输出 Token", "成本", "平均延迟", "缓存"], usageRows,
-    "今天还没有 API 调用记录"));
-  setText("agent-api-date", s.now_et ? "交易日 " + shortDate(s.now_et) : "");
-
-  const researchRows = byRole("researcher").map((item) => {
-    const report = item.parsed || {};
-    const critique = byRole("skeptic").find((row) => row.symbol === item.symbol)?.parsed || {};
-    return [
-      esc(item.symbol), esc(report.direction || "—"), esc(report.research_conclusion || "—"),
-      esc(String(report.technical_structure || "").slice(0, 150)),
-      esc(critique.overall_assessment || "未审查"),
-      esc(critique.critique_severity || "—"),
-      esc(String((report.supporting_evidence_ids || []).length) + " / " + String((report.counterevidence_ids || []).length)),
-    ];
-  });
-  setHTML("agent-research", table(["股票", "方向", "研究员结论", "技术结构摘要", "反方评估", "严重度", "支持 / 反证"], researchRows,
-    "本轮没有深度研究报告"));
-
-  const plan = ma.latest_decision;
-  const baseline = ma.baseline;
-  setText("agent-decision-mode", "三智能体最终计划");
-  if (!plan) {
-    setHTML("agent-decision", '<div class="empty">本轮尚未形成基金经理计划；没有计划就没有交易授权。</div>');
-    setText("agent-decision-foot", "");
-  } else {
-    const rows = (plan.candidates || []).map((candidate) => {
-      const intent = candidate.order_intent || {};
-      return [
-        esc(candidate.symbol), esc(label(candidate.trade_decision)),
-        esc(intent.qty ?? "—"), esc(intent.limit_price ?? "—"),
-        esc(intent.stop_policy === "BROKER_STOP" ? "券商止损" : "AI 选择不设"),
-        esc(candidate.research_report_id || "—"),
-        esc((candidate.counterevidence || []).slice(0, 2).join("；") || "—"),
-      ];
-    });
-    setHTML("agent-decision", table(["股票", "决策", "股数", "限价", "止损", "研究编号", "关键反证"], rows,
-      "基金经理选择不交易 / 观望"));
-    setText("agent-decision-foot", "市场判断：" + (plan.market_decision || "—") +
-      " · 计划完成不等于已下单；执行仍由 Python 触发与风控决定。" +
-      (baseline ? " 单智能体影子基准：" + (baseline.market_decision || "—") + "（不下单）。" : ""));
-  }
-  const experiment = (ma.experiments || [])[0];
-  if (!experiment) {
-    setHTML("agent-experiment", '<div class="empty">还没有对照实验记录。</div>');
-  } else {
-    const basePlan = experiment.baseline_decision || {};
-    const threePlan = experiment.three_agent_decision || {};
-    setHTML("agent-experiment", table(
-      ["组别", "市场判断", "候选", "Token", "延迟"],
-      [
-        ["单智能体基准", esc(basePlan.market_decision || "—"),
-          esc(String((basePlan.candidates || []).length)), esc(String(experiment.baseline_tokens ?? "—")),
-          experiment.baseline_latency_ms != null ? esc((Number(experiment.baseline_latency_ms) / 1000).toFixed(1) + " 秒") : "—"],
-        ["三智能体", esc(threePlan.market_decision || "—"),
-          esc(String((threePlan.candidates || []).length)), esc(String(experiment.three_agent_tokens ?? "—")),
-          experiment.three_agent_latency_ms != null ? esc((Number(experiment.three_agent_latency_ms) / 1000).toFixed(1) + " 秒") : "—"],
-      ], "没有对照记录"));
-  }
-
-  const safety = [
-    ["研究", run ? (run.status === "COMPLETE" ? "已完成" : run.status === "FAILED" ? "失败/已放弃" : "进行中或未完成") : "未运行"],
-    ["最终计划", plan ? (plan.market_decision === "NO_TRADE" ? "NO_TRADE" : "已形成，等待触发") : "无计划"],
-    ["交易执行", researchOnly ? "RESEARCH_ONLY：禁止券商写请求" : ((s.unresolved || []).length ? "存在未知订单，已冻结" : (s.paused ? "已暂停" : "由 Python 监测/风控"))],
-    ["订单事实", (s.orders || []).length ? "最近订单见持仓页" : "没有订单"],
-    ["单智能体基准", baseline ? "影子记录，不下单" : (ma.enabled ? "未完成" : "未启用")],
-    ["安全门", s.freeze_reason ? "冻结：" + s.freeze_reason : "无冻结"],
-  ];
-  setHTML("agent-safety", safety.map(([labelText, value]) =>
-    '<p><b>' + esc(labelText) + '</b>' + esc(value) + '</p>').join(""));
+function renderDecisions(s) {
+  const rows = (s.decisions || []).slice(0, 12);
+  setText("plan-count", rows.length + " 条决策");
+  setHTML("plan-list", rows.map((row) => {
+    const d = row.payload || {};
+    const order = d.order_intent || {};
+    return '<article class="plan-card"><div class="plan-head"><span class="plan-symbol">' +
+      esc(order.symbol || d.action || "AI 决策") + '</span><span class="plan-tag active">' +
+      esc(d.action || "—") + '</span></div><p class="plan-thesis">' + esc(d.reason || "未记录理由") +
+      '</p><div class="plan-meta"><span>' + esc(shortDate(row.ts) + " " + time(row.ts)) +
+      '</span><span>' + esc(order.qty ? order.qty + " 股 · 限价 " + order.limit_price : "无新订单") +
+      '</span></div></article>';
+  }).join("") || '<div class="empty">尚无 OneShot 决策。</div>');
 }
 
 function populateSectors(groups) {
@@ -621,8 +406,7 @@ function renderResearchDetail(data) {
   const evidence = (data.evidence || []);
   const news = evidence.filter((item) => ["news", "ir", "filing"].includes(item.kind));
   const shown = (news.length ? news : evidence).slice(0, 10);
-  const riskFlags = (data.plans || []).flatMap((plan) => plan.candidate?.risk_flags || []);
-  const planRows = data.plans || [];
+  const decisions = data.decisions || [];
   const detail = $("research-detail");
   detail.innerHTML = '<div class="research-detail-head"><div class="research-detail-title">' +
     '<h2 id="research-detail-symbol" style="view-transition-name:research-symbol">' + esc(data.symbol) + '</h2>' +
@@ -638,7 +422,6 @@ function renderResearchDetail(data) {
     researchSection("催化与风险线索", [
       ...asList(profile.assumptions), ...asList(profile.unknowns),
       ...asList(profile.invalidation).map((item) => `失效条件：${conditionText(item)}`),
-      ...riskFlags.map((item) => `风险标记：${String(item).replaceAll("_", " ")}`),
     ], "当前档案没有催化/风险线索。") +
     '<section class="research-section"><h4>最新新闻与证据</h4>' +
     (shown.length ? shown.map((item) => {
@@ -655,12 +438,12 @@ function renderResearchDetail(data) {
       data.expires_at ? `过期 ${date(data.expires_at)}` : "",
       `${evidence.length} 条证据`,
     ], "暂无档案信息。") +
-    '<section class="research-section"><h4>相关交易计划</h4>' +
-    (planRows.length ? planRows.slice(0, 5).map((plan) => {
-      const candidate = plan.candidate || {};
-      return '<div class="research-evidence"><b>' + esc(plan.day || "") + ' · ' + esc(label(candidate.trade_decision, plan.status)) +
-        '</b><small>' + esc((candidate.analysis || "").slice(0, 220)) + '</small></div>';
-    }).join("") : '<p>该股票暂时没有交易计划。</p>') + '</section>' +
+    '<section class="research-section"><h4>相关 AI 决策</h4>' +
+    (decisions.length ? decisions.slice(0, 5).map((row) => {
+      const d = row.payload || {};
+      return '<div class="research-evidence"><b>' + esc(shortDate(row.ts) + ' · ' + (d.action || '—')) +
+        '</b><small>' + esc((d.reason || '').slice(0, 220)) + '</small></div>';
+    }).join("") : '<p>该股票暂时没有 AI 决策。</p>') + '</section>' +
     '</div>';
   detail.hidden = false;
   $("research-grid").hidden = true;
@@ -723,24 +506,12 @@ function moveNavPill() {
 
 const asList = (value) => Array.isArray(value) ? value : value ? [value] : [];
 
-function togglePlanCard(card) {
-  if (!card) return;
-  const id = card.dataset.planId || "";
-  const open = !card.classList.contains("open");
-  card.classList.toggle("open", open);
-  card.setAttribute("aria-expanded", String(open));
-  if (open) planExpanded.add(id);
-  else planExpanded.delete(id);
-}
-
 function robotTaskText(s) {
   if (s.freeze_reason || s.safety_reason) return "安全冻结，等待人工核对；不会提交新订单。";
   if (!s.running) return "等待本地 supervisor 在交易日启动。";
   if (s.paused) return "交易已暂停；已有券商委托仍可能成交。";
-  if (s.phase === "PREMARKET") return "正在准备今天的 AI 盘前计划。";
-  if (s.phase === "ACTIVE") return robotMonitor.length
-    ? "正在监测 " + robotMonitor.length + " 个有效价格条件。"
-    : "正在监测 AI 触发条件，等待行情或复核请求。";
+  if (s.phase === "PREMARKET") return "正在进行盘前研究。";
+  if (s.phase === "ACTIVE") return "OneShotEngine 正在等待下一次 AI 决策；挂单由券商管理。";
   if (s.phase === "NO_SESSION") return "今天是休市日，等待下个交易日。";
   return "交易窗口已结束，等待下个交易日。";
 }
@@ -755,29 +526,6 @@ function renderRobotStatus(s) {
   }
   setText("robot-task", robotTaskText(s));
   setText("robot-live-copy", robotError ? "日志暂时不可用 · 保留最近记录" : "真实系统数据 · 每 3 秒增量更新");
-}
-
-function conditionLabel(condition) {
-  return conditionText(condition || {});
-}
-
-function renderRobotMonitor() {
-  const box = $("robot-monitor");
-  if (!box) return;
-  const items = robotMonitor || [];
-  setText("robot-monitor-count", items.length ? items.length + " 个条件" : "");
-  if (!items.length) {
-    box.innerHTML = '<div class="robot-empty">当前没有有效监测条件。</div>';
-    return;
-  }
-  box.innerHTML = items.slice(0, 12).map((item) => {
-    const conditions = (item.triggers || []).map((trigger) =>
-      '<div class="condition">' + esc(trigger.purpose || "TRIGGER") + " · " +
-      esc((trigger.all_of || []).map(conditionLabel).join(" 且 ")) + '</div>').join("");
-    return '<div class="robot-monitor-card"><div class="robot-monitor-card-top"><b>' + esc(item.symbol) +
-      '</b><span class="plan-tag active">' + esc(label(item.decision, "监测中")) + '</span></div>' +
-      '<p>有效期 ' + esc(date(item.valid_until)) + '</p>' + conditions + '</div>';
-  }).join("");
 }
 
 function renderRobotLog() {
@@ -848,10 +596,10 @@ async function loadRobotLog(initial = false) {
       }
     }
     robotCursor = Math.max(robotCursor, Number(data.next_after || 0));
-    robotMonitor = data.monitoring || [];
+
     robotServerTime = data.server_time || robotServerTime;
     robotError = null;
-    renderRobotMonitor();
+
     renderRobotLog();
     renderRobotStatus(state);
   } catch (error) {
@@ -931,8 +679,7 @@ function render(s) {
   ]);
   setHTML("order-table", table(["股票", "方向", "持仓意图", "股数 / 已成交", "限价", "状态"], orderRows, "暂时没有订单"));
   setText("pending", s.unresolved?.length ? s.unresolved.length + " 笔待核对" : "最近 8 笔");
-  renderPlans(s);
-  renderAgents(s);
+  renderDecisions(s);
   setHTML("ai-list", (s.ai_calls || []).slice(0, 6).map((a) =>
     '<div class="ai-row"><div><strong>' + esc(MODE[a.mode] || "AI 分析") + '</strong><small>' +
     esc(shortDate(a.ts) + " " + time(a.ts) + " · " + a.model) + '</small></div><div>' +
@@ -1101,17 +848,6 @@ $("research-status").onchange = () => {
 $("research-grid").addEventListener("click", (event) => {
   const card = event.target.closest(".research-card");
   if (card) openResearch(card.dataset.symbol, card);
-});
-$("plan-list").addEventListener("click", (event) => {
-  const card = event.target.closest(".plan-card");
-  if (card) togglePlanCard(card);
-});
-$("plan-list").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  const card = event.target.closest(".plan-card");
-  if (!card) return;
-  event.preventDefault();
-  togglePlanCard(card);
 });
 document.querySelectorAll("[data-robot-filter]").forEach((button) => {
   button.addEventListener("click", () => {

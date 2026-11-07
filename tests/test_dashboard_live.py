@@ -144,7 +144,7 @@ def test_recent_closed_order_is_visible_with_broker_status(tmp_path, monkeypatch
     assert rows[0]["status"] == "filled"
     assert rows[0]["state"] == "FILLED"
     assert rows[0]["qty"] == "100"
-    assert "brief" in data and "plan_history" in data
+    assert "brief" in data and "decision" in data
 
 
 def test_research_detail_endpoint_reads_real_profile(tmp_path, monkeypatch):

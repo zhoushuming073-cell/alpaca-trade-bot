@@ -23,7 +23,7 @@ from .broker import PaperGateway, build_broker
 from .market_data import SessionPhase, session_info
 from .order_state import BROKER_STATUS_TO_STATE
 from .robot_log import build_feed as build_robot_feed
-from .settings import ROOT, Execution, MultiAgent, config_snapshot, credentials, load_config, paper_db_path
+from .settings import ROOT, Execution, config_snapshot, credentials, load_config, paper_db_path
 from .storage import Store
 from .assistant import Companion, AssistantError, AssistantBusy
 
@@ -32,7 +32,7 @@ ORIGIN = f"http://127.0.0.1:{PORT}"
 
 EVENT_KINDS = (
     "decision", "plan", "order", "error", "safety_alert", "operator",
-    "premarket_plan", "universe_scan", "intraday_recheck", "order_not_sent",
+    "one_shot_decision", "one_shot_research", "one_shot_result", "order_not_sent",
     "order_imported", "order_recovery", "config_pending", "watchdog_loop",
     "premarket_data", "quote_errors", "research_profile", "recheck_suppressed",
     "intent_rejected", "plan_invalidated", "startup_reconciliation",
@@ -363,20 +363,6 @@ def snapshot(store, account_feed=None):
                 detail["stop_status"] = "NONE_BY_AI"
             else:
                 detail["stop_status"] = "FAILED"
-    day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    plans = store.active_plans(day)
-    plan_history = []
-    for plan in store.recent_plans(120):
-        payload = plan.get("payload") or {}
-        plan_history.append({
-            "plan_id": plan["plan_id"],
-            "day": plan["trading_day"],
-            "status": plan["status"],
-            "valid_until": plan["valid_until"],
-            "created_at": plan["created_at"],
-            "reason": plan.get("reason"),
-            "candidate": payload.get("candidate"),
-        })
     local_rows = []
     with store.lock:
         rows = store.db.execute(
@@ -495,111 +481,34 @@ def snapshot(store, account_feed=None):
         "verified_profiles": verified_profiles,
         "source_note": "profile.source_status is written by the retrieval layer",
     }
-    valid_plans = []
-    for plan in plans:
-        try:
-            valid = not plan.get("valid_until") or datetime.fromisoformat(
-                str(plan["valid_until"]).replace("Z", "+00:00")
-            ) > now
-        except ValueError:
-            valid = False
-        if valid:
-            valid_plans.append(plan)
-    focus = []
-    for plan in valid_plans:
-        candidate = (plan.get("payload") or {}).get("candidate") or {}
-        if candidate.get("symbol"):
-            focus.append({
-                "symbol": candidate["symbol"],
-                "decision": candidate.get("trade_decision"),
-                "analysis": (candidate.get("analysis") or "")[:280],
-                "valid_until": plan["valid_until"],
-                "status": plan["status"],
-            })
+    latest_decision = next(iter(store.recent_events(("one_shot_decision",), 1)), None)
+    latest_research = next(iter(store.recent_events(("one_shot_research",), 1)), None)
+    research_payload = (latest_research or {}).get("payload") or {}
+    focus = [{"symbol": symbol, "decision": "RESEARCH", "analysis": research_payload.get("summary")}
+             for symbol in research_payload.get("focus_symbols", [])]
     position_brief = []
     for symbol, qty in (account or {}).get("quantities", {}).items():
         detail = (account or {}).get("position_details", {}).get(symbol) or {}
-        plan = next(
-            (item for item in valid_plans
-             if ((item.get("payload") or {}).get("candidate") or {}).get("symbol") == symbol),
-            None,
-        )
-        candidate = ((plan or {}).get("payload") or {}).get("candidate") or {}
         position_brief.append({
-            "symbol": symbol,
-            "qty": qty,
-            "market_value": detail.get("market_value"),
+            "symbol": symbol, "qty": qty, "market_value": detail.get("market_value"),
             "unrealized_pl": detail.get("unrealized_pl"),
-            "judgment": candidate.get("trade_decision") or "WAIT",
-            "analysis": (candidate.get("analysis") or "当前没有针对该持仓的今日 AI 计划；等待下一次盘前评估。")[:240],
+            "judgment": "待 AI 评估", "analysis": "下一次 OneShot 决策将读取最新持仓和挂单。",
         })
-    market_events = []
-    seen_news_symbols = set()
-    for item in sorted(
-        news_candidates,
-        key=lambda value: str(value.get("retrieved_at") or value.get("published_at") or ""),
-        reverse=True,
-    ):
-        symbol = item.get("symbol")
-        if symbol in seen_news_symbols:
-            continue
-        seen_news_symbols.add(symbol)
-        market_events.append(item)
-        if len(market_events) >= 6:
-            break
+    market_events = sorted(news_candidates, key=lambda item: str(item.get("retrieved_at") or ""), reverse=True)[:6]
     if frozen:
         next_step = "安全冻结中：等待对账与人工确认，不会提交新订单。"
     elif pending:
         next_step = "配置待重启：新订单暂停，等待安全重启。"
     elif not bool(worker_processes()):
-        next_step = "机器人未运行：等待本地 supervisor 在交易日启动。"
+        next_step = "机器人未运行。"
     elif store.paused():
         next_step = "交易已暂停：不会提交新订单。"
-    elif valid_plans:
-        next_step = f"正在监测 {len(valid_plans)} 个有效 AI 计划；12:00 ET 后不再提交新的本地订单。"
+    elif session.can_submit:
+        next_step = "OneShotEngine 等待下一次 AI 决策；挂单由券商管理。"
     else:
-        next_step = "当前没有有效 AI 计划；等待下一次盘前研究。"
-    brief = {
-        "focus": focus[:6],
-        "positions": position_brief,
-        "events": market_events,
-        "next": next_step,
-        "as_of": now.isoformat(),
-    }
-    multi_agent_config = disk.multi_agent if disk is not None else MultiAgent()
-    agent_runs = store.recent_agent_runs(8)
-    latest_agent_run = agent_runs[0] if agent_runs else None
-    latest_agent_reports = (
-        [
-            {key: value for key, value in item.items() if key != "report_json"}
-            for item in store.agent_reports(run_id=latest_agent_run["run_id"], limit=120)
-        ]
-        if latest_agent_run else []
-    )
-    agent_usage = store.agent_usage_for_day(session.trading_day)
-    agent_experiments = store.agent_experiments(3)
-    latest_decision = next(
-        (item["parsed"] for item in latest_agent_reports
-         if item.get("role") == "portfolio_manager"),
-        None,
-    )
-    baseline_report = next(
-        (item["parsed"] for item in latest_agent_reports
-         if item.get("role") == "baseline"),
-        None,
-    )
-    multi_agent = {
-        "enabled": bool(multi_agent_config.enabled),
-        "config": multi_agent_config.model_dump(),
-        "latest_run": latest_agent_run,
-        "runs": agent_runs,
-        "reports": latest_agent_reports,
-        "usage": agent_usage,
-        "experiments": agent_experiments,
-        "latest_decision": latest_decision,
-        "baseline": baseline_report,
-        "baseline_can_trade": bool(multi_agent_config.comparison.baseline_can_trade),
-    }
+        next_step = "本地只读监控券商订单和仓位。"
+    brief = {"focus": focus[:6], "positions": position_brief, "events": market_events,
+             "next": next_step, "as_of": now.isoformat()}
     return {
         "service": "ai-paper-trader",
         "now": now.isoformat(),
@@ -655,27 +564,19 @@ def snapshot(store, account_feed=None):
             "latest_check": next(iter(store.recent_events(("short_check",), 1)), None),
         },
         "health": health,
-        "decision": next(iter(store.recent_events(("premarket_plan", "intraday_recheck", "decision"), 1)), None),
+        "decision": latest_decision,
+        "decisions": store.recent_events(("one_shot_decision",), 30),
+        "latest_research": latest_research,
         "events": list(reversed(store.recent_events(EVENT_KINDS, 50))),
         "orders": orders_rows,
         "orders_source": "ALPACA_OPEN+ALPACA_RECENT+LOCAL",
         "unresolved": store.unresolved_orders(),
-        "plans": [
-            {
-                "plan_id": plan["plan_id"], "status": plan["status"],
-                "valid_until": plan["valid_until"],
-                "candidate": (plan.get("payload") or {}).get("candidate"),
-            }
-            for plan in plans
-        ],
-        "plan_history": plan_history,
         "brief": brief,
         "ai_calls": store.recent_ai_calls(10),
         "research": profiles,
         "research_capabilities": research_capabilities,
         "symbols": symbols,
         "groups": disk_groups,
-        "multi_agent": multi_agent,
         "strategy_version": version,
         "risk": {},
         "control_token": None,  # filled by the route
@@ -786,18 +687,8 @@ def create_app(db_path=None, account_feed=None, companion_model=None):
             if not row:
                 return jsonify(error="Research profile not found"), 404
             evidence = store.research_evidence(symbol, limit=60)
-            plan_history = []
-            for plan in store.recent_plans(300):
-                candidate = (plan.get("payload") or {}).get("candidate") or {}
-                if candidate.get("symbol") == symbol:
-                    plan_history.append({
-                        "plan_id": plan["plan_id"], "day": plan["trading_day"],
-                        "status": plan["status"], "valid_until": plan["valid_until"],
-                        "created_at": plan["created_at"], "reason": plan.get("reason"),
-                        "candidate": candidate,
-                    })
-                if len(plan_history) >= 12:
-                    break
+            decisions = [event for event in store.recent_events(("one_shot_decision",), 300)
+                         if ((event.get("payload") or {}).get("order_intent") or {}).get("symbol") == symbol][:12]
             fields = (
                 "id", "kind", "source_url", "title", "published_at", "retrieved_at",
                 "available_at", "verified", "content_hash", "summary",
@@ -810,7 +701,7 @@ def create_app(db_path=None, account_feed=None, companion_model=None):
                 "expires_at": row["expires_at"],
                 "profile": row.get("profile") or {},
                 "evidence": [{key: item.get(key) for key in fields} for item in evidence],
-                "plans": plan_history,
+                "decisions": decisions,
             })
         finally:
             store.close()

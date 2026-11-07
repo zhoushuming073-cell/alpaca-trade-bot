@@ -5,16 +5,19 @@ from lumibot.strategies import Strategy
 
 from .broker import PaperGateway
 from .deepseek_client import DeepSeek
-from .engine import Engine
+from .one_shot_engine import OneShotEngine
 from .execution import OrderService
 from .research import ResearchService, UnavailableSources
 from .settings import config_snapshot, credentials, load_config
 from .watchdog import CutoffWatchdog
-from .premarket_scheduler import PremarketScheduler
+from .one_shot_scheduler import OneShotScheduler
 
 
 class PaperStrategy(Strategy):
     def initialize(self, store):
+        if store.get_control("paused") is None:
+            store.pause(True)
+            store.set_control("autopilot", "false")
         self.sleeptime = "5S"
         self.set_market("NYSE")
         self.minutes_before_closing = 0
@@ -49,10 +52,33 @@ class PaperStrategy(Strategy):
             store, self.ai, data, self.daily_history, self.bundle.execution,
             sources=UnavailableSources(),
         )
-        self.engine = Engine(
-            store, self.gateway, self.ai, self.bundle, data,
-            daily_data=self.daily_history, mode="paper", research=self.research,
-            require_watchdog=True,
+        def context_provider(context):
+            from .market_data import compact_history
+
+            symbols = context.get("focus_symbols") or list(self.bundle.symbols)
+            result = {"status": "AVAILABLE", "as_of_utc": context["as_of_utc"],
+                      "symbols": {}, "profiles": self.research.summaries(symbols),
+                      "news": self.research.latest_news(symbols)}
+            for symbol in symbols:
+                item = {"as_of_utc": context["as_of_utc"]}
+                try:
+                    daily = self.daily_history(symbol)
+                    item["history"] = compact_history(daily)
+                except Exception as exc:
+                    item["history_error"] = type(exc).__name__
+                if context["session"]["phase"] == "ACTIVE":
+                    try:
+                        item["quote"] = self.gateway.quote(symbol, self.bundle.risk)
+                    except Exception as exc:
+                        item["quote_error"] = type(exc).__name__
+                result["symbols"][symbol] = item
+            if not any("history" in item or "quote" in item for item in result["symbols"].values()):
+                result["status"] = "UNAVAILABLE"
+            return result
+
+        self.engine = OneShotEngine(
+            store, self.gateway, self.ai, self.bundle,
+            context_provider=context_provider, require_watchdog=True,
         )
         self.watchdog = CutoffWatchdog(
             store.path, self.gateway, self.bundle.execution,
@@ -69,7 +95,7 @@ class PaperStrategy(Strategy):
             store.block("STARTUP_RECONCILIATION_UNAVAILABLE: " + type(exc).__name__)
             store.error("startup_reconciliation", exc, outcome="startup_blocked")
         store.heartbeat("worker", ok=True, detail={"phase": "initialized"})
-        self.premarket_scheduler = PremarketScheduler(self.engine)
+        self.premarket_scheduler = OneShotScheduler(self.engine)
         self.premarket_scheduler.start()
 
     def on_trading_iteration(self):
@@ -80,7 +106,7 @@ class PaperStrategy(Strategy):
         if not hasattr(self, "engine"):
             return
         if not hasattr(self, "premarket_scheduler"):
-            self.premarket_scheduler = PremarketScheduler(self.engine)
+            self.premarket_scheduler = OneShotScheduler(self.engine)
         return self.premarket_scheduler.run_once()
 
     def after_market_closes(self):

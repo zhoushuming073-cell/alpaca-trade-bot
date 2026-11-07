@@ -64,9 +64,9 @@ def main():
         model=args.model, transport=transport, max_focus=args.max_focus,
         max_tokens=args.max_tokens, short_locates=True,
     )
-    result = replay.run_three_agent(days) if args.three_agent else replay.run(days)
+    result = replay.run(days)
     report = replay.report(result)
-    report["engine_mode"] = "THREE_AGENT" if args.three_agent else "SINGLE_AGENT"
+    report["engine_mode"] = "HISTORICAL_SINGLE_AGENT"
     report["days"] = days
     report["dry_run"] = bool(args.dry_run)
     report["budget"] = {

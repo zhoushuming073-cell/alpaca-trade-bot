@@ -1,7 +1,4 @@
-"""Isolated behavioral contract for the proposed one-shot engine.
-
-Every broker is synthetic.  The production worker never imports this engine.
-"""
+"""Offline safety and execution contract for the production OneShotEngine."""
 
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -224,7 +221,7 @@ def test_extra_fill_during_cancel_requires_new_position_decision(store, bundle, 
     result = engine.apply_decision(
         command(snapshot, action="SELL", qty=3, decision_id="exit", cancel=True), snapshot,
     )
-    assert result == {"status": "BLOCKED", "reason": "POSITION_CHANGED_DURING_CANCEL"}
+    assert result == {"status": "BLOCKED", "reason": "FILL_CHANGED_DURING_CANCEL"}
     assert broker.submissions == 1 and broker.positions["CRWV"] == 5
 
 
@@ -337,7 +334,7 @@ def test_outside_stock_pool_is_rejected_by_existing_order_service(store, bundle,
 
 
 def test_non_fake_broker_is_forbidden(store, bundle, clock):
-    with pytest.raises(RuntimeError, match="OFFLINE-ONLY"):
+    with pytest.raises(RuntimeError, match="FakeBroker or Alpaca PaperGateway"):
         OneShotEngine(store, object(), None, bundle, clock=clock)
 
 
