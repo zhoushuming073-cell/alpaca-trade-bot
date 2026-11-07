@@ -11,6 +11,9 @@ ET=ZoneInfo('America/New_York')
 def dt(s):return datetime.fromisoformat(str(s).replace('Z','+00:00'))
 def main():
     r=json.loads((ROOT/'data/exam_replay_runs/full15/report.json').read_text(encoding='utf-8'))
+    window=(r.get('execution_contract') or {}).get('new_order_window_et')
+    if not window:raise ValueError('Saved exam report has no execution window')
+    start_et,end_et=(time.fromisoformat(part) for part in window.split('-'))
     out=ROOT/'data/decision_v3_audit';out.mkdir(exist_ok=True)
     d=duckdb.connect(str(ROOT/'data/exam_v2.duckdb'),read_only=True)
     inputs=r['ai_inputs'];raws=r['ai_raw'];trades=r['trades']
@@ -32,7 +35,7 @@ def main():
             if pos and x['mode'] in ['POSITION_REVIEW','INTRADAY_RECHECK']:
                 reviews.append({'input_index':i,'mode':x['mode'],'asof':p['as_of_utc'],'position':pos,'raw_response':raws[i]['content']})
         result['position_cases'][symbol]={'trade':t,'max_bar':{'start_et':rows[0].astimezone(ET).isoformat(),'end_et':rows[1].astimezone(ET).isoformat(),'high':rows[2],
-            'mfe_pct':(rows[2]/t['entry_price']-1)*100,'inside_local_window':time(9,30)<=rows[0].astimezone(ET).time()<time(10)},'reviews':reviews}
+            'mfe_pct':(rows[2]/t['entry_price']-1)*100,'inside_local_window':start_et<=rows[0].astimezone(ET).time()<end_et},'reviews':reviews}
     symbols=yaml.safe_load((ROOT/'config/watchlist.yaml').read_text(encoding='utf-8'))['symbols']
     for day in ['2026-09-29','2026-10-06','2026-10-14']:
         cutoff=dt(day+'T09:00:00-04:00');snap=get_v2_snapshot(day,cutoff,symbols,mode=ExamMode.EXPLORATORY)

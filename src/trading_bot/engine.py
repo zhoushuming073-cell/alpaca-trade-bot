@@ -94,13 +94,14 @@ class Engine:
         self.research = research
         self.require_watchdog = (mode == "paper") if require_watchdog is None else require_watchdog
         self.check_disk_config = (mode == "paper") if check_disk_config is None else check_disk_config
-        self.orders = OrderService(store, broker, self.execution, clock=self.clock)
+        self.orders = OrderService(
+            store, broker, self.execution, clock=self.clock,
+            require_web_heartbeat=mode == "paper",
+        )
         self.started_at = self.clock()
         self.tick_lock = threading.RLock()
         self._last_account_event = None
         self._last_scan = None
-        self._last_active_research = None
-        self._active_research_day = None
         self._active_research_tokens = 0
         self._last_patrol = None
         self._patrol_day = None
@@ -964,13 +965,17 @@ class Engine:
     def _active_end_utc(session):
         return session.active_end.astimezone(timezone.utc) if session.active_end else None
 
-    def _patrol_due(self, now):
-        day = now.astimezone(timezone.utc).date().isoformat()
+    def _reset_research_day(self, day):
         if self._patrol_day != day:
             self._patrol_day = day
             self._last_patrol = None
             self._patrol_seen = set()
             self._last_expert = None
+            self._active_research_tokens = 0
+            self._research_marks = {}
+            self._profit_reviewed = set()
+
+    def _patrol_due(self, now):
         return self._last_patrol is None or (
             now - self._last_patrol
         ).total_seconds() >= self.multi_agent.patrol.interval_seconds
@@ -1048,7 +1053,7 @@ class Engine:
             })
             return []
 
-    def _python_event_reason(self, now, account_ctx, plans):
+    def _python_event_reason(self, account_ctx, plans):
         if not plans:
             return "plan_missing"
         for position in account_ctx.get("positions", []):
@@ -1076,69 +1081,24 @@ class Engine:
         finally:
             self._expert_running = False
 
-    def _active_research_due(self, now, account_ctx, held, plans):
-        """Return a reason when an intraday three-agent refresh is due."""
-        if not self.multi_agent.enabled or not self.ai:
-            return None
-        day = now.astimezone(timezone.utc).date().isoformat()
-        if self._active_research_day != day:
-            self._active_research_day = day
-            self._last_active_research = None
-            self._active_research_tokens = 0
-            self._research_marks = {}
-            self._profit_reviewed = set()
-        research_cap = self.multi_agent.active_research.max_tokens
-        if research_cap is not None and self._active_research_tokens >= research_cap:
-            return None
-        if self._last_active_research is None:
-            if plans:
-                self._last_active_research = now
-                return None
-            return "plan_missing_or_premarket_failed"
-        age = (now - self._last_active_research).total_seconds()
-        if not plans and age >= self.multi_agent.active_research.min_cooldown_seconds:
-            return "plan_gap"
-        if age >= self.multi_agent.active_research.interval_seconds:
-            return "fifteen_minute_refresh"
-        if age < self.multi_agent.active_research.min_cooldown_seconds:
-            return None
-        for position in account_ctx.get("positions", []):
-            symbol = position.get("symbol")
-            pnl = float(position.get("unrealized_plpc") or 0)
-            level = 0.10 if pnl >= 0.10 else 0.05 if pnl >= 0.05 else 0
-            if level and (symbol, level) not in self._profit_reviewed:
-                return f"profit_review:{symbol}:{int(level*100)}"
-        for symbol, old in self._research_marks.items():
-            position = next((p for p in account_ctx.get("positions", []) if p.get("symbol") == symbol), None)
-            if position:
-                current = float(position.get("current_price") or 0)
-                if old and current and abs(current / old - 1) >= 0.02:
-                    return f"price_structure:{symbol}"
-        try:
-            news = self._trim_news()
-            for symbol, rows in (news or {}).items():
-                for row in rows:
-                    published = _parse_iso(row.get("published_at_utc") or row.get("published_at"))
-                    if published and published > self._last_active_research:
-                        return f"material_news:{symbol}"
-        except Exception:
-            pass
-        return None
+    def _expert_budget_available(self):
+        cap = self.multi_agent.active_research.max_tokens
+        return cap is None or self._active_research_tokens < cap
 
     def _run_active_research(self, session, now, account_ctx, held, plans, reason):
-        if not session.can_submit:
+        deadline = session.submit_cutoff or now + timedelta(minutes=3)
+        if not session.can_submit or self.clock() >= deadline:
             return None
         history, failures, unavailable = self._collect_universe(session)
         if not history:
             self.store.event("active_research_failed", {"reason": "no usable history", "trigger": reason})
-            self._last_active_research = now
             return None
-        deadline = session.active_end - timedelta(seconds=30) if session.active_end else now + timedelta(minutes=3)
+        if self.clock() >= deadline:
+            return None
         result = self._multi_agent_premarket(
             session, account_ctx, history, held, unavailable,
             run_mode="INTRADAY_RESEARCH", deadline_utc=deadline,
         )
-        self._last_active_research = now
         if result is not None:
             self._active_research_tokens += int(result.usage.tokens)
         focus = [row.get("symbol") for row in (result.focus if result else []) if row.get("symbol")]
@@ -1146,6 +1106,12 @@ class Engine:
             self.store.event("active_research_failed", {
                 "trigger": reason, "run_id": getattr(result, "run_id", None),
                 "error": getattr(result, "error", ""),
+            })
+            return None
+        if self.clock() >= deadline:
+            self.store.event("active_research_failed", {
+                "trigger": reason, "run_id": result.run_id,
+                "reason": "result completed after submission cutoff",
             })
             return None
         saved, blocked = self._save_plans(
@@ -1190,35 +1156,34 @@ class Engine:
             return "active_snapshot_failed"
         account_ctx, held = self._account_context(account)
         plans = self.store.active_plans(session.trading_day)
-        expert_cooldown = self.multi_agent.enabled and (
-            self._last_expert is None
-            or (now - self._last_expert).total_seconds()
-            >= self.multi_agent.active_research.min_cooldown_seconds
-        )
-        # Fallback research when premarket is missing/failed/expired.
-        if not plans and expert_cooldown:
-            self._run_expert(session, now, account_ctx, held, plans, "plan_missing")
-            self._last_patrol = now
-            plans = self.store.active_plans(session.trading_day)
-        # Deterministic Python event fast-path (profit, price structure, plan gap).
-        if expert_cooldown:
-            event_reason = self._python_event_reason(now, account_ctx, plans)
-            if event_reason and event_reason != "plan_missing":
-                self._run_expert(session, now, account_ctx, held, plans, event_reason)
-                plans = self.store.active_plans(session.trading_day)
-        # Ten-minute low-cost patrol; escalate only material signals.
-        if self.multi_agent.enabled and self._patrol_due(now):
-            signals = self._run_patrol(session, now, account_ctx, held, plans)
-            material = [
-                signal for signal in signals
-                if signal.get("severity") in {"MEDIUM", "HIGH"}
-            ]
-            if material:
-                reason = "patrol:" + ",".join(
-                    f"{s.get('category')}:{s.get('symbol')}" for s in material[:3]
-                )
-                self._run_expert(session, now, account_ctx, held, plans, reason)
-                plans = self.store.active_plans(session.trading_day)
+        now = self.clock()
+        if now >= session.submit_cutoff:
+            return "after_cutoff"
+        if self.multi_agent.enabled and self.ai:
+            self._reset_research_day(session.trading_day)
+            cooldown_elapsed = self._last_expert is None or (
+                now - self._last_expert
+            ).total_seconds() >= self.multi_agent.active_research.min_cooldown_seconds
+            if cooldown_elapsed:
+                reason = self._python_event_reason(account_ctx, plans) if self._expert_budget_available() else None
+                if reason is None and self._patrol_due(now):
+                    signals = self._run_patrol(session, now, account_ctx, held, plans)
+                    material = [s for s in signals if s.get("severity") in {"MEDIUM", "HIGH"}]
+                    if material and self._expert_budget_available():
+                        reason = "patrol:" + ",".join(
+                            f"{s.get('category')}:{s.get('symbol')}" for s in material[:3]
+                        )
+                now = self.clock()
+                if now >= session.submit_cutoff:
+                    return "after_cutoff"
+                if reason:
+                    self._run_expert(session, now, account_ctx, held, plans, reason)
+                    if reason == "plan_missing":
+                        self._last_patrol = now
+                    plans = self.store.active_plans(session.trading_day)
+                    now = self.clock()
+                    if now >= session.submit_cutoff:
+                        return "after_cutoff"
         if not plans:
             return "active_no_plan"
         if self._last_scan is not None and (now - self._last_scan).total_seconds() < self.execution.trigger_poll_seconds:
@@ -1521,7 +1486,7 @@ class Engine:
             "history": history,
             "quote": quote,
         }
-        deadline = session.active_end - timedelta(seconds=30) if session.active_end else None
+        deadline = session.submit_cutoff
         orchestrator = MultiAgentOrchestrator(self.store, self.ai, self.config, clock=self.clock)
         result = orchestrator.run_recheck(
             session=session, base_payload=base_payload, symbol=symbol,

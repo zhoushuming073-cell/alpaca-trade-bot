@@ -20,11 +20,12 @@ from .safety import BrokerStopUnsupported, OrderValidationError, PreDispatchReje
 
 
 class OrderService:
-    def __init__(self, store, broker, execution, clock=None):
+    def __init__(self, store, broker, execution, clock=None, *, require_web_heartbeat=False):
         self.store = store
         self.broker = broker
         self.execution = execution
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.require_web_heartbeat = require_web_heartbeat
 
     @staticmethod
     def client_order_id(plan_id: str, trigger_id: str, intent: dict, attempt: int = 0) -> str:
@@ -128,6 +129,10 @@ class OrderService:
                 raise PreDispatchRejected("Paused/frozen/config-pending at dispatch boundary")
             if self._config_drift():
                 raise PreDispatchRejected("Configuration drift at dispatch boundary")
+            if self.require_web_heartbeat and (
+                not self.store.web_connected() or self.store.web_reconnect_required()
+            ):
+                raise PreDispatchRejected("Browser disconnected or pending reconciliation at dispatch boundary")
             if self.store.record_dispatch_intent(cid, owner):
                 pass
             else:

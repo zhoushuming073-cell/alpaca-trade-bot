@@ -22,6 +22,7 @@ from openai import OpenAI
 from .settings import ROOT
 
 PROMPT_FILES = {
+    "ONE_SHOT_DECISION": "one_shot_decision.txt",
     "PREMARKET_PLAN": "premarket_plan.txt",
     "UNIVERSE_SCAN": "universe_scan.txt",
     "INTRADAY_RECHECK": "intraday_recheck.txt",

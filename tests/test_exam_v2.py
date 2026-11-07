@@ -149,9 +149,11 @@ def test_simulator_long_short_and_costs():
     fills=broker.process_bar(replay)
     assert len(fills)==1 and order.status=="filled" and broker.positions["AMD"]==-2
     assert broker.accrue_borrow(DAY,{"AMD":100})>0
+    broker.submit(symbol="AMD",action="COVER_SHORT",qty=1,limit_price=101,
+                  submitted_at=datetime.combine(DAY,time(10),ET))
     with pytest.raises(ValueError,match="New strategy orders"):
         broker.submit(symbol="AMD",action="COVER_SHORT",qty=1,limit_price=101,
-                      submitted_at=datetime.combine(DAY,time(10),ET))
+                      submitted_at=datetime.combine(DAY,time(11,59,30),ET))
 
 
 def test_simulator_partial_fill_expiry_and_long_reduction():

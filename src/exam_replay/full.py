@@ -6,9 +6,9 @@ The AI contract is the existing production contract:
   * INTRADAY_RECHECK
   * POSITION_REVIEW (existing production prompt/schema, used for stop review)
 
-Python performs the 09:30-10:00 trigger loop, calls the AI only on
+Python performs the 09:30-12:00 trigger loop, calls the AI only on
 REQUEST_AI_RECHECK, and applies the returned instruction through the isolated
-broker.  After 10:00 ET it never calls the AI; already-active limit and stop
+broker.  After 12:00 ET it never calls the AI; already-active limit and stop
 orders continue to be replayed against completed IEX minute bars.
 """
 
@@ -36,8 +36,8 @@ from .runner import ExamReplay, ROOT, _canon, _parse_time, _sha
 from .parsing import normalize_plan, normalize_stop_metadata
 
 EXAM_MODE = ExamMode.EXPLORATORY
-SUBMIT_CUTOFF = dtime(9, 59, 30)
-LOCAL_END = dtime(10, 0, 0)
+SUBMIT_CUTOFF = dtime(11, 59, 30)
+LOCAL_END = dtime(12, 0, 0)
 
 
 @dataclass
@@ -88,9 +88,9 @@ class FullExamReplay(ExamReplay):
             "allow_adjust_stop": True,
             "allow_remove_stop": True,
             "short_locate_assumption": "ALL_SYMBOLS_ASSUMED_AVAILABLE_FOR_EXAM",
-            "new_order_window_et": "09:30-09:59:30",
-            "local_ai_window_et": "09:30-09:59:59",
-            "after_1000": "broker order replay only; no new AI decisions",
+            "new_order_window_et": "09:30-11:59:30",
+            "local_ai_window_et": "09:30-11:59:59",
+            "after_1200": "broker order replay only; no new AI decisions",
             "time_in_force": {"entry": "DAY", "protective_stop": "GTC"},
         }
         self._day = None
@@ -327,7 +327,7 @@ class FullExamReplay(ExamReplay):
             "position": next((p for p in account.get("positions_detail", [])
                               if p["symbol"] == candidate.symbol), None),
             "history": self._history(snapshot, candidate.symbol),
-            "deadline_utc": datetime.combine(self._day, dtime(10, 0)).replace(
+            "deadline_utc": datetime.combine(self._day, LOCAL_END).replace(
                 tzinfo=__import__("zoneinfo").ZoneInfo("America/New_York")).isoformat(),
             "rechecks_used_today": self._rechecks_today,
             "risk_notes": {
@@ -541,15 +541,15 @@ class FullExamReplay(ExamReplay):
                 for bar in bars_here.values():
                     self.broker.process_bar(bar)
                     self._last_marks[bar["symbol"]] = float(bar["close"])
-                if ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).time() > dtime(10, 0):
-                    # After 10:00: broker orders only, no AI, no new local order.
+                if ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).time() >= LOCAL_END:
+                    # At 12:00: broker orders only, no AI, no new local order.
                     continue
                 if not self._position_reviewed:
                     self._position_reviewed = True
                     self._position_review(snapshot, self.broker.account(ts, self._last_marks),
                                           next(iter(bars_here.values())))
-                # AI and trigger processing only through 09:59:59.
-                if ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).time() > dtime(9, 59, 59):
+                # AI and trigger processing only before the submission cutoff.
+                if ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).time() >= SUBMIT_CUTOFF:
                     continue
                 account_now = self.broker.account(ts, self._last_marks)
                 for runtime in self._runtime:
@@ -607,7 +607,7 @@ class FullExamReplay(ExamReplay):
                                     "symbol": candidate.symbol, "reason": str(exc)[:300],
                                 })
                             break
-            # 10:00-16:00 already processed by the same loop; no AI.
+            # 12:00-16:00 already processed by the same loop; no AI.
             self.broker.expire_day(day)
             close_marks = self._daily_close(day)
             if not close_marks:

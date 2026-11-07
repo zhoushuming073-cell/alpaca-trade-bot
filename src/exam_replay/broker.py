@@ -133,8 +133,8 @@ class ExamBroker:
         if submitted_at.tzinfo is None:
             raise ValueError("timezone required")
         local = submitted_at.astimezone(ET)
-        if not (time(9, 30) <= local.time() <= time(9, 59, 30)):
-            raise ValueError("new local order outside 09:30-09:59:30")
+        if not (time(9, 30) <= local.time() < time(11, 59, 30)):
+            raise ValueError("new local order outside 09:30-11:59:30")
         if time_in_force not in {"DAY", "GTC"}:
             raise ValueError("invalid time_in_force")
         price = money(limit_price)

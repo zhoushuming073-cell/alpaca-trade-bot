@@ -16,6 +16,25 @@ from trading_bot.decision_schema import (
 ET = ZoneInfo("America/New_York")
 
 
+def test_exam_execution_uses_noon_window():
+    from exam_replay.broker import ExamBroker
+    from exam_v3.contracts import time_state
+
+    broker = ExamBroker(["AAPL"])
+    before = datetime(2026, 9, 28, 11, 59, 29, tzinfo=ET)
+    cutoff = datetime(2026, 9, 28, 11, 59, 30, tzinfo=ET)
+    noon = datetime(2026, 9, 28, 12, 0, tzinfo=ET)
+    assert time_state(before)["new_order_allowed"] is True
+    assert time_state(cutoff)["trading_window_open"] is True
+    assert time_state(cutoff)["new_order_allowed"] is False
+    assert time_state(noon)["trading_window_open"] is False
+    broker.submit(symbol="AAPL", action="BUY", qty=1, limit_price=100,
+                  submitted_at=before)
+    with pytest.raises(ValueError, match="11:59:30"):
+        broker.submit(symbol="AAPL", action="BUY", qty=1, limit_price=100,
+                      submitted_at=cutoff)
+
+
 class FakeAI:
     def __init__(self):
         self.requests = []

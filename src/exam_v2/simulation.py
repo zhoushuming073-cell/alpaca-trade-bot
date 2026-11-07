@@ -83,7 +83,7 @@ class HistoricalSimBroker:
         if price<=0:raise ValueError("Positive limit required")
         if submitted_at.tzinfo is None:raise ValueError("Timezone required")
         local=submitted_at.astimezone(ET)
-        if not time(9,30)<=local.time()<=time(9,59,30):
+        if not time(9,30)<=local.time()<time(11,59,30):
             raise ValueError("New strategy orders only in production opening window")
         held=self.positions.get(symbol,0)
         if action in {"CLOSE_LONG","REDUCE","SELL"} and (held<=0 or qty>held):
@@ -102,7 +102,7 @@ class HistoricalSimBroker:
         return order
 
     def process_bar(self,bar,*,max_shares=None):
-        """Consume a completed IEX one-minute replay bar; DAY orders may fill after 10:00."""
+        """Consume a completed IEX one-minute replay bar; DAY orders may fill after 12:00."""
         if bar["timeframe"]!="1Min" or bar["feed"]!="iex":raise ValueError("Only IEX replay bars")
         at=bar["end_at"]
         if at.tzinfo is None:raise ValueError("Timezone required")

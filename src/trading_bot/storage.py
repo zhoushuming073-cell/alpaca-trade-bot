@@ -132,6 +132,9 @@ class Store:
                     dispatch_intent_at TEXT, not_sent_at TEXT, reason TEXT,
                     created_at TEXT, updated_at TEXT);
                 CREATE TABLE IF NOT EXISTS order_requests(cid TEXT PRIMARY KEY, cycle TEXT, ts TEXT, payload TEXT);
+                CREATE TABLE IF NOT EXISTS one_shot_decisions(
+                    decision_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+                    action TEXT NOT NULL, created_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS fills(
                     cid TEXT, cumulative_qty TEXT, ts TEXT, payload TEXT,
                     PRIMARY KEY(cid, cumulative_qty));
@@ -637,6 +640,22 @@ class Store:
         }
 
     # ------------------------------------------------------------- order ledger
+    def reserve_one_shot_decision(self, decision_id: str, fingerprint: str, action: str) -> str:
+        """Reserve a model decision across processes before any broker side effect."""
+        with self._tx():
+            row = self.db.execute(
+                "SELECT fingerprint FROM one_shot_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+            if row:
+                return "DUPLICATE" if row["fingerprint"] == fingerprint else "CONFLICT"
+            self.db.execute(
+                "INSERT INTO one_shot_decisions(decision_id,fingerprint,action,created_at) "
+                "VALUES(?,?,?,?)",
+                (decision_id, fingerprint, action, _iso(self.clock())),
+            )
+            return "NEW"
+
     def reserve_order(
         self,
         cid: str,

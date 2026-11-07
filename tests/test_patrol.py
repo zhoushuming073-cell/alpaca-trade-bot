@@ -23,7 +23,6 @@ def test_patrol_rejects_order_fields():
 
 def test_patrol_schedule_is_ten_minutes_and_resets_daily():
     engine = SimpleNamespace(
-        execution=SimpleNamespace(),
         multi_agent=SimpleNamespace(enabled=True, patrol=SimpleNamespace(interval_seconds=600)),
         _patrol_day="2026-11-06", _last_patrol=datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc),
         _patrol_seen=set(), _last_expert=None,
@@ -31,6 +30,10 @@ def test_patrol_schedule_is_ten_minutes_and_resets_daily():
     now = datetime(2026, 11, 6, 15, 10, tzinfo=timezone.utc)
     assert Engine._patrol_due(engine, now) is True
     assert Engine._patrol_due(engine, now - timedelta(seconds=1)) is False
+    engine._patrol_seen.add("previous-day-signal")
+    Engine._reset_research_day(engine, "2026-11-09")
+    assert Engine._patrol_due(engine, now + timedelta(days=3)) is True
+    assert not engine._patrol_seen
 
 
 def test_expert_is_not_started_twice_while_running():

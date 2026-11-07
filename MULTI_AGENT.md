@@ -57,7 +57,7 @@ Schema 位于 `src/trading_bot/agent_schemas.py`，均使用 `extra=forbid`。�
 
 - 只对相关股票重新运行研究员 → 反方 → 基金经理。
 - 使用新的 `PORTFOLIO_RECHECK` 严格响应；`REPLACE` 必须引用本轮研究和反方报告。
-- 仍受原有冷却、每日复核预算、09:30–10:00 窗口、风控和 idempotency 约束。
+- 仍受原有冷却、每日复核预算、09:30–12:00 ET 主动窗口（11:59:30 ET 停止本地提交）、风控和 idempotency 约束。
 
 ## 4. 配置与预算
 

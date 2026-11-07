@@ -23,8 +23,10 @@ $ErrorActionPreference = 'Stop'
 $global:launches = 0
 $global:browsers = 0
 $global:probes = 0
+$global:unexpectedProbes = 0
 function Invoke-RestMethod {
     param($Uri, $TimeoutSec)
+    if ($Uri -ne 'http://127.0.0.1:4200/api/health') { $global:unexpectedProbes++ }
     $global:probes++
     if ($env:LAUNCH_TEST_MODE -eq 'reuse' -or $global:probes -ge 3) {
         return @{service='ai-paper-trader';ready=$true}
@@ -46,6 +48,7 @@ function Start-Process {
 }
 try { & "$PSScriptRoot/start-dashboard.ps1" }
 catch { if ($env:LAUNCH_TEST_MODE -ne 'failure') { throw } }
+if ($global:unexpectedProbes) { throw 'Launcher must probe only the local readiness endpoint' }
 Write-Output "RESULT:$global:launches/$global:browsers"
 ''', encoding="ascii")
     import os

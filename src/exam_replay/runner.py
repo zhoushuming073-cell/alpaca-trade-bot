@@ -436,7 +436,7 @@ class ExamReplay:
         if plan.market_decision is not MarketDecision.TRADE:
             return []
         submitted = []
-        cutoff = datetime.combine(day, dtime(9, 59, 30), ET)
+        cutoff = datetime.combine(day, dtime(11, 59, 29), ET)
         valid_until = plan.as_of_utc + timedelta(hours=6)
         for candidate in plan.candidates:
             if candidate.order_intent is None:
@@ -467,7 +467,7 @@ class ExamReplay:
         bars = self._regular_bars(day)
         if plan.market_decision is not MarketDecision.TRADE:
             return [], bars
-        cutoff = datetime.combine(day, dtime(9, 59, 30), ET)
+        cutoff = datetime.combine(day, dtime(11, 59, 29), ET)
         orders = {}
         for candidate in plan.candidates:
             intent = candidate.order_intent

@@ -39,6 +39,22 @@ def test_control_requires_token_and_origin(tmp_path, monkeypatch):
     assert c.get("/api/status", base_url="http://evil.test").status_code == 403
 
 
+def test_authenticated_page_close_requires_reconciliation_and_preserves_pause(tmp_path, monkeypatch):
+    c = client(tmp_path, monkeypatch)
+    status = c.get("/api/status", base_url=ORIGIN).get_json()
+    headers = {"Origin": ORIGIN, "X-Control-Token": status["control_token"]}
+    assert c.post("/api/control/pause", base_url=ORIGIN, headers=headers).status_code == 200
+    assert c.post("/api/heartbeat", base_url=ORIGIN, headers=headers).get_json()["web_connected"]
+    assert c.post("/api/heartbeat/close", base_url=ORIGIN, headers={"Origin": ORIGIN}).status_code == 403
+    response = c.post("/api/heartbeat/close", base_url=ORIGIN, headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()["web_connected"] is False
+    resumed_heartbeat = c.post("/api/heartbeat", base_url=ORIGIN, headers=headers).get_json()
+    assert resumed_heartbeat["web_connected"] is True
+    assert resumed_heartbeat["reconnect_required"] is True
+    assert resumed_heartbeat["paused"] is True
+
+
 def test_status_fields(tmp_path, monkeypatch):
     c = client(tmp_path, monkeypatch)
     status = c.get("/api/status", base_url=ORIGIN)

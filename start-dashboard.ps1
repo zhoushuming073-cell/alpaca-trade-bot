@@ -9,7 +9,7 @@ try { $ownsMutex = $launchMutex.WaitOne(0) } catch [System.Threading.AbandonedMu
 if (-not $ownsMutex) { Write-Host 'Another launcher is already starting Dashboard. Please wait.'; return }
 $available = $false
 Write-Host 'Checking Dashboard at http://127.0.0.1:4200 ...'
-try { $response = Invoke-RestMethod "$url/api/status" -TimeoutSec 2; $available = $response.service -eq 'ai-paper-trader' } catch {}
+try { $response = Invoke-RestMethod "$url/api/health" -TimeoutSec 2; $available = $response.service -eq 'ai-paper-trader' -and $response.ready } catch {}
 if (-not $available) {
     New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot 'logs') | Out-Null
     # Dashboard only. Never change worker or trading controls here.

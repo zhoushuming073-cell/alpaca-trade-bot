@@ -985,7 +985,9 @@ async function refresh() {
       if (typeof next.running !== "boolean" || typeof next.paused !== "boolean") throw new Error("invalid status");
       online = true;
       lastUpdate = Date.now();
+      const previousToken = token;
       render(next);
+      if (token && token !== previousToken) void sendHeartbeat();
       return true;
     } catch {
       online = false;
@@ -1157,20 +1159,21 @@ setInterval(refresh, 5000);
 // The browser is the liveness authority for new risk.  This heartbeat never
 // clears a manual pause; it only proves that the page is still open.
 async function sendHeartbeat() {
+  if (!token) return;
   try {
     await fetch("/api/heartbeat", {
-      method: "POST", headers: token ? {"X-Control-Token": token} : {},
+      method: "POST", headers: {"X-Control-Token": token},
       signal: AbortSignal.timeout(5000)
     });
   } catch { /* the server-side 30s stale gate will stop new risk */ }
 }
 function sendHeartbeatClose() {
-  try {
-    const body = new Blob([""], {type: "text/plain"});
-    navigator.sendBeacon("/api/heartbeat/close", body);
-  } catch { /* server stale timeout is the fallback */ }
+  if (!token) return;
+  // Unlike sendBeacon, keepalive fetch can carry the control header on pagehide.
+  void fetch("/api/heartbeat/close", {
+    method: "POST", headers: {"X-Control-Token": token}, keepalive: true
+  }).catch(() => { /* server stale timeout is the fallback */ });
 }
-sendHeartbeat();
 setInterval(sendHeartbeat, 10000);
 
 function updateEtClock() {
@@ -1188,6 +1191,9 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) sendHeartbeat();
 });
 window.addEventListener("pagehide", sendHeartbeatClose);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) void sendHeartbeat();
+});
 setInterval(() => {
   if (activePage === "robot" && !document.hidden) loadRobotLog();
 }, 3000);

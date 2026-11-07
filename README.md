@@ -27,6 +27,8 @@
 - `11:59:30 ET`：`can_submit=false`
 - `12:00:00 ET`：主动窗口关闭
 
+仓库中的旧考试报告、历史交接记录和 `config/user_strategy.md` 保留了当时的 10:00 ET 规则与实测结果，仅用于追溯；它们不是当前运行配置。当前执行时间以 `config/execution.yaml` 和本节为准。
+
 最终订单网关 `PaperGateway.prepare()` 会再次检查 `session.can_submit`，不是只依赖 AI 或计划状态。
 
 ## 2. 双层决策架构

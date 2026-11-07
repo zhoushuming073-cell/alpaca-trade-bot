@@ -25,13 +25,13 @@ def bar(at=None,**kw):
     return dict(symbol='AMD',timeframe='1Min',feed='iex',ts=at,end_at=at+timedelta(minutes=1),
                 open=100,high=101,low=99,close=100,volume=10000)|kw
 
-@pytest.mark.parametrize('hh,mm,ss,allowed',[(9,0,0,False),(9,30,0,True),(9,31,0,True),(9,59,30,True),(9,59,59,True),(10,0,0,False)])
+@pytest.mark.parametrize('hh,mm,ss,allowed',[(9,0,0,False),(9,30,0,True),(9,31,0,True),(10,0,0,True),(11,59,29,True),(11,59,30,False),(12,0,0,False)])
 def test_window(hh,mm,ss,allowed):assert time_state(AT.replace(hour=hh,minute=mm,second=ss))['new_order_allowed']==allowed
 @pytest.mark.parametrize('day,utc_hour',[(date(2026,3,9),13),(date(2026,11,2),14)])
 def test_dst(day,utc_hour):
     at=datetime(day.year,day.month,day.day,9,31,tzinfo=ET)
     state=time_state(at);assert datetime.fromisoformat(state['decision_time_utc']).hour==utc_hour
-    assert state['seconds_until_window_close']==1740
+    assert state['seconds_until_window_close']==8940
 def test_holiday():assert not time_state(datetime(2026,7,3,9,31,tzinfo=ET))['new_order_allowed']
 
 @pytest.mark.parametrize('action',['OPEN_LONG','OPEN_SHORT','WAIT','HOLD'])
@@ -108,7 +108,8 @@ def test_overnight_protection_and_close_after_window():
     b.expire(AT.date(),AT.replace(hour=16));assert 'AMD' in b.groups
     b.process_bar(bar(at=AT+timedelta(days=1),open=115,high=116,low=114))
     assert not b.positions and b.fills[-1]['reason']=='LINKED_TARGET'
-    with pytest.raises(ValueError,match='Window'):b.submit(decision(),AT.replace(hour=10),100)
+    with pytest.raises(ValueError,match='Window'):
+        b.submit(decision(valid_until=AT.replace(hour=13)),AT.replace(hour=12),100)
 
 def test_response_binds_history_and_rejects_unknown_evidence():
     obj={'as_of_utc':AT.isoformat(),'account_snapshot_id':'a','decisions':[decision('WAIT').model_dump(mode='json')]}

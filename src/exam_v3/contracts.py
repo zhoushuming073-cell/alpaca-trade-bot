@@ -9,11 +9,12 @@ from exam_data.store import ET,CAL
 def time_state(at):
     if at.tzinfo is None:raise ValueError('Timezone required')
     local=at.astimezone(ET);schedule=CAL.schedule(start_date=local.date(),end_date=local.date())
-    opened=not schedule.empty and time(9,30)<=local.time()<time(10)
-    close=datetime.combine(local.date(),time(10),ET)
+    opened=not schedule.empty and time(9,30)<=local.time()<time(12)
+    can_submit=opened and local.time()<time(11,59,30)
+    close=datetime.combine(local.date(),time(12),ET)
     return {'decision_time_et':local.isoformat(),'decision_time_utc':at.astimezone(timezone.utc).isoformat(),
             'market_phase':'CLOSED' if schedule.empty else 'PREMARKET' if local.time()<time(9,30) else 'ACTIVE' if opened else 'AFTER_WINDOW',
-            'trading_window_open':opened,'new_order_allowed':opened,
+            'trading_window_open':opened,'new_order_allowed':can_submit,
             'seconds_until_window_close':max(0,int((close-local).total_seconds())) if not schedule.empty else 0}
 
 class Strict(BaseModel):

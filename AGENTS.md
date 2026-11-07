@@ -10,7 +10,8 @@ Flask dashboard.
 - Do not auto-resume trading, `autopilot`, or a paused worker.
 - Do not put API keys/secrets in YAML, SQLite, logs, prompts, tests or Git.
 - Do not bypass `OrderService`, order-state transitions, reconciliation, risk
-  validation or the 09:30-10:00 ET window.
+  validation or the 09:30-12:00 ET active window. New local orders and active
+  cancellations stop at 11:59:30 ET; 12:00 ET onward is read-only monitoring.
 - Do not infer a trade direction merely from market movement.
 - Do not delete history, runtime databases, backups or tests.
 - Do not run `eval()` on model output. All model output passes strict,

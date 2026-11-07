@@ -302,6 +302,33 @@ def test_slow_preflight_crossing_cutoff_is_not_sent(store, bundle, clock, sessio
     assert not store.dispatched(result["cid"])
 
 
+@pytest.mark.parametrize("browser_state", ["closed", "expired", "reconnected"])
+def test_paper_submit_rechecks_browser_after_slow_preflight(store, bundle, clock, session, browser_state):
+    class Slow(FakeBroker):
+        def prepare(self, intent_value, cid, session=None, account=None):
+            if browser_state == "expired":
+                clock.advance(31)
+            else:
+                store.web_disconnect()
+                if browser_state == "reconnected":
+                    store.web_heartbeat()
+            return self.snapshot()
+
+    broker = Slow()
+    service = OrderService(store, broker, bundle.execution, clock=clock, require_web_heartbeat=True)
+    assert store.web_connected()
+    result = service.submit(
+        intent(), plan_id="plan-1", trigger_id="trigger-1",
+        day=session.trading_day, session=session,
+        account=broker.snapshot(), quote=broker.quote("CRWV"),
+        symbols=bundle.symbols, risk=bundle.risk, buy_attempts=0,
+    )
+    assert result["state"] == OrderState.NOT_SENT.value
+    assert "Browser disconnected or pending reconciliation" in store.order_row(result["cid"])["reason"]
+    assert not store.dispatched(result["cid"])
+    assert broker.submissions == broker.lookup_calls == 0
+
+
 def test_broker_stop_intent_is_rejected_as_a_whole(store, bundle, clock, session):
     broker = FakeBroker()
     result = submit(
